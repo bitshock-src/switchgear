@@ -1,0 +1,372 @@
+openapi: 3.0.0
+info:
+  title: Offer Service
+  version: 1.0.0
+  description: Lightning offer and metadata management service
+servers:
+  - url: http://localhost:3002
+security:
+  - bearerAuth: []
+paths:
+  /offers:
+    post:
+      summary: Create new offer
+      description: Creates a new Lightning payment offer with specified payment limits and metadata reference.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferRecord'
+      responses:
+        '201':
+          description: Offer created
+          headers:
+            Location:
+              schema:
+                type: string
+        '409':
+          description: Offer already exists
+  /offers/{partition}:
+    get:
+      summary: Get all offers in partition
+      description: Retrieves a list of all payment offers within the specified partition.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of offers
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OfferRecord'
+  /offers/{partition}/{id}:
+    get:
+      summary: Get specific offer
+      description: Retrieves detailed information about a specific payment offer including payment limits and metadata ID.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Offer details
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferRecord'
+        '404':
+          description: Offer not found
+    put:
+      summary: Create or update offer
+      description: Creates a new offer or updates an existing one with the provided payment configuration.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferRecord'
+      responses:
+        '201':
+          description: Offer created
+        '204':
+          description: Offer updated
+    delete:
+      summary: Remove offer
+      description: Permanently removes a payment offer from the system.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Offer removed
+        '404':
+          description: Offer not found
+  /metadata:
+    post:
+      summary: Create new metadata
+      description: Creates new metadata containing display information for payment offers such as text, images, and identifiers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferMetadata'
+      responses:
+        '201':
+          description: Metadata created
+          headers:
+            Location:
+              schema:
+                type: string
+        '409':
+          description: Metadata already exists
+  /metadata/{partition}:
+    get:
+      summary: Get all metadata in partition
+      description: Retrieves a list of all offer metadata entries within the specified partition.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of metadata
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OfferMetadata'
+  /metadata/{partition}/{id}:
+    get:
+      summary: Get specific metadata
+      description: Retrieves specific metadata entry containing offer display information including text, images, and contact details.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Metadata details
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OfferMetadata'
+        '404':
+          description: Metadata not found
+    put:
+      summary: Create or update metadata
+      description: Creates new metadata or updates existing metadata with the provided display information.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OfferMetadata'
+      responses:
+        '201':
+          description: Metadata created
+        '204':
+          description: Metadata updated
+    delete:
+      summary: Remove metadata
+      description: Permanently removes metadata entry from the system.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Metadata removed
+        '404':
+          description: Metadata not found
+  /health:
+    get:
+      summary: Health check
+      description: Returns HTTP 200 OK to indicate the offer service is running and accessible.
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    OfferRecord:
+      type: object
+      required:
+        - location
+        - partition
+        - id
+        - maxSendable
+        - minSendable
+        - metadataId
+        - timestamp
+      properties:
+        location:
+          type: string
+          description: Resource location path
+          example: "default/123e4567-e89b-12d3-a456-426614174000"
+        partition:
+          type: string
+        id:
+          type: string
+          format: uuid
+        maxSendable:
+          type: integer
+          minimum: 0
+        minSendable:
+          type: integer
+          minimum: 0
+        metadataId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+        expires:
+          type: string
+          format: date-time
+    OfferMetadata:
+      type: object
+      required:
+        - location
+        - id
+        - partition
+        - text
+      properties:
+        location:
+          type: string
+          description: Resource location path
+          example: "default/123e4567-e89b-12d3-a456-426614174000"
+        id:
+          type: string
+          format: uuid
+        partition:
+          type: string
+        text:
+          type: string
+        longText:
+          type: string
+        image:
+          $ref: '#/components/schemas/OfferMetadataImage'
+        identifier:
+          $ref: '#/components/schemas/OfferMetadataIdentifier'
+    
+    OfferMetadataImage:
+      oneOf:
+        - type: string
+          description: Base64 encoded PNG image data
+          enum: [png]
+        - type: string
+          description: Base64 encoded JPEG image data
+          enum: [jpeg]
+    OfferMetadataIdentifier:
+      oneOf:
+        - type: string
+          description: Text identifier (email format)
+          enum: [text]
+        - type: string
+          description: Email identifier
+          enum: [email]

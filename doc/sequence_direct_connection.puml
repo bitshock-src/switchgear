@@ -1,0 +1,58 @@
+@startuml
+title LNURL Pay Direct Connection with Failure Scenarios
+
+actor Wallet as wallet
+participant "LNURL HTTP Service" as lnurl
+participant "LN Node" as lnnode
+
+== Get LNURL Offer ==
+activate wallet
+wallet -> lnurl++: GET /offers/{id}
+note right: Request LNURL offer details
+lnurl -> lnurl: Retrieve offer from storage
+return LNURL offer (callback URL, metadata, amounts)
+
+wallet -> wallet: Parse offer and prepare invoice request
+
+== Request Lightning Invoice ==
+wallet -> lnurl++: GET /offers/{id}/invoice?amount={sats}
+note right: Request invoice via callback URL
+
+alt Invoice generation succeeds
+    lnurl -> lnnode++: get_invoice(offer, amount)
+    note right: Direct connection to LN node
+    return Lightning invoice
+    
+    lnurl -> lnurl: Format response
+    return Lightning invoice (pr field)
+    
+    == Payment Attempt ==
+    wallet -> wallet: Decode invoice
+    
+    alt Payment succeeds
+        wallet -> lnnode: Lightning payment
+        note right: Payment routed through\nLightning Network
+        lnnode -> lnnode: Receive payment
+        wallet -> wallet: Payment confirmed
+    else Payment fails - Inadequate inbound liquidity
+        wallet -> lnnode: Lightning payment attempt
+        note right: Payment routing fails
+        lnnode --> wallet: Payment failed
+        note left: Insufficient inbound\nliquidity on receiver
+        wallet -> wallet: Show error to user
+    end
+    
+else Invoice generation fails
+    lnurl -> lnnode++: get_invoice(offer, amount)
+    note right: Direct connection to LN node
+    lnnode --> lnurl: Error: Unable to generate invoice
+    note left: Node offline, misconfigured,\nor other error
+    deactivate lnnode
+    
+    lnurl --> wallet: HTTP 500 Internal Server Error
+    note left: {"error": "Unable to generate invoice"}
+end
+
+deactivate wallet
+
+@enduml

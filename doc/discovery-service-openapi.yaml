@@ -1,0 +1,260 @@
+openapi: 3.0.0
+info:
+  title: Discovery Service
+  version: 1.0.0
+  description: Lightning node backend discovery and management service
+servers:
+  - url: http://localhost:3001
+security:
+  - bearerAuth: []
+paths:
+  /discovery:
+    post:
+      summary: Register new backend
+      description: Registers a new Lightning node backend with its connection details and load balancing configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscoveryBackend'
+      responses:
+        '201':
+          description: Backend created
+          headers:
+            Location:
+              schema:
+                type: string
+        '409':
+          description: Backend already exists
+  /discovery/{partition}:
+    get:
+      summary: Get all backends in partition
+      description: Retrieves a list of all registered Lightning node backends within the specified partition.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of backends
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DiscoveryBackend'
+  /discovery/{partition}/{addr_variant}/{addr_value}:
+    get:
+      summary: Get specific backend
+      description: Retrieves detailed information about a specific Lightning node backend identified by its address.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: addr_variant
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pk, url]
+        - name: addr_value
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backend details
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoveryBackend'
+        '404':
+          description: Backend not found
+    put:
+      summary: Create or update backend
+      description: Creates a new backend or updates an existing one with the provided configuration at the specified address.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: addr_variant
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pk, url]
+        - name: addr_value
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscoveryBackend'
+      responses:
+        '201':
+          description: Backend created
+        '204':
+          description: Backend updated
+    delete:
+      summary: Remove backend
+      description: Removes a Lightning node backend from the discovery service, preventing it from receiving new traffic.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: addr_variant
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pk, url]
+        - name: addr_value
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Backend removed
+        '404':
+          description: Backend not found
+  /health:
+    get:
+      summary: Health check
+      description: Returns HTTP 200 OK to indicate the discovery service is running and accessible.
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    DiscoveryBackend:
+      type: object
+      required:
+        - location
+        - partition
+        - address
+        - weight
+        - enabled
+        - implementation
+      properties:
+        location:
+          type: string
+          description: Resource location path
+          example: "default/url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw"
+        partition:
+          type: string
+        address:
+          oneOf:
+            - type: object
+              required:
+                - publicKey
+              properties:
+                publicKey:
+                  type: string
+            - type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+        weight:
+          type: integer
+          minimum: 0
+        enabled:
+          type: boolean
+        implementation:
+          $ref: '#/components/schemas/DiscoveryBackendImplementation'
+          
+    DiscoveryBackendImplementation:
+      oneOf:
+        - type: object
+          required:
+            - clnGrpc
+          properties:
+            clnGrpc:
+              type: object
+              required:
+                - address
+              properties:
+                address:
+                  type: string
+                  description: gRPC endpoint address
+                certificateAuthority:
+                  type: string
+                  description: Optional CA certificate
+                clientCertificate:
+                  type: string
+                  description: Optional client certificate
+                clientKey:
+                  type: string
+                  description: Optional client key
+        - type: object
+          required:
+            - lndGrpc
+          properties:
+            lndGrpc:
+              type: object
+              required:
+                - address
+                - macaroon
+              properties:
+                address:
+                  type: string
+                  description: gRPC endpoint address
+                certificateAuthority:
+                  type: string
+                  description: Optional CA certificate
+                macaroon:
+                  type: string
+                  description: Base64 encoded macaroon
+        - type: string
+          enum: [remoteHttp]
+      discriminator:
+        propertyName: type

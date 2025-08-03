@@ -1,0 +1,30 @@
+@startuml
+title Service Layer Trait Relationships
+
+package "Services" {
+  class DiscoveryService
+  class LnUrlBalancerService
+  class OfferService
+}
+
+package "Core Traits" {
+  interface DiscoveryBackendStore
+  interface OfferStore
+  interface OfferMetadataStore
+  interface OfferProvider
+  interface LnBalancer
+  interface BearerTokenValidator
+}
+
+' Direct trait usage by services
+DiscoveryService --> DiscoveryBackendStore : requires
+DiscoveryService --> BearerTokenValidator : uses
+
+LnUrlBalancerService --> OfferProvider : requires
+LnUrlBalancerService --> LnBalancer : requires
+
+OfferService --> OfferStore : requires
+OfferService --> OfferMetadataStore : requires
+OfferService --> BearerTokenValidator : uses
+
+@enduml

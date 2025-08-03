@@ -1,0 +1,4 @@
+invalid_yaml_structure:
+  missing_required_fields: true
+  malformed: [unclosed array
+              port: "not_a_number"

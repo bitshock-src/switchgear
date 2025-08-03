@@ -1,0 +1,4 @@
+[service-domains]
+lnurl = "lnurl.bitshock.com"
+discovery = "discovery.bitshock.com"
+offer = "offer.bitshock.com"

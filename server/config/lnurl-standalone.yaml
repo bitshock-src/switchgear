@@ -1,0 +1,44 @@
+# Distributed deployment configuration
+# All services configured with HTTP storage for remote connections
+# Use service enablement flags to run specific services
+
+lnurl-service:
+  partitions: [ "default" ]
+  address: "${LNURL_SERVICE_ADDRESS:-127.0.0.1:8080}"
+  health-check-frequency-secs: 1.0
+  parallel-health-check: true
+  health-check-consecutive-success-to-healthy: 1
+  health-check-consecutive-failure-to-unhealthy: 1
+  backend-update-frequency-secs: 1.0
+  invoice-expiry-secs: 180
+  ln-client-timeout-secs: 2.0
+  allowed-hosts: [ "${LNURL_SERVICE_ALLOWED_HOSTS:-}" ]
+  backoff:
+    type: "exponential"
+    max-elapsed-time-secs: 2.5
+  backend-selection: "round-robin"
+  selection-capacity-bias: -0.2
+  tls:
+    cert-path: "${LNURL_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/lnurl-cert.pem}"
+    key-path: "${LNURL_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/lnurl-key.pem}"
+    
+
+# Remote storage configuration
+# Connect to external discovery and offers services
+store:
+  offer:
+    type: "http"
+    base-url: "${OFFER_STORE_HTTP_BASE_URL:-https://127.0.0.1:8082}"  # Update to your offers service URL
+    connect-timeout-secs: 2.0
+    total-timeout-secs: 2.0
+    trusted-roots: ["${OFFER_STORE_HTTP_TRUSTED_ROOTS:-/etc/ssl/certs/roots.pem}"]
+    authorization: "${OFFER_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/offer-authorization.token}"
+    
+  discover:
+    type: "http"
+    base-url: "${DISCOVERY_STORE_HTTP_BASE_URL:-https://127.0.0.1:8081}"  # Update to your discovery service URL
+    connect-timeout-secs: 2.0
+    total-timeout-secs: 2.0
+    trusted-roots: ["${DISCOVERY_STORE_HTTP_TRUSTED_ROOTS:-/etc/ssl/certs/roots.pem}"]
+    authorization: "${DISCOVERY_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/discovery-authorization.token}"
+

@@ -1,0 +1,155 @@
+services:
+  bitcoin:
+    image: bitcoin/bitcoin:27.0
+    container_name: bitcoin-regtest
+    command: [
+      "bitcoind",
+      "-printtoconsole",
+      "-regtest=1",
+      "-fallbackfee=0.0002",
+      "-rpcallowip=0.0.0.0/0",
+      "-rpcbind=0.0.0.0:18443",
+      "-rpcuser=bitcoin",
+      "-rpcpassword=bitcoin123",
+      "-zmqpubrawblock=tcp://0.0.0.0:28332",
+      "-zmqpubrawtx=tcp://0.0.0.0:28333",
+      "-txindex=1"
+    ]
+    ports:
+      - "18443:18443"  # RPC port
+      - "18444:18444"  # P2P port
+      - "28332:28332"  # ZMQ block notifications
+      - "28333:28333"  # ZMQ transaction notifications
+    volumes:
+      - lnurl-balancer_bitcoin_data:/home/bitcoin/.bitcoin
+    networks:
+      - lightning_network
+    healthcheck:
+      test: ["CMD", "bitcoin-cli", "-regtest", "-rpcuser=bitcoin", "-rpcpassword=bitcoin123", "-rpcconnect=127.0.0.1", "-rpcport=18443", "getblockchaininfo"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  setup:
+    build: ./setup
+    container_name: setup
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+      cln:
+        condition: service_started
+      lnd:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./shared-credentials:/shared
+    networks:
+      - lightning_network
+    restart: "no"
+
+  cln:
+    image: elementsproject/lightningd:v24.08
+    container_name: cln-regtest
+    environment:
+      LIGHTNINGD_NETWORK: regtest
+    command: [
+      "--bitcoin-rpcconnect=bitcoin",
+      "--bitcoin-rpcport=18443", 
+      "--bitcoin-rpcuser=bitcoin",
+      "--bitcoin-rpcpassword=bitcoin123",
+      "--grpc-port=9736",
+      "--log-level=debug",
+      "--bind-addr=0.0.0.0:9735",
+      "--announce-addr=cln:9735"
+    ]
+    ports:
+      - "9735:9735"   # Lightning P2P port
+      - "9736:9736"   # gRPC port
+    volumes:
+      - lnurl-balancer_cln_data:/root/.lightning
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+    networks:
+      - lightning_network
+    restart: unless-stopped
+
+  lnd:
+    image: lightninglabs/lnd:v0.18.1-beta
+    container_name: lnd-regtest
+    command: [
+      "lnd",
+      "--bitcoin.active",
+      "--bitcoin.regtest",
+      "--bitcoin.node=bitcoind",
+      "--bitcoind.rpchost=bitcoin:18443",
+      "--bitcoind.rpcuser=bitcoin",
+      "--bitcoind.rpcpass=bitcoin123",
+      "--bitcoind.zmqpubrawblock=tcp://bitcoin:28332",
+      "--bitcoind.zmqpubrawtx=tcp://bitcoin:28333",
+      "--rpclisten=0.0.0.0:10009",
+      "--restlisten=0.0.0.0:8080",
+      "--listen=0.0.0.0:9734",
+      "--externalip=lnd:9734",
+      "--tlsextradomain=localhost",
+      "--tlsextraip=0.0.0.0",
+      "--tlsextraip=127.0.0.1",
+      "--noseedbackup",
+      "--accept-keysend",
+      "--accept-amp"
+    ]
+    ports:
+      - "10009:10009"  # gRPC port
+      - "8080:8080"    # REST port
+      - "9734:9734"    # Lightning P2P port
+    volumes:
+      - lnurl-balancer_lnd_data:/root/.lnd
+    depends_on:
+      bitcoin:
+        condition: service_healthy
+    networks:
+      - lightning_network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-db
+    environment:
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - lnurl-balancer_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - lightning_network
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-db
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql
+    volumes:
+      - lnurl-balancer_mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - lightning_network
+    restart: unless-stopped
+
+volumes:
+  lnurl-balancer_bitcoin_data:
+    external: false
+  lnurl-balancer_cln_data:
+    external: false
+  lnurl-balancer_lnd_data:
+    external: false
+  lnurl-balancer_postgres_data:
+    external: false
+  lnurl-balancer_mysql_data:
+    external: false
+
+networks:
+  lightning_network:
+    driver: bridge

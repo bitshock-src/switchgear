@@ -1,0 +1,38 @@
+@startuml
+title LNURL Pay - Successful Payment Flow
+
+actor Wallet as wallet
+participant "LNURL HTTP Service" as lnurl
+participant "LN Node" as lnnode
+
+== Get LNURL Offer ==
+activate wallet
+wallet -> lnurl++: GET /offers/{id}
+note right: Request LNURL offer details
+lnurl -> lnurl: Retrieve offer from storage
+return LNURL offer (callback URL, metadata, amounts)
+
+wallet -> wallet: Parse offer and prepare invoice request
+
+== Request Lightning Invoice ==
+wallet -> lnurl++: GET /offers/{id}/invoice?amount={sats}
+note right: Request invoice via callback URL
+
+lnurl -> lnnode++: get_invoice(offer, amount)
+note right: Direct connection to LN node
+return Lightning invoice
+
+lnurl -> lnurl: Format response
+return Lightning invoice (pr field)
+
+== Payment ==
+wallet -> wallet: Decode invoice
+
+wallet -> lnnode: Lightning payment
+note right: Payment routed through\nLightning Network
+lnnode -> lnnode: Receive payment
+wallet -> wallet: Payment confirmed
+
+deactivate wallet
+
+@enduml

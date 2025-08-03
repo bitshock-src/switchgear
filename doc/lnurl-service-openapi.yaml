@@ -1,0 +1,252 @@
+openapi: 3.0.0
+info:
+  title: LNURL Balancer Service
+  version: 1.0.0
+  description: Lightning Network URL Pay service with load balancing
+servers:
+  - url: http://localhost:3000
+paths:
+  /offers/{partition}/{id}:
+    get:
+      summary: Get LNURL Pay offer
+      description: Retrieves an LNURL Pay offer containing payment limits and metadata for generating Lightning invoices.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: LNURL Pay offer
+          headers:
+            Cache-Control:
+              description: Cache control header based on offer expiration
+              schema:
+                type: string
+                examples:
+                  expiring:
+                    value: "public, max-age=1800"
+                  non-expiring:
+                    value: "no-store, no-cache, must-revalidate"
+            Expires:
+              description: Expiration date header
+              schema:
+                type: string
+                examples:
+                  expiring:
+                    value: "Sat, 15 Jan 2024 15:30:00 GMT"
+                  non-expiring:
+                    value: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              description: Pragma header for non-expiring offers
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LnUrlOffer'
+        '404':
+          description: Offer not found or expired
+  /offers/{partition}/{id}/invoice:
+    get:
+      summary: Generate Lightning invoice
+      description: Generates a Lightning Network invoice for the specified amount within the offer's payment limits.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: amount
+          in: query
+          required: true
+          description: Amount in millisatoshis
+          schema:
+            type: integer
+            minimum: 1
+        - name: comment
+          in: query
+          required: false
+          description: Optional comment from payer (limited by commentAllowed field)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lightning invoice
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LnUrlInvoice'
+        '400':
+          description: Invalid amount or comment too long
+        '404':
+          description: Offer not found or expired
+        '500':
+          description: Balancer error
+  /offers/{partition}/{id}/bech32:
+    get:
+      summary: Get LNURL as bech32 string
+      description: Returns the offer URL encoded in bech32 format for easy sharing and QR code generation.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Bech32 encoded LNURL
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                example: "text/plain; charset=utf-8"
+            Cache-Control:
+              description: Cache control header based on offer expiration
+              schema:
+                type: string
+            Expires:
+              description: Expiration date header
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "LNURL1DP68GURN8GHJ7..."
+        '404':
+          description: Offer not found or expired
+  /offers/{partition}/{id}/bech32/qr:
+    get:
+      summary: Get LNURL QR code
+      description: Generates a PNG QR code image containing the bech32-encoded LNURL for mobile wallet scanning.
+      parameters:
+        - name: partition
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: QR code PNG image
+          headers:
+            Content-Type:
+              schema:
+                type: string
+                example: "image/png"
+            Cache-Control:
+              description: Cache control header based on offer expiration
+              schema:
+                type: string
+            Expires:
+              description: Expiration date header
+              schema:
+                type: string
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Offer not found or expired
+  /health:
+    get:
+      summary: Basic health check
+      description: Returns HTTP 200 OK to indicate the service is running and accessible.
+      responses:
+        '200':
+          description: Service healthy
+  /health/full:
+    get:
+      summary: Full health check with balancer status
+      description: Performs a comprehensive health check including the status of connected Lightning node balancers.
+      responses:
+        '200':
+          description: Full health status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                description: Array of health check results from balancers
+        '500':
+          description: Health check failed
+components:
+  schemas:
+    LnUrlOffer:
+      type: object
+      required:
+        - callback
+        - maxSendable
+        - minSendable
+        - tag
+        - metadata
+      properties:
+        callback:
+          type: string
+          format: uri
+        maxSendable:
+          type: integer
+          minimum: 1
+        minSendable:
+          type: integer
+          minimum: 1
+        tag:
+          type: string
+          enum: [payRequest]
+        metadata:
+          type: string
+        commentAllowed:
+          type: integer
+          minimum: 0
+    LnUrlInvoice:
+      type: object
+      required:
+        - pr
+        - routes
+      properties:
+        pr:
+          type: string
+        routes:
+          type: array
+          items: {}

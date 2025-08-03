@@ -1,0 +1,35 @@
+@startuml
+title Service Components Trait Dependencies
+
+class DefaultLnClientPool<K>
+
+package "lnurl-balancer-service::components" <<Rectangle>> {
+  interface LnRpcClient {
+    +get_invoice()
+    +get_metrics()
+    +get_features()
+  }
+  
+  interface LnClientPool {
+    +get_invoice()
+    +get_metrics()
+    +connect()
+  }
+  
+  interface LnMetricsCache {
+    +get_cached_metrics()
+  }
+  
+  interface BackoffProvider {
+    +get_backoff()
+  }
+}
+
+' Implementations
+DefaultLnClientPool ..|> LnClientPool : implements
+DefaultLnClientPool ..|> LnMetricsCache : implements
+
+' Generic constraints and associations
+DefaultLnClientPool --> LnRpcClient : uses
+
+@enduml

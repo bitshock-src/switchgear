@@ -1,0 +1,15 @@
+# Offers service standalone configuration
+# Run only the offers management service for LNURL offer creation
+# Suitable for centralized offer management deployments
+
+offer-service:
+  address: "${OFFER_SERVICE_ADDRESS:-127.0.0.1:8082}"
+  auth-authority: "${OFFER_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/offer-auth-authority.pem}"
+  tls:
+    cert-path: "${OFFER_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/offer-cert.pem}"
+    key-path: "${OFFER_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/offer-key.pem}"
+    
+# Storage configuration
+store:
+  offer:
+    type: "memory"

@@ -1,0 +1,54 @@
+@startuml
+title Offer Components Trait Dependencies
+
+class HttpOfferStore
+
+class MemoryOfferStore
+
+class DbOfferStore
+
+package "lnurl-balancer-service::api::offer" <<Rectangle>> {
+  interface OfferStore {
+    +get_offer()
+    +get_offers()
+    +post_offer()
+    +put_offer()
+    +delete_offer()
+  }
+  
+  interface OfferMetadataStore {
+    +get_metadata()
+    +get_all_metadata()
+    +post_metadata()
+    +put_metadata()
+    +delete_metadata()
+  }
+  
+  interface OfferProvider {
+    +offer()
+  }
+  
+  interface HttpOfferClient {
+    +health()
+  }
+}
+
+' Implementations
+HttpOfferStore ..|> OfferStore : implements
+HttpOfferStore ..|> OfferMetadataStore : implements
+HttpOfferStore ..|> OfferProvider : implements
+HttpOfferStore ..|> HttpOfferClient : implements
+
+MemoryOfferStore ..|> OfferStore : implements
+MemoryOfferStore ..|> OfferMetadataStore : implements
+MemoryOfferStore ..|> OfferProvider : implements
+
+DbOfferStore ..|> OfferStore : implements
+DbOfferStore ..|> OfferMetadataStore : implements
+DbOfferStore ..|> OfferProvider : implements
+
+' Trait relationships
+HttpOfferClient --|> OfferStore : extends
+HttpOfferClient --|> OfferMetadataStore : extends
+
+@enduml

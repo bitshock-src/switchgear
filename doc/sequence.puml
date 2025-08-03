@@ -1,0 +1,39 @@
+@startuml
+title LNURL Pay Multi-Backend Invoice Generation
+
+actor Wallet as wallet
+participant "LNURL HTTP Service" as lnurl
+participant "Pingora Load Balancer" as balancer
+participant "Backends (LN Nodes)" as backends
+
+== Get LNURL Offer ==
+activate wallet
+wallet -> lnurl++: GET /offers/{id}
+note right: Request LNURL offer details
+lnurl -> lnurl: Retrieve offer from storage
+return LNURL offer (callback URL, metadata, amounts)
+
+wallet -> wallet: Parse offer and prepare invoice request
+
+== Request Lightning Invoice ==
+wallet -> lnurl++: GET /offers/{id}/invoice?amount={sats}
+note right: Request invoice via callback URL
+
+lnurl -> balancer++: get_invoice(offer, amount)
+note right: Delegate to load balancer
+
+balancer -> balancer: select_backend(offer, amount)
+note right: Choose healthy backend\nusing round-robin
+
+balancer -> backends++: get_invoice(offer, amount)
+note right: Request invoice from\nselected LN node (CLN/LND)
+return Lightning invoice
+
+return Lightning invoice
+
+lnurl -> lnurl: Format response
+return Lightning invoice (pr field)
+
+deactivate wallet
+
+@enduml

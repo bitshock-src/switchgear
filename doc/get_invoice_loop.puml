@@ -1,0 +1,32 @@
+@startuml
+title Get Invoice Loop
+
+start
+
+:Invoice Request;
+
+repeat
+
+  :Search for healthy LN Nodes;
+  
+  if (LN Node found?) then (yes)
+    :Get invoice from LN Node;
+    if (Invoice retrieved successfully?) then (yes)
+      :Return invoice;
+      stop
+    else (no)
+    endif
+  else (no)
+  endif
+  
+  if (Backoff has more time?) then (yes)
+    :Exponent backoff duration and sleep;
+  else (no)
+    :Return error;
+    stop
+  endif
+
+  
+repeat while (Continue loop)
+
+@enduml

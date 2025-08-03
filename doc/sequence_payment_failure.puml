@@ -1,0 +1,41 @@
+@startuml
+title LNURL Pay - Payment Failure (Inadequate Inbound Liquidity)
+
+actor Wallet as wallet
+participant "LNURL HTTP Service" as lnurl
+participant "LN Node" as lnnode
+
+== Get LNURL Offer ==
+activate wallet
+wallet -> lnurl++: GET /offers/{id}
+note right: Request LNURL offer details
+lnurl -> lnurl: Retrieve offer from storage
+return LNURL offer (callback URL, metadata, amounts)
+
+wallet -> wallet: Parse offer and prepare invoice request
+
+== Request Lightning Invoice ==
+wallet -> lnurl++: GET /offers/{id}/invoice?amount={sats}
+note right: Request invoice via callback URL
+
+lnurl -> lnnode++: get_invoice(offer, amount)
+note right: Direct connection to LN node
+return Lightning invoice
+
+lnurl -> lnurl: Format response
+return Lightning invoice (pr field)
+
+== Payment Attempt (Fails) ==
+wallet -> wallet: Decode invoice
+
+wallet -> lnnode: Lightning payment attempt
+note right: Payment routing fails
+lnnode --> wallet: Payment failed
+note left: Insufficient inbound\nliquidity on receiver
+
+wallet -> wallet: Show error to user
+note right: "Payment failed:\nNo route found"
+
+deactivate wallet
+
+@enduml

@@ -1,0 +1,15 @@
+# Discovery service standalone configuration
+# Run only the backend discovery service for Lightning node registration
+# Suitable for centralized discovery deployments
+
+discovery-service:
+  address: "${DISCOVERY_SERVICE_ADDRESS:-127.0.0.1:8081}"
+  auth-authority: "${DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/discovery-auth-authority.pem}"
+  tls:
+    cert-path: "${DISCOVERY_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/discovery-cert.pem}"
+    key-path: "${DISCOVERY_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/discovery-key.pem}"
+
+# Storage configuration
+store:
+  discover:
+    type: "memory"

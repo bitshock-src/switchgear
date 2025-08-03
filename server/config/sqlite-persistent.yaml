@@ -1,0 +1,48 @@
+# SQLite-based configuration for persistence testing
+# Data persisted to local SQLite databases
+# Suitable for integration tests requiring data persistence
+
+lnurl-service:
+  partitions: [ "default" ]
+  address: "${LNURL_SERVICE_ADDRESS:-127.0.0.1:8080}"
+  health-check-frequency-secs: 1.0
+  parallel-health-check: true
+  health-check-consecutive-success-to-healthy: 1
+  health-check-consecutive-failure-to-unhealthy: 1
+  backend-update-frequency-secs: 1.0
+  invoice-expiry-secs: 180
+  ln-client-timeout-secs: 2.0
+  allowed-hosts: [ "${LNURL_SERVICE_ALLOWED_HOSTS:-}" ]
+  backoff:
+    type: "exponential"
+    max-elapsed-time-secs: 2.5
+  backend-selection: "round-robin"
+  selection-capacity-bias: -0.2
+
+  tls:
+    cert-path: "${LNURL_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/lnurl-cert.pem}"
+    key-path: "${LNURL_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/lnurl-key.pem}"
+    
+discovery-service:
+  address: "${DISCOVERY_SERVICE_ADDRESS:-127.0.0.1:8081}"
+  auth-authority: "${DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/discovery-auth-authority.pem}"
+  tls:
+    cert-path: "${DISCOVERY_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/discovery-cert.pem}"
+    key-path: "${DISCOVERY_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/discovery-key.pem}"
+
+offer-service:
+  address: "${OFFER_SERVICE_ADDRESS:-127.0.0.1:8082}"
+  auth-authority: "${OFFER_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/offer-auth-authority.pem}"
+  tls:
+    cert-path: "${OFFER_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/offer-cert.pem}"
+    key-path: "${OFFER_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/offer-key.pem}"
+    
+store:
+  offer:
+    type: "database"
+    database-url: "${OFFER_STORE_DATABASE_URL:-sqlite:///data/offer_store.db?mode=rwc}"
+    max-connections: 5
+  discover:
+    type: "database"
+    database-url: "${DISCOVERY_STORE_DATABASE_URL:-sqlite:///data/discovery_store.db?mode=rwc}"
+    max-connections: 5
