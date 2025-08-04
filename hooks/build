@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+
+export DOCKER_BUILDKIT=1
+docker buildx create --use --name multiarch-builder || docker buildx use multiarch-builder
+
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --tag $IMAGE_NAME \
+  --push \
+  .
+
