@@ -47,7 +47,7 @@ uuid = { version = "1.17.0", features = ["v4", "serde"] }
 [dev-dependencies]
 chrono = { version = "0.4.41", features = ["serde"] }
 lightning-invoice = { version = "0.33.2", features = ["serde", "std"] }
-switchgear-testing = {  optional = true, version = "0.1.0",path = "../testing" }
+switchgear-testing = { git = "https://github.com/bitshock-src/switchgear.git", branch = "main" }
 rcgen = { version = "0.14.1", features = ["crypto"] }
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "rustls-tls"] }
 serde_yaml = "0.9"

@@ -56,7 +56,7 @@ uuid = { version = "1.17.0", features = ["v4", "serde"] }
 [dev-dependencies]
 anyhow = "1.0"
 axum-test = "17.3.0"
-switchgear-testing = { version = "0.1.0", path = "../testing" }
+switchgear-testing = { git = "https://github.com/bitshock-src/switchgear.git", branch = "main" }
 p256 = { version = "0.13", features = ["ecdsa"] }
 pkcs8 = { version = "0.10", features = ["pem"] }
 rand = "0.8.5"
