@@ -1,12 +1,30 @@
 #!/bin/bash
 set -e
 
-export DOCKER_BUILDKIT=1
-docker buildx create --use --name multiarch-builder || docker buildx use multiarch-builder
-
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  --tag $IMAGE_NAME \
-  --push \
+# Docker Hub automated builds run on AMD64 hosts
+# Build for AMD64 first (native, no QEMU)
+docker build \
+  --build-arg TARGETPLATFORM=linux/amd64 \
+  --tag $IMAGE_NAME-amd64 \
   .
+
+# Build for ARM64 using cross-compilation (no QEMU)
+docker build \
+  --build-arg TARGETPLATFORM=linux/arm64 \
+  --tag $IMAGE_NAME-arm64 \
+  .
+
+# Push both images
+docker push $IMAGE_NAME-amd64
+docker push $IMAGE_NAME-arm64
+
+# Create and push manifest
+docker manifest create $IMAGE_NAME \
+  $IMAGE_NAME-amd64 \
+  $IMAGE_NAME-arm64
+
+docker manifest annotate $IMAGE_NAME $IMAGE_NAME-amd64 --arch amd64 --os linux
+docker manifest annotate $IMAGE_NAME $IMAGE_NAME-arm64 --arch arm64 --os linux
+
+docker manifest push $IMAGE_NAME
 
