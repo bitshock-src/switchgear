@@ -3,6 +3,8 @@ name = "switchgear-service"
 version = "0.1.0"
 edition = "2021"
 
+publish = false
+
 [dependencies]
 #bitcoin = { version = "0.32.2", default-features = false, features = ["secp-recovery", "serde"] }
 async-trait = "0.1.88"
