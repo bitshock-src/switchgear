@@ -106,7 +106,7 @@ The docker file is multi-platform build that targets two platforms:
 Use the `--platform` option to reduce build time if you know your host architecture.
 
 ```shell
-docker buildx build -t {image:tag} https://github.com/bitshock-src/switchgear
+docker buildx build -t switchgear https://github.com/bitshock-src/switchgear.git --load
 ```
 
 ## Starting Switchgear Services
