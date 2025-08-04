@@ -93,7 +93,7 @@ The Switchgear binary runs all services as well as the CLI admin interface.
 ### Host
 
 ```shell
-cargo install --git https://github.com/bitshock-src/switchgear switchgear-server
+cargo install switchgear-server
 ```
 
 ### Docker
