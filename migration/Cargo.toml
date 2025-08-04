@@ -2,7 +2,16 @@
 name = "switchgear-migration"
 version = "0.1.0"
 edition = "2021"
-publish = false
+authors = ["Bitshock <info@bitshock.com>"]
+description = "Database migrations for Switchgear LNURL load balancer"
+documentation = "https://github.com/bitshock-src/switchgear"
+homepage = "https://bitshock.com"
+repository = "https://github.com/bitshock-src/switchgear"
+license = "Apache-2.0"
+readme = "../README.md"
+keywords = ["bitcoin", "lightning", "database", "migration", "sea-orm"]
+categories = ["database", "web-programming"]
+publish = true
 
 [dependencies]
 async-std = { version = "1", features = ["attributes", "tokio1"] }
