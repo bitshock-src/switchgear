@@ -1,7 +1,8 @@
 # Build stage
-FROM rust:latest AS builder
+FROM --platform=$BUILDPLATFORM rust:1.88.0 AS builder
 
 ARG TARGETPLATFORM
+ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y \
     musl-tools \
@@ -47,21 +48,11 @@ RUN case ${TARGETPLATFORM} in \
     esac && \
     rustup target add ${RUST_TARGET} && \
     export PATH="/opt/${CROSS_PREFIX}-linux-musl-cross/bin:$PATH" && \
-    cargo build --release --target ${RUST_TARGET}
+    cargo build --release --target ${RUST_TARGET} && \
+    cp /app/target/${RUST_TARGET}/release/swgr /app/swgr
 
-#FROM gcr.io/distroless/static-debian12 AS final
 FROM scratch AS final
-
-ARG TARGETPLATFORM
-ARG TARGETARCH
-
-FROM final AS final-amd64
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/swgr /usr/sbin/swgr
-
-FROM final AS final-arm64  
-COPY --from=builder /app/target/aarch64-unknown-linux-musl/release/swgr /usr/sbin/swgr
-
-FROM final-${TARGETARCH}
+COPY --from=builder /app/swgr /usr/sbin/swgr
 
 COPY server/config/sqlite-persistent.yaml /etc/swgr/config.yaml
 
