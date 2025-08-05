@@ -1,23 +1,33 @@
 # Build stage
-FROM rust:latest AS builder
+FROM --platform=$BUILDPLATFORM rust:latest AS builder
 
 ARG TARGETPLATFORM
+ARG BUILDPLATFORM
 
+# Install all tools for both architectures
 RUN apt-get update && apt-get install -y \
-    musl-tools \
-    musl-dev \
     ca-certificates \
-    gcc \
+    clang \
     cmake \
     curl \
-    protobuf-compiler \
-    clang \
-    libclang-dev \
     g++ \
     g++-aarch64-linux-gnu \
+    g++-x86-64-linux-gnu \
+    gcc \
+    gcc-aarch64-linux-gnu \
+    gcc-x86-64-linux-gnu \
+    libc6-dev-amd64-cross \
+    libc6-dev-arm64-cross \
+    libclang-dev \
     libstdc++-12-dev \
-    libstdc++-12-dev-arm64-cross && rm -rf /var/lib/apt/lists/*
+    libstdc++-12-dev-amd64-cross \
+    libstdc++-12-dev-arm64-cross \
+    musl-dev \
+    musl-tools \
+    protobuf-compiler && \
+    rm -rf /var/lib/apt/lists/*
 
+# Install both musl toolchains
 RUN curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar xzf - -C /opt && \
     curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar xzf - -C /opt
 
@@ -42,26 +52,19 @@ COPY testing/Cargo-empty.toml ./testing/Cargo.toml
 RUN mkdir -p ./testing/src && touch ./testing/src/lib.rs
 
 RUN case ${TARGETPLATFORM} in \
-         "linux/amd64") RUST_TARGET="x86_64-unknown-linux-musl"; CROSS_PREFIX="x86_64" ;; \
-         "linux/arm64") RUST_TARGET="aarch64-unknown-linux-musl"; CROSS_PREFIX="aarch64" ;; \
+         "linux/amd64") RUST_TARGET="x86_64-unknown-linux-musl" ;; \
+         "linux/arm64") RUST_TARGET="aarch64-unknown-linux-musl" ;; \
     esac && \
     rustup target add ${RUST_TARGET} && \
-    export PATH="/opt/${CROSS_PREFIX}-linux-musl-cross/bin:$PATH" && \
-    cargo build --release --target ${RUST_TARGET}
+    export PATH="/opt/x86_64-linux-musl-cross/bin:/opt/aarch64-linux-musl-cross/bin:$PATH" && \
+    cargo build --release --target ${RUST_TARGET} && \
+    cp /app/target/${RUST_TARGET}/release/swgr /app/swgr
 
 #FROM gcr.io/distroless/static-debian12 AS final
 FROM scratch AS final
 
-ARG TARGETPLATFORM
-ARG TARGETARCH
-
-FROM final AS final-amd64
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/swgr /usr/sbin/swgr
-
-FROM final AS final-arm64  
-COPY --from=builder /app/target/aarch64-unknown-linux-musl/release/swgr /usr/sbin/swgr
-
-FROM final-${TARGETARCH}
+# Copy the binary from the consistent location
+COPY --from=builder /app/swgr /usr/sbin/swgr
 
 COPY server/config/sqlite-persistent.yaml /etc/swgr/config.yaml
 
