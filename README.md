@@ -98,15 +98,13 @@ cargo install switchgear-server
 
 ### Docker
 
-The docker file is multi-platform build that targets two platforms:
+The docker image is multi-platform for:
 
 * linux/amd64
 * linux/arm64
 
-Use the `--platform` option to reduce build time if you know your host architecture.
-
 ```shell
-docker buildx build -t switchgear https://github.com/bitshock-src/switchgear.git --load
+docker pull bitshock/switchgear
 ```
 
 ## Starting Switchgear Services
@@ -128,10 +126,10 @@ If left empty, all services will be enabled (same as `all`).
 
 ### Docker
 
-To run from Docker:
+To run the Docker image:
 
 ```shell
-docker run {image:tag}
+docker run bitshock/switchgear
 ```
 
 The image is configured with a default configuration file path of `/etc/swgr/config.yaml` . Mount a volume on top of `/etc/swgr` to provide your own configuration file.
@@ -166,7 +164,7 @@ See the [Manage Lightning Node Backends with Discovery Service](#manage-lightnin
 To run the CLI administration from Docker:
 
 ```shell
-docker run {image:tag} {cli-options}
+docker run bitshock/switchgear {cli-options}
 ```
 
 ## Configuring Switchgear Services
