@@ -28,8 +28,9 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/*
 
 # Install both musl toolchains
-RUN curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar xzf - -C /opt && \
-    curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar xzf - -C /opt
+COPY docker-build/aarch64-linux-musl-cross.tgz  .
+COPY docker-build/x86_64-linux-musl-cross.tgz .
+RUN tar fxzv aarch64-linux-musl-cross.tgz -C /opt && tar fxzv x86_64-linux-musl-cross.tgz -C /opt
 
 WORKDIR /app
 COPY Cargo.toml ./
