@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM rust:latest AS builder
+FROM --platform=$BUILDPLATFORM rust:1.88.0 AS builder
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -60,7 +60,6 @@ RUN case ${TARGETPLATFORM} in \
     cargo build --release --target ${RUST_TARGET} && \
     cp /app/target/${RUST_TARGET}/release/swgr /app/swgr
 
-#FROM gcr.io/distroless/static-debian12 AS final
 FROM scratch AS final
 
 # Copy the binary from the consistent location

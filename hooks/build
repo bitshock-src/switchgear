@@ -1,8 +1,0 @@
-#!/bin/bash
-set -e
-
-# Create and use a buildx builder instance
-docker buildx create --use
-
-# Build multi-platform image
-docker buildx build --platform linux/amd64,linux/arm64 --tag $IMAGE_NAME --push .
