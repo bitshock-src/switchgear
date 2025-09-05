@@ -59,27 +59,6 @@ mod tests {
     use std::collections::HashSet;
     use uuid::Uuid;
 
-    // Mock error types
-    #[derive(Debug, thiserror::Error)]
-    #[error("Mock LnBalancer error")]
-    pub struct MockLnBalancerError;
-
-    impl HasServiceErrorSource for MockLnBalancerError {
-        fn get_service_error_source(&self) -> crate::api::service::ServiceErrorSource {
-            crate::api::service::ServiceErrorSource::Internal
-        }
-    }
-
-    #[derive(Debug, thiserror::Error)]
-    #[error("Mock LnBalancer upstream error")]
-    pub struct MockLnBalancerUpstreamError;
-
-    impl HasServiceErrorSource for MockLnBalancerUpstreamError {
-        fn get_service_error_source(&self) -> crate::api::service::ServiceErrorSource {
-            crate::api::service::ServiceErrorSource::Upstream
-        }
-    }
-
     // Mock LnBalancer implementation
     #[derive(Debug, Clone)]
     pub struct MockLnBalancer {
