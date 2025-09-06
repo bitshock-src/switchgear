@@ -7,12 +7,12 @@ use axum::http::Extensions;
 use log::error;
 use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::Backend;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+use switchgear_service::api::discovery::DiscoveryBackend;
 use switchgear_service::api::discovery::DiscoveryBackendStore;
-use switchgear_service::api::discovery::{DiscoveryBackend, DiscoveryBackendAddress};
 use switchgear_service::api::service::ServiceErrorSource;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
 use switchgear_service::components::discovery::file::FileDiscoveryBackendStore;
@@ -23,7 +23,7 @@ use switchgear_service::components::pool::LnClientPool;
 pub struct DefaultPingoraLnDiscovery<B, P> {
     backend_provider: B,
     pool: P,
-    partitions: HashSet<String>,
+    partitions: BTreeSet<String>,
     pingora_backend_cache: ArcSwap<BTreeSet<Backend>>,
     last_discovery_backend_hash: AtomicU64,
 }
@@ -33,7 +33,7 @@ impl<B, P> DefaultPingoraLnDiscovery<B, P> {
         DefaultPingoraLnDiscovery {
             backend_provider,
             pool,
-            partitions,
+            partitions: partitions.into_iter().collect(),
             pingora_backend_cache: ArcSwap::new(Arc::new(BTreeSet::new())),
             last_discovery_backend_hash: Default::default(),
         }
@@ -47,22 +47,15 @@ where
     P: LnClientPool<Key = Backend> + Send + Sync,
 {
     async fn discover(&self) -> pingora_error::Result<(BTreeSet<Backend>, HashMap<u64, bool>)> {
-        let mut discovery_backends = BTreeSet::<DiscoveryBackend>::new();
+        let discovery_backends =
+            BTreeSet::from_iter(self.backend_provider.backends().await.map_err(|e| {
+                pingora_error::Error::because(
+                    pingora_error::ErrorType::InternalError,
+                    "getting all discovery backends",
+                    e,
+                )
+            })?);
 
-        for partition in &self.partitions {
-            let partitioned_backends =
-                self.backend_provider
-                    .backends(partition)
-                    .await
-                    .map_err(|e| {
-                        pingora_error::Error::because(
-                            pingora_error::ErrorType::InternalError,
-                            "discovery for backends",
-                            e,
-                        )
-                    })?;
-            discovery_backends.extend(partitioned_backends);
-        }
         let mut hasher = DefaultHasher::new();
         discovery_backends.hash(&mut hasher);
         let latest_discovery_backend_hash = hasher.finish();
@@ -78,58 +71,42 @@ where
             ));
         }
 
-        let mut pingora_backends_by_address = BTreeMap::<DiscoveryBackendAddress, Backend>::new();
         let mut enablement = HashMap::new();
-
+        let mut pingora_backends = BTreeSet::new();
         for discovery_backend in discovery_backends {
-            let pingora_backend =
-                match pingora_backends_by_address.get_mut(&discovery_backend.address) {
-                    None => {
-                        let mut ext = Extensions::new();
-                        ext.insert(PingoraLnBackendExtension {
-                            partitions: Default::default(),
-                        });
-                        let pingora_backend = Backend {
-                            addr: discovery_backend.address.as_pingora_socket_addr(),
-                            weight: discovery_backend.backend.weight,
-                            ext,
-                        };
-                        if let Err(e) = self
-                            .pool
-                            .connect(pingora_backend.clone(), &discovery_backend)
-                        {
-                            error!("Failed to connect to backend {discovery_backend:?}: {e}");
-                            None
-                        } else {
-                            Some(
-                                pingora_backends_by_address
-                                    .entry(discovery_backend.address.clone())
-                                    .or_insert(pingora_backend),
-                            )
-                        }
-                    }
-                    Some(b) => Some(b),
-                };
-
-            if let Some(pingora_backend) = pingora_backend {
-                #[allow(clippy::expect_used)]
-                pingora_backend
-                    .ext
-                    .get_mut::<PingoraLnBackendExtension>()
-                    .expect("just added")
-                    .partitions
-                    .insert(discovery_backend.partition.clone());
-                let mut hasher = DefaultHasher::new();
-                pingora_backend.hash(&mut hasher);
-                let hash = hasher.finish();
-                enablement.insert(hash, discovery_backend.backend.enabled);
+            if discovery_backend
+                .backend
+                .partitions
+                .is_disjoint(&self.partitions)
+            {
+                continue;
             }
+            let mut ext = Extensions::new();
+            ext.insert(PingoraLnBackendExtension {
+                partitions: discovery_backend.backend.partitions.clone(),
+            });
+            let pingora_backend = Backend {
+                addr: discovery_backend.address.as_pingora_socket_addr(),
+                weight: discovery_backend.backend.weight,
+                ext,
+            };
+            if let Err(e) = self
+                .pool
+                .connect(pingora_backend.clone(), &discovery_backend)
+            {
+                error!("Failed to connect to backend {discovery_backend:?}: {e}");
+                continue;
+            }
+            let mut hasher = DefaultHasher::new();
+            pingora_backend.hash(&mut hasher);
+            let hash = hasher.finish();
+            enablement.insert(hash, discovery_backend.backend.enabled);
+            pingora_backends.insert(pingora_backend);
         }
 
-        let backends = BTreeSet::from_iter(pingora_backends_by_address.into_values());
-        self.pingora_backend_cache.store(Arc::new(backends.clone()));
-
-        Ok((backends, enablement))
+        self.pingora_backend_cache
+            .store(Arc::new(pingora_backends.clone()));
+        Ok((pingora_backends, enablement))
     }
 }
 
@@ -137,8 +114,8 @@ where
 impl PingoraBackendProvider for MemoryDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all(partition).await.map_err(|e| {
+    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let backends = self.get_all().await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -153,8 +130,8 @@ impl PingoraBackendProvider for MemoryDiscoveryBackendStore {
 impl PingoraBackendProvider for DbDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all(partition).await.map_err(|e| {
+    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let backends = self.get_all().await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -169,8 +146,8 @@ impl PingoraBackendProvider for DbDiscoveryBackendStore {
 impl PingoraBackendProvider for HttpDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all(partition).await.map_err(|e| {
+    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let backends = self.get_all().await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -185,8 +162,8 @@ impl PingoraBackendProvider for HttpDiscoveryBackendStore {
 impl PingoraBackendProvider for FileDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all(partition).await.map_err(|e| {
+    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let backends = self.get_all().await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -228,7 +205,7 @@ mod tests {
     impl PingoraBackendProvider for MockBackendProvider {
         type Error = PingoraLnError;
 
-        async fn backends(&self, _partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
             self.backends_to_return
                 .lock()
                 .await
@@ -296,11 +273,11 @@ mod tests {
         enabled: bool,
     ) -> DiscoveryBackend {
         DiscoveryBackend {
-            partition: partition.to_string(),
             address: DiscoveryBackendAddress::Url(
                 Url::parse(&format!("https://{address}")).unwrap(),
             ),
             backend: DiscoveryBackendSparse {
+                partitions: [partition.to_string()].into(),
                 weight,
                 enabled,
                 implementation: DiscoveryBackendImplementation::RemoteHttp,

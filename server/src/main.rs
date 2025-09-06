@@ -242,13 +242,11 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                     commands::discovery::backend::list_backends(&partition, &client).await
                 }
                 DiscoveryBackendManagementCommands::Get {
-                    partition,
                     address,
                     output,
                     client,
                 } => {
                     commands::discovery::backend::get_backend(
-                        &partition,
                         address.as_deref(),
                         output.as_deref(),
                         &client,
@@ -259,26 +257,15 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                     commands::discovery::backend::post_backend(input.as_deref(), &client).await
                 }
                 DiscoveryBackendManagementCommands::Put {
-                    partition,
                     address,
                     input,
                     client,
                 } => {
-                    commands::discovery::backend::put_backend(
-                        &partition,
-                        &address,
-                        input.as_deref(),
-                        &client,
-                    )
-                    .await
-                }
-                DiscoveryBackendManagementCommands::Delete {
-                    partition,
-                    address,
-                    client,
-                } => {
-                    commands::discovery::backend::delete_backend(&partition, &address, &client)
+                    commands::discovery::backend::put_backend(&address, input.as_deref(), &client)
                         .await
+                }
+                DiscoveryBackendManagementCommands::Delete { address, client } => {
+                    commands::discovery::backend::delete_backend(&address, &client).await
                 }
             },
         },

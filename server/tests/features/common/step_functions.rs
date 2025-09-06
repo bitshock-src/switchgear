@@ -448,9 +448,9 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
     };
 
     let backend = DiscoveryBackend {
-        partition: "default".to_string(),
         address,
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
             implementation,
@@ -720,9 +720,9 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
     };
 
     let backend = DiscoveryBackend {
-        partition: "default".to_string(),
         address,
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 100,
             implementation,
             enabled: true,
@@ -1016,7 +1016,7 @@ async fn enable_disable_backend(
 
     // GET the current backend
     let mut backend = client
-        .get("default", &address)
+        .get(&address)
         .await?
         .ok_or_else(|| anyhow_log!("Backend at location {} not found", location))?;
 
@@ -1086,7 +1086,7 @@ async fn delete_backend(ctx: &mut GlobalContext, location: &str) -> Result<()> {
     let address: DiscoveryBackendAddress = location.parse()?;
 
     // Delete the backend
-    client.delete("default", &address).await?;
+    client.delete(&address).await?;
 
     Ok(())
 }
@@ -1255,7 +1255,7 @@ pub async fn step_when_i_try_to_get_a_missing_backend(ctx: &mut GlobalContext) -
     let client = ctx.get_active_discovery_client()?;
 
     let address = DiscoveryBackendAddress::Url(Url::parse("http://fake.com")?);
-    let backend = client.get("default", &address).await?;
+    let backend = client.get(&address).await?;
 
     if backend.is_some() {
         bail_log!("backend found unexpectedly")
@@ -1556,7 +1556,7 @@ pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
 
     let invalid_backend_patterns = [
         "clf::discovery",
-        "GET /discovery/default/url/aHR0cDovL2Zha2UuY29tLw",
+        "GET /discovery/url/aHR0cDovL2Zha2UuY29tLw",
         "HTTP/1.1 404",
         " WARN ",
     ];
@@ -1566,7 +1566,7 @@ pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
     if invalid_backend_count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Invalid backend GET error log count mismatch: expected={expected_count}, got={invalid_backend_count} (pattern: clf::discovery ... GET /discovery/bad/path/AA HTTP/1.1 404 WARN)");
+        let error_msg = format!("❌ Invalid backend GET error log count mismatch: expected={expected_count}, got={invalid_backend_count} (pattern: clf::discovery ... GET /discovery/url/aHR0cDovL2Zha2UuY29tLw 404 WARN)");
         bail_log!(error_msg)
     }
 }
@@ -1772,7 +1772,7 @@ pub async fn step_and_server_1_logs_should_contain_http_requests_from_server_2_f
 
         // Look for discovery requests from HTTP stores (server 2 accessing server 1's discovery service)
         if line.contains("clf::discovery")
-            && line.contains("GET /discovery/default")
+            && line.contains("GET /discovery")
             && line.contains("HTTP/1.1 200")
         {
             discovery_http_request_found = true;

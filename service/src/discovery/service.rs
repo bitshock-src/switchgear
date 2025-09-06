@@ -17,21 +17,18 @@ impl DiscoveryService {
     {
         Router::new()
             .route(
-                "/discovery/{partition}/{addr_variant}/{addr_value}",
+                "/discovery/{addr_variant}/{addr_value}",
                 get(DiscoveryHandlers::get_backend),
             )
             .route(
-                "/discovery/{partition}/{addr_variant}/{addr_value}",
+                "/discovery/{addr_variant}/{addr_value}",
                 put(DiscoveryHandlers::put_backend),
             )
             .route(
-                "/discovery/{partition}/{addr_variant}/{addr_value}",
+                "/discovery/{addr_variant}/{addr_value}",
                 delete(DiscoveryHandlers::delete_backend),
             )
-            .route(
-                "/discovery/{partition}",
-                get(DiscoveryHandlers::get_backends),
-            )
+            .route("/discovery", get(DiscoveryHandlers::get_backends))
             .route("/discovery", post(DiscoveryHandlers::post_backend))
             .layer(BearerTokenAuthLayer::new(
                 DiscoveryBearerTokenValidator::new(state.auth_authority().clone()),
@@ -67,9 +64,9 @@ mod tests {
 
     fn create_test_backend(partition: &str, address: &str) -> DiscoveryBackend {
         DiscoveryBackend {
-            partition: partition.to_string(),
             address: DiscoveryBackendAddress::Url(format!("https://{address}").parse().unwrap()),
             backend: DiscoveryBackendSparse {
+                partitions: [partition.to_string()].into(),
                 weight: 100,
                 enabled: true,
                 implementation: DiscoveryBackendImplementation::RemoteHttp,
@@ -135,7 +132,7 @@ mod tests {
 
         let response = server
             .server
-            .get("/discovery/default")
+            .get("/discovery")
             .authorization_bearer(server.authorization.clone())
             .await;
 
@@ -245,7 +242,7 @@ mod tests {
 
         let response = server
             .server
-            .put("/discovery/default/url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw")
+            .put("/discovery/url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw")
             .authorization_bearer(server.authorization.clone())
             .json(&backend.backend)
             .await;
@@ -361,7 +358,7 @@ mod tests {
         // Get all backends
         let response = server
             .server
-            .get("/discovery/default")
+            .get("/discovery")
             .authorization_bearer(server.authorization.clone())
             .await;
 

@@ -12,6 +12,8 @@ use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
+const DEFAULT_PARTITION: &str = "default";
+
 #[derive(Clone, Debug)]
 pub struct FileDiscoveryBackendStore {
     storage_dir: PathBuf,
@@ -32,11 +34,8 @@ impl FileDiscoveryBackendStore {
         }
     }
 
-    async fn open_origin_to_read(
-        &self,
-        partition: &str,
-    ) -> Result<Option<File>, DiscoveryBackendStoreError> {
-        let path = self.storage_dir.join(format!("{partition}.json"));
+    async fn open_origin_to_read(&self) -> Result<Option<File>, DiscoveryBackendStoreError> {
+        let path = self.storage_dir.join(format!("{DEFAULT_PARTITION}.json"));
         match File::open(&path).await {
             Ok(file) => Ok(Some(file)),
             Err(e) => match e.kind() {
@@ -50,11 +49,8 @@ impl FileDiscoveryBackendStore {
         }
     }
 
-    async fn open_origin_to_write(
-        &self,
-        partition: &str,
-    ) -> Result<File, DiscoveryBackendStoreError> {
-        let path = self.storage_dir.join(format!("{partition}.json"));
+    async fn open_origin_to_write(&self) -> Result<File, DiscoveryBackendStoreError> {
+        let path = self.storage_dir.join(format!("{DEFAULT_PARTITION}.json"));
         let file = OpenOptions::new()
             .write(true)
             .read(true)
@@ -94,30 +90,28 @@ impl FileDiscoveryBackendStore {
     async fn read_through<'a>(
         &self,
         cache: &'a mut HashMap<String, FileDiscoveryBackendStoreCache>,
-        partition: &str,
     ) -> Result<Option<&'a FileDiscoveryBackendStoreCache>, DiscoveryBackendStoreError> {
-        let origin = self.open_origin_to_read(partition).await?;
+        let origin = self.open_origin_to_read().await?;
         match origin {
             // origin has been deleted
             None => {
-                cache.remove(partition);
+                cache.remove(DEFAULT_PARTITION);
                 Ok(None)
             }
             Some(mut origin) => {
                 origin.lock_shared().map_err(|e| {
                     DiscoveryBackendStoreError::io_error(
                         ServiceErrorSource::Internal,
-                        format!("acquiring shared lock for partition: {partition}"),
+                        "acquiring shared lock",
                         e,
                     )
                 })?;
-                let store =
-                    cache
-                        .entry(partition.to_string())
-                        .or_insert(FileDiscoveryBackendStoreCache {
-                            updated: SystemTime::UNIX_EPOCH,
-                            store: Default::default(),
-                        });
+                let store = cache.entry(DEFAULT_PARTITION.to_string()).or_insert(
+                    FileDiscoveryBackendStoreCache {
+                        updated: SystemTime::UNIX_EPOCH,
+                        store: Default::default(),
+                    },
+                );
                 let origin_timestamp = Self::get_origin_timestamp(&origin).await?;
                 if store.updated != origin_timestamp {
                     Self::load_origin_into_cache(&mut origin, store).await?;
@@ -130,23 +124,23 @@ impl FileDiscoveryBackendStore {
     async fn acquire_write_through<'a>(
         &self,
         cache: &'a mut HashMap<String, FileDiscoveryBackendStoreCache>,
-        partition: &str,
     ) -> Result<(File, &'a mut FileDiscoveryBackendStoreCache), DiscoveryBackendStoreError> {
-        let mut origin = self.open_origin_to_write(partition).await?;
+        let mut origin = self.open_origin_to_write().await?;
         origin.lock_exclusive().map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                format!("acquiring exclusive lock for partition: {partition}"),
+                "acquiring exclusive lock",
                 e,
             )
         })?;
 
-        let store = cache
-            .entry(partition.to_string())
-            .or_insert(FileDiscoveryBackendStoreCache {
-                updated: SystemTime::UNIX_EPOCH,
-                store: Default::default(),
-            });
+        let store =
+            cache
+                .entry(DEFAULT_PARTITION.to_string())
+                .or_insert(FileDiscoveryBackendStoreCache {
+                    updated: SystemTime::UNIX_EPOCH,
+                    store: Default::default(),
+                });
 
         let origin_timestamp = Self::get_origin_timestamp(&origin).await?;
         if store.updated != origin_timestamp {
@@ -259,19 +253,18 @@ impl DiscoveryBackendStore for FileDiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let mut cache = self.cache.lock().await;
-        match self.read_through(&mut cache, partition).await? {
+        match self.read_through(&mut cache).await? {
             None => Ok(None),
             Some(cache) => Ok(cache.store.get(addr).cloned()),
         }
     }
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
         let mut cache = self.cache.lock().await;
-        match self.read_through(&mut cache, partition).await? {
+        match self.read_through(&mut cache).await? {
             None => Ok(vec![]),
             Some(cache) => Ok(cache.store.values().cloned().collect()),
         }
@@ -282,9 +275,7 @@ impl DiscoveryBackendStore for FileDiscoveryBackendStore {
         backend: DiscoveryBackend,
     ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self
-            .acquire_write_through(&mut cache, backend.partition.as_str())
-            .await?;
+        let (mut origin, cache) = self.acquire_write_through(&mut cache).await?;
         if cache.store.contains_key(&backend.address) {
             return Ok(None);
         }
@@ -296,9 +287,7 @@ impl DiscoveryBackendStore for FileDiscoveryBackendStore {
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self
-            .acquire_write_through(&mut cache, backend.partition.as_str())
-            .await?;
+        let (mut origin, cache) = self.acquire_write_through(&mut cache).await?;
         let was_new = cache
             .store
             .insert(backend.address.clone(), backend)
@@ -307,13 +296,9 @@ impl DiscoveryBackendStore for FileDiscoveryBackendStore {
         Ok(was_new)
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self.acquire_write_through(&mut cache, partition).await?;
+        let (mut origin, cache) = self.acquire_write_through(&mut cache).await?;
         let was_found = cache.store.remove(addr).is_some();
         self.write_through(&mut origin, cache).await?;
         Ok(was_found)
