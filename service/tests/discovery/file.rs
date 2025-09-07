@@ -10,7 +10,8 @@ use crate::common::discovery;
 
 fn create_temp_store() -> (FileDiscoveryBackendStore, TempDir) {
     let temp_dir = TempDir::new().unwrap();
-    let store = FileDiscoveryBackendStore::new(temp_dir.path());
+    let data_file = temp_dir.path().join("discovery.json");
+    let store = FileDiscoveryBackendStore::new(data_file);
     (store, temp_dir)
 }
 
@@ -52,8 +53,9 @@ fn create_temp_store_pair() -> (
     TempDir,
 ) {
     let temp_dir = TempDir::new().unwrap();
-    let store1 = FileDiscoveryBackendStore::new(temp_dir.path());
-    let store2 = FileDiscoveryBackendStore::new(temp_dir.path());
+    let data_file = temp_dir.path().join("discovery.json");
+    let store1 = FileDiscoveryBackendStore::new(data_file.clone());
+    let store2 = FileDiscoveryBackendStore::new(data_file);
     (store1, store2, temp_dir)
 }
 
@@ -243,46 +245,6 @@ async fn test_file_shared_mixed_crud_operations_between_instances() {
 }
 
 #[tokio::test]
-async fn test_file_shared_operations_across_different_partitions() {
-    let (store1, store2, _temp_dir) = create_temp_store_pair();
-
-    let backend_default = create_test_backend("default", 8080, 100, true);
-    let backend_test = create_test_backend("test", 8080, 200, true);
-
-    // Add backends to different partitions via different stores
-    store1.post(backend_default.clone()).await.unwrap();
-    store2.post(backend_test.clone()).await.unwrap();
-
-    // Verify each store can see both partitions correctly
-    let default_from_store1 = store1.get_all().await.unwrap();
-    let default_from_store2 = store2.get_all().await.unwrap();
-    let test_from_store1 = store1.get_all().await.unwrap();
-    let test_from_store2 = store2.get_all().await.unwrap();
-
-    assert_eq!(default_from_store1.len(), 1);
-    assert_eq!(default_from_store2.len(), 1);
-    assert_eq!(test_from_store1.len(), 1);
-    assert_eq!(test_from_store2.len(), 1);
-
-    // Check contents are consistent (order-independent)
-    let default_addrs_1: std::collections::HashSet<_> =
-        default_from_store1.iter().map(|b| &b.address).collect();
-    let default_addrs_2: std::collections::HashSet<_> =
-        default_from_store2.iter().map(|b| &b.address).collect();
-    let test_addrs_1: std::collections::HashSet<_> =
-        test_from_store1.iter().map(|b| &b.address).collect();
-    let test_addrs_2: std::collections::HashSet<_> =
-        test_from_store2.iter().map(|b| &b.address).collect();
-
-    assert_eq!(default_addrs_1, default_addrs_2);
-    assert_eq!(test_addrs_1, test_addrs_2);
-
-    // Verify backends are in correct partitions
-    assert_eq!(default_from_store1[0], backend_default);
-    assert_eq!(test_from_store1[0], backend_test);
-}
-
-#[tokio::test]
 async fn test_file_handle_filesystem_deletion() {
     let (store, temp_dir) = create_temp_store();
 
@@ -290,55 +252,47 @@ async fn test_file_handle_filesystem_deletion() {
     let backend2 = create_test_backend("default", 8081, 200, true);
     let backend3 = create_test_backend("other", 8082, 300, true);
 
-    // Add backends to two different partitions
+    // Add backends (all stored in single file now)
     store.post(backend1.clone()).await.unwrap();
     store.post(backend2.clone()).await.unwrap();
     store.post(backend3.clone()).await.unwrap();
 
-    // Verify backends are stored correctly
-    let all_default = store.get_all().await.unwrap();
-    assert_eq!(all_default.len(), 2);
+    // Verify all backends are stored correctly
+    let all_backends = store.get_all().await.unwrap();
+    assert_eq!(all_backends.len(), 3);
 
-    let all_other = store.get_all().await.unwrap();
-    assert_eq!(all_other.len(), 1);
+    // Delete the data file from the filesystem
+    let data_file_path = temp_dir.path().join("discovery.json");
+    assert!(data_file_path.exists());
+    std::fs::remove_file(&data_file_path).unwrap();
+    assert!(!data_file_path.exists());
 
-    // Delete the "default" partition file from the filesystem
-    let default_file_path = temp_dir.path().join("default.json");
-    assert!(default_file_path.exists());
-    std::fs::remove_file(&default_file_path).unwrap();
-    assert!(!default_file_path.exists());
-
-    // Test that get operations on deleted partition return None/empty without error
+    // Test that get operations on deleted file return None/empty without error
     let result = store.get(&backend1.address).await.unwrap();
     assert!(result.is_none());
 
     let result = store.get(&backend2.address).await.unwrap();
     assert!(result.is_none());
 
-    let all_default = store.get_all().await.unwrap();
-    assert_eq!(all_default.len(), 0);
-
-    // Test that operations on other partition still work correctly
     let result = store.get(&backend3.address).await.unwrap();
-    assert_eq!(result, Some(backend3.clone()));
+    assert!(result.is_none());
 
-    let all_other = store.get_all().await.unwrap();
-    assert_eq!(all_other.len(), 1);
-    assert_eq!(all_other[0], backend3);
+    let all_backends = store.get_all().await.unwrap();
+    assert_eq!(all_backends.len(), 0);
 
-    // Test that we can add new backends to the deleted partition (recreates file)
+    // Test that we can add new backends (recreates file)
     let backend4 = create_test_backend("default", 8083, 400, true);
     let addr = store.post(backend4.clone()).await.unwrap();
     assert_eq!(addr, Some(backend4.address.clone()));
 
-    // Verify the partition file was recreated
-    assert!(default_file_path.exists());
+    // Verify the data file was recreated
+    assert!(data_file_path.exists());
 
     // Verify the new backend is stored correctly
     let result = store.get(&backend4.address).await.unwrap();
     assert_eq!(result, Some(backend4.clone()));
 
-    let all_default = store.get_all().await.unwrap();
-    assert_eq!(all_default.len(), 1);
-    assert_eq!(all_default[0], backend4);
+    let all_backends = store.get_all().await.unwrap();
+    assert_eq!(all_backends.len(), 1);
+    assert_eq!(all_backends[0], backend4);
 }
