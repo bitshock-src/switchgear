@@ -9,16 +9,21 @@ use chrono::Utc;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter,
-    QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, FromJsonQueryResult,
+    QueryFilter, QuerySelect, Set,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use switchgear_migration::MigratorTrait;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromJsonQueryResult)]
+pub struct DiscoveryBackendPartitions(BTreeSet<String>);
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "discovery_backend")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = false)]
-    pub partition: String,
+    #[sea_orm(column_type = "JsonBinary")]
+    pub partitions: DiscoveryBackendPartitions,
     #[sea_orm(primary_key, auto_increment = false)]
     pub address: String,
     pub address_type: String,
@@ -106,9 +111,9 @@ impl DbDiscoveryBackendStore {
             })?;
 
         Ok(DiscoveryBackend {
-            partition: model.partition,
             address,
             backend: DiscoveryBackendSparse {
+                partitions: model.partitions.0,
                 weight: model.weight as usize,
                 enabled: model.enabled,
                 implementation,
@@ -156,24 +161,20 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let address_str = addr.to_string();
 
-        let result =
-            Entity::find_by_id((partition.to_string(), address_str.clone()))
-                .one(&self.db)
-                .await
-                .map_err(|e| {
-                    DiscoveryBackendStoreError::from_db(
-                        ServiceErrorSource::Internal,
-                        format!(
-                            "fetching backend for partition {partition} and address {address_str}",
-                        ),
-                        e,
-                    )
-                })?;
+        let result = Entity::find_by_id(address_str.clone())
+            .one(&self.db)
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::from_db(
+                    ServiceErrorSource::Internal,
+                    format!("fetching backend for address {address_str}",),
+                    e,
+                )
+            })?;
 
         match result {
             Some(model) => Ok(Some(Self::model_to_domain(model)?)),
@@ -181,18 +182,14 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         }
     }
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let models = Entity::find()
-            .filter(Column::Partition.eq(partition))
-            .all(&self.db)
-            .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    format!("fetching all backends for partition {partition}"),
-                    e,
-                )
-            })?;
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let models = Entity::find().all(&self.db).await.map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                "fetching all backends",
+                e,
+            )
+        })?;
 
         let backends = models
             .into_iter()
@@ -219,7 +216,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         let now = Utc::now();
         let active_model = ActiveModel {
-            partition: Set(backend.partition.to_string()),
+            partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
             address: Set(address_str.clone()),
             address_type: Set(address_type.to_string()),
             weight: Set(backend.backend.weight as i32),
@@ -266,7 +263,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let future_timestamp = now + chrono::Duration::seconds(1);
 
         let active_model = ActiveModel {
-            partition: Set(backend.partition.to_string()),
+            partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
             address: Set(address_str.clone()),
             address_type: Set(address_type.to_string()),
             weight: Set(backend.backend.weight as i32),
@@ -278,7 +275,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         Entity::insert(active_model)
             .on_conflict(
-                OnConflict::columns([Column::Partition, Column::Address])
+                OnConflict::columns([Column::Address])
                     .update_columns([Column::Weight, Column::Enabled, Column::Implementation])
                     .value(Column::UpdatedAt, Expr::val(future_timestamp))
                     .to_owned(),
@@ -295,7 +292,6 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         // Fetch only the timestamps to compare
         let result = Entity::find()
-            .filter(Column::Partition.eq(backend.partition.to_string()))
             .filter(Column::Address.eq(&address_str))
             .select_only()
             .column(Column::CreatedAt)
@@ -322,26 +318,19 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         Ok(result.0 == result.1)
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
         let address_str = addr.to_string();
 
-        let delete_result =
-            Entity::delete_by_id((partition.to_string(), address_str.clone()))
-                .exec(&self.db)
-                .await
-                .map_err(|e| {
-                    DiscoveryBackendStoreError::from_db(
-                        ServiceErrorSource::Internal,
-                        format!(
-                            "deleting backend for partition {partition} and address {address_str}",
-                        ),
-                        e,
-                    )
-                })?;
+        let delete_result = Entity::delete_by_id(address_str.clone())
+            .exec(&self.db)
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::from_db(
+                    ServiceErrorSource::Internal,
+                    format!("deleting backend for address {address_str}",),
+                    e,
+                )
+            })?;
 
         Ok(delete_result.rows_affected > 0)
     }

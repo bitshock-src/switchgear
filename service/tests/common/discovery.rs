@@ -7,9 +7,9 @@ use url::Url;
 
 pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) {
     let new_backend1 = DiscoveryBackend {
-        partition: "default".to_string(),
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8080").unwrap()),
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
@@ -17,9 +17,9 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     };
 
     let new_backend2 = DiscoveryBackend {
-        partition: "default".to_string(),
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8081").unwrap()),
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 200,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
@@ -27,9 +27,9 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     };
 
     let modified_backend2 = DiscoveryBackend {
-        partition: "default".to_string(),
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8081").unwrap()),
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 10,
             enabled: false,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
@@ -70,23 +70,15 @@ where
     let _ = store.post(modified_backend2.clone()).await.unwrap();
 
     // Test individual gets
-    let backend = store
-        .get("default", &new_backend1.address)
-        .await
-        .unwrap()
-        .unwrap();
+    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
-    let backend = store
-        .get("default", &new_backend2.address)
-        .await
-        .unwrap()
-        .unwrap();
+    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
     assert_eq!(backend, new_backend2);
 
     // Modified backend should not have been stored
     let backend = store
-        .get("default", &modified_backend2.address)
+        .get(&modified_backend2.address)
         .await
         .unwrap()
         .unwrap();
@@ -94,7 +86,7 @@ where
     assert_ne!(backend, modified_backend2);
 
     // Test get_all returns all backends (order-independent)
-    let all_backends = store.get_all("default").await.unwrap();
+    let all_backends = store.get_all().await.unwrap();
     assert_eq!(all_backends.len(), 2);
     let backend_addresses: HashSet<_> = all_backends.iter().map(|b| &b.address).collect();
     assert!(backend_addresses.contains(&new_backend1.address));
@@ -113,38 +105,21 @@ where
     let _ = store.post(modified_backend2.clone()).await.unwrap();
 
     // Delete and verify return values
-    let deleted = store
-        .delete("default", &new_backend1.address)
-        .await
-        .unwrap();
+    let deleted = store.delete(&new_backend1.address).await.unwrap();
     assert!(deleted);
 
-    let deleted = store
-        .delete("default", &new_backend2.address)
-        .await
-        .unwrap();
+    let deleted = store.delete(&new_backend2.address).await.unwrap();
     assert!(deleted);
 
     // Modified backend was never stored, so delete returns None
-    let deleted = store
-        .delete("default", &modified_backend2.address)
-        .await
-        .unwrap();
+    let deleted = store.delete(&modified_backend2.address).await.unwrap();
     assert!(!deleted);
 
     // Verify all backends are gone
+    assert!(store.get(&new_backend1.address).await.unwrap().is_none());
+    assert!(store.get(&new_backend2.address).await.unwrap().is_none());
     assert!(store
-        .get("default", &new_backend1.address)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(store
-        .get("default", &new_backend2.address)
-        .await
-        .unwrap()
-        .is_none());
-    assert!(store
-        .get("default", &modified_backend2.address)
+        .get(&modified_backend2.address)
         .await
         .unwrap()
         .is_none());
@@ -177,21 +152,13 @@ where
     assert!(store.put(new_backend2.clone()).await.unwrap());
 
     // Verify initial state
-    let backend = store
-        .get("default", &new_backend1.address)
-        .await
-        .unwrap()
-        .unwrap();
+    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
-    let backend = store
-        .get("default", &new_backend2.address)
-        .await
-        .unwrap()
-        .unwrap();
+    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
     assert_eq!(backend, new_backend2);
 
-    let all_backends = store.get_all("default").await.unwrap();
+    let all_backends = store.get_all().await.unwrap();
     assert_eq!(all_backends.len(), 2);
     let backend_addresses: HashSet<_> = all_backends.iter().map(|b| &b.address).collect();
     assert!(backend_addresses.contains(&new_backend1.address));
@@ -202,7 +169,7 @@ where
 
     // Verify update
     let backend = store
-        .get("default", &modified_backend2.address)
+        .get(&modified_backend2.address)
         .await
         .unwrap()
         .unwrap();

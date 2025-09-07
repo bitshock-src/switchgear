@@ -44,4 +44,4 @@ store:
     max-connections: 5
   discover:
     type: "file"
-    storage-dir: "${DISCOVERY_STORE_FILE_STORAGE_DIR:-/data/discovery_backends}"
+    storage-dir: "${DISCOVERY_STORE_FILE_STORAGE_PATH:-/data/discovery_backends}"

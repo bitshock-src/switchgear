@@ -3,7 +3,7 @@ use crate::api::discovery::{
 };
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
-use crate::axum::extract::socket::DiscoveryBackendAddressParam;
+use crate::axum::extract::address::DiscoveryBackendAddressParam;
 use crate::axum::header::no_cache_headers;
 use crate::discovery::state::DiscoveryState;
 use axum::http::HeaderValue;
@@ -13,7 +13,7 @@ pub struct DiscoveryHandlers;
 
 impl DiscoveryHandlers {
     pub async fn get_backend<S>(
-        DiscoveryBackendAddressParam { partition, address }: DiscoveryBackendAddressParam,
+        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
         State(state): State<DiscoveryState<S>>,
     ) -> Result<JsonCrudResponse<DiscoveryBackendRest>, CrudError>
     where
@@ -21,13 +21,13 @@ impl DiscoveryHandlers {
     {
         let backend = state
             .store()
-            .get(&partition, &address)
+            .get(&address)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?
             .ok_or(CrudError::not_found())?;
 
         let backend = DiscoveryBackendRest {
-            location: format!("{partition}/{}", backend.address.encoded()),
+            location: backend.address.encoded(),
             backend,
         };
 
@@ -37,7 +37,6 @@ impl DiscoveryHandlers {
     }
 
     pub async fn get_backends<S>(
-        axum::extract::Path(partition): axum::extract::Path<String>,
         State(state): State<DiscoveryState<S>>,
     ) -> Result<JsonCrudResponse<Vec<DiscoveryBackendRest>>, CrudError>
     where
@@ -45,7 +44,7 @@ impl DiscoveryHandlers {
     {
         let backends = state
             .store()
-            .get_all(&partition)
+            .get_all()
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
@@ -54,7 +53,7 @@ impl DiscoveryHandlers {
         let backends = backends
             .into_iter()
             .map(|backend| DiscoveryBackendRest {
-                location: format!("{partition}/{}", backend.address.encoded()),
+                location: backend.address.encoded(),
                 backend,
             })
             .collect();
@@ -75,7 +74,7 @@ impl DiscoveryHandlers {
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let location = format!("{}/{}", backend.partition, backend.address.encoded());
+        let location = backend.address.encoded();
         let location = HeaderValue::from_str(&location)?;
 
         match result {
@@ -86,17 +85,13 @@ impl DiscoveryHandlers {
 
     pub async fn put_backend<S>(
         State(state): State<DiscoveryState<S>>,
-        DiscoveryBackendAddressParam { partition, address }: DiscoveryBackendAddressParam,
+        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
         Json(backend): Json<DiscoveryBackendSparse>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let backend = DiscoveryBackend {
-            partition,
-            address,
-            backend,
-        };
+        let backend = DiscoveryBackend { address, backend };
 
         let was_created = state
             .store()
@@ -112,7 +107,7 @@ impl DiscoveryHandlers {
     }
 
     pub async fn delete_backend<S>(
-        DiscoveryBackendAddressParam { partition, address }: DiscoveryBackendAddressParam,
+        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
         State(state): State<DiscoveryState<S>>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
@@ -120,7 +115,7 @@ impl DiscoveryHandlers {
     {
         if state
             .store()
-            .delete(&partition, &address)
+            .delete(&address)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?
         {

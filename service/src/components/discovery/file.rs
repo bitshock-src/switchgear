@@ -14,59 +14,47 @@ use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct FileDiscoveryBackendStore {
-    storage_dir: PathBuf,
-    cache: Arc<Mutex<HashMap<String, FileDiscoveryBackendStoreCache>>>,
-}
-
-#[derive(Debug)]
-struct FileDiscoveryBackendStoreCache {
-    updated: SystemTime,
-    store: HashMap<DiscoveryBackendAddress, DiscoveryBackend>,
+    data_file: PathBuf,
+    updated: Arc<Mutex<SystemTime>>,
+    cache: Arc<Mutex<HashMap<DiscoveryBackendAddress, DiscoveryBackend>>>,
 }
 
 impl FileDiscoveryBackendStore {
-    pub fn new<P: AsRef<Path>>(storage_dir: P) -> Self {
+    pub fn new<P: AsRef<Path>>(data_file: P) -> Self {
         Self {
-            storage_dir: storage_dir.as_ref().to_path_buf(),
+            data_file: data_file.as_ref().to_path_buf(),
+            updated: Arc::new(Mutex::new(SystemTime::UNIX_EPOCH)),
             cache: Arc::new(Default::default()),
         }
     }
 
-    async fn open_origin_to_read(
-        &self,
-        partition: &str,
-    ) -> Result<Option<File>, DiscoveryBackendStoreError> {
-        let path = self.storage_dir.join(format!("{partition}.json"));
-        match File::open(&path).await {
+    async fn open_origin_to_read(&self) -> Result<Option<File>, DiscoveryBackendStoreError> {
+        match File::open(&self.data_file).await {
             Ok(file) => Ok(Some(file)),
             Err(e) => match e.kind() {
                 ErrorKind::NotFound => Ok(None),
                 _ => Err(DiscoveryBackendStoreError::io_error(
                     ServiceErrorSource::Internal,
-                    format!("reading partition file: {}", path.to_string_lossy()),
+                    format!("reading data file: {}", self.data_file.to_string_lossy()),
                     e,
                 )),
             },
         }
     }
 
-    async fn open_origin_to_write(
-        &self,
-        partition: &str,
-    ) -> Result<File, DiscoveryBackendStoreError> {
-        let path = self.storage_dir.join(format!("{partition}.json"));
+    async fn open_origin_to_write(&self) -> Result<File, DiscoveryBackendStoreError> {
         let file = OpenOptions::new()
             .write(true)
             .read(true)
             .append(false)
             .truncate(false)
             .create(true)
-            .open(&path)
+            .open(&self.data_file)
             .await
             .map_err(|e| {
                 DiscoveryBackendStoreError::io_error(
                     ServiceErrorSource::Internal,
-                    format!("writing partition file: {}", path.to_string_lossy()),
+                    format!("writing data file: {}", self.data_file.to_string_lossy()),
                     e,
                 )
             })?;
@@ -77,7 +65,7 @@ impl FileDiscoveryBackendStore {
         let metadata = origin.metadata().await.map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                "reading file metadata for partition file",
+                "reading file metadata for data file",
                 e,
             )
         })?;
@@ -85,95 +73,80 @@ impl FileDiscoveryBackendStore {
         metadata.modified().map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                "reading modified time for partition file",
+                "reading modified time for data file",
                 e,
             )
         })
     }
 
-    async fn read_through<'a>(
-        &self,
-        cache: &'a mut HashMap<String, FileDiscoveryBackendStoreCache>,
-        partition: &str,
-    ) -> Result<Option<&'a FileDiscoveryBackendStoreCache>, DiscoveryBackendStoreError> {
-        let origin = self.open_origin_to_read(partition).await?;
+    async fn read_through(&self) -> Result<bool, DiscoveryBackendStoreError> {
+        let origin = self.open_origin_to_read().await?;
         match origin {
             // origin has been deleted
             None => {
-                cache.remove(partition);
-                Ok(None)
+                let mut cache = self.cache.lock().await;
+                cache.clear();
+                Ok(false)
             }
             Some(mut origin) => {
                 origin.lock_shared().map_err(|e| {
                     DiscoveryBackendStoreError::io_error(
                         ServiceErrorSource::Internal,
-                        format!("acquiring shared lock for partition: {partition}"),
+                        "acquiring shared lock",
                         e,
                     )
                 })?;
-                let store =
-                    cache
-                        .entry(partition.to_string())
-                        .or_insert(FileDiscoveryBackendStoreCache {
-                            updated: SystemTime::UNIX_EPOCH,
-                            store: Default::default(),
-                        });
                 let origin_timestamp = Self::get_origin_timestamp(&origin).await?;
-                if store.updated != origin_timestamp {
-                    Self::load_origin_into_cache(&mut origin, store).await?;
+                let mut updated = self.updated.lock().await;
+                if *updated != origin_timestamp {
+                    let mut cache = self.cache.lock().await;
+                    Self::load_origin_into_cache(&mut origin, &mut cache).await?;
+                    *updated = origin_timestamp;
                 }
-                Ok(Some(store))
+                Ok(true)
             }
         }
     }
 
-    async fn acquire_write_through<'a>(
-        &self,
-        cache: &'a mut HashMap<String, FileDiscoveryBackendStoreCache>,
-        partition: &str,
-    ) -> Result<(File, &'a mut FileDiscoveryBackendStoreCache), DiscoveryBackendStoreError> {
-        let mut origin = self.open_origin_to_write(partition).await?;
+    async fn acquire_write_through(&self) -> Result<File, DiscoveryBackendStoreError> {
+        let mut origin = self.open_origin_to_write().await?;
         origin.lock_exclusive().map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                format!("acquiring exclusive lock for partition: {partition}"),
+                "acquiring exclusive lock",
                 e,
             )
         })?;
 
-        let store = cache
-            .entry(partition.to_string())
-            .or_insert(FileDiscoveryBackendStoreCache {
-                updated: SystemTime::UNIX_EPOCH,
-                store: Default::default(),
-            });
-
         let origin_timestamp = Self::get_origin_timestamp(&origin).await?;
-        if store.updated != origin_timestamp {
-            Self::load_origin_into_cache(&mut origin, store).await?;
+        let mut updated = self.updated.lock().await;
+        if *updated != origin_timestamp {
+            let mut cache = self.cache.lock().await;
+            Self::load_origin_into_cache(&mut origin, &mut cache).await?;
+            *updated = origin_timestamp;
         }
 
-        Ok((origin, store))
+        Ok(origin)
     }
 
-    async fn write_through<'a>(
-        &self,
-        origin: &mut File,
-        store: &'a mut FileDiscoveryBackendStoreCache,
-    ) -> Result<&'a mut FileDiscoveryBackendStoreCache, DiscoveryBackendStoreError> {
-        Self::write_cache_into_origin(origin, store).await?;
-        Ok(store)
+    async fn write_through(&self, origin: &mut File) -> Result<(), DiscoveryBackendStoreError> {
+        let cache = self.cache.lock().await;
+        Self::write_cache_into_origin(origin, &cache).await?;
+        let origin_timestamp = Self::get_origin_timestamp(origin).await?;
+        let mut updated = self.updated.lock().await;
+        *updated = origin_timestamp;
+        Ok(())
     }
 
     async fn load_origin_into_cache(
         origin: &mut File,
-        cache: &mut FileDiscoveryBackendStoreCache,
+        cache: &mut HashMap<DiscoveryBackendAddress, DiscoveryBackend>,
     ) -> Result<(), DiscoveryBackendStoreError> {
         let mut buf = String::new();
         origin.read_to_string(&mut buf).await.map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                "reading partition file",
+                "reading data file",
                 e,
             )
         })?;
@@ -184,7 +157,7 @@ impl FileDiscoveryBackendStore {
             serde_json::from_str(&buf).map_err(|e| {
                 DiscoveryBackendStoreError::json_serialization_error(
                     ServiceErrorSource::Internal,
-                    "deserializing partition json",
+                    "deserializing data file json",
                     e,
                 )
             })?
@@ -194,25 +167,22 @@ impl FileDiscoveryBackendStore {
             .into_iter()
             .map(|b| (b.address.clone(), b));
 
-        cache.store.clear();
-        cache.store.extend(discovery_backends);
-
-        let timestamp = Self::get_origin_timestamp(origin).await?;
-        cache.updated = timestamp;
+        cache.clear();
+        cache.extend(discovery_backends);
 
         Ok(())
     }
 
     async fn write_cache_into_origin(
         origin: &mut File,
-        cache: &mut FileDiscoveryBackendStoreCache,
+        cache: &HashMap<DiscoveryBackendAddress, DiscoveryBackend>,
     ) -> Result<(), DiscoveryBackendStoreError> {
-        let backends: Vec<DiscoveryBackend> = cache.store.values().cloned().collect();
+        let backends: Vec<DiscoveryBackend> = cache.values().cloned().collect();
 
         let content = serde_json::to_string_pretty(&backends).map_err(|e| {
             DiscoveryBackendStoreError::json_serialization_error(
                 ServiceErrorSource::Internal,
-                "serializing partition",
+                "serializing data",
                 e,
             )
         })?;
@@ -221,7 +191,7 @@ impl FileDiscoveryBackendStore {
         origin.set_len(0).await.map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                "truncating partition file",
+                "truncating data file",
                 e,
             )
         })?;
@@ -233,7 +203,7 @@ impl FileDiscoveryBackendStore {
             .map_err(|e| {
                 DiscoveryBackendStoreError::io_error(
                     ServiceErrorSource::Internal,
-                    "seeking to start of partition file",
+                    "seeking to start of data file",
                     e,
                 )
             })?;
@@ -241,13 +211,10 @@ impl FileDiscoveryBackendStore {
         origin.write_all(content.as_bytes()).await.map_err(|e| {
             DiscoveryBackendStoreError::io_error(
                 ServiceErrorSource::Internal,
-                "writing partition file",
+                "writing data file",
                 e,
             )
         })?;
-
-        let origin_timestamp = Self::get_origin_timestamp(origin).await?;
-        cache.updated = origin_timestamp;
 
         Ok(())
     }
@@ -259,63 +226,54 @@ impl DiscoveryBackendStore for FileDiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
-        let mut cache = self.cache.lock().await;
-        match self.read_through(&mut cache, partition).await? {
-            None => Ok(None),
-            Some(cache) => Ok(cache.store.get(addr).cloned()),
+        if !self.read_through().await? {
+            return Ok(None);
         }
+        let cache = self.cache.lock().await;
+        Ok(cache.get(addr).cloned())
     }
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let mut cache = self.cache.lock().await;
-        match self.read_through(&mut cache, partition).await? {
-            None => Ok(vec![]),
-            Some(cache) => Ok(cache.store.values().cloned().collect()),
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        if !self.read_through().await? {
+            return Ok(vec![]);
         }
+        let cache = self.cache.lock().await;
+        Ok(cache.values().cloned().collect())
     }
 
     async fn post(
         &self,
         backend: DiscoveryBackend,
     ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
+        let mut origin = self.acquire_write_through().await?;
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self
-            .acquire_write_through(&mut cache, backend.partition.as_str())
-            .await?;
-        if cache.store.contains_key(&backend.address) {
+        if cache.contains_key(&backend.address) {
             return Ok(None);
         }
         let addr = backend.address.clone();
-        cache.store.insert(addr.clone(), backend);
-        self.write_through(&mut origin, cache).await?;
+        cache.insert(addr.clone(), backend);
+        drop(cache); // Release lock before write_through
+        self.write_through(&mut origin).await?;
         Ok(Some(addr))
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
+        let mut origin = self.acquire_write_through().await?;
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self
-            .acquire_write_through(&mut cache, backend.partition.as_str())
-            .await?;
-        let was_new = cache
-            .store
-            .insert(backend.address.clone(), backend)
-            .is_none();
-        self.write_through(&mut origin, cache).await?;
+        let was_new = cache.insert(backend.address.clone(), backend).is_none();
+        drop(cache); // Release lock before write_through
+        self.write_through(&mut origin).await?;
         Ok(was_new)
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
+        let mut origin = self.acquire_write_through().await?;
         let mut cache = self.cache.lock().await;
-        let (mut origin, cache) = self.acquire_write_through(&mut cache, partition).await?;
-        let was_found = cache.store.remove(addr).is_some();
-        self.write_through(&mut origin, cache).await?;
+        let was_found = cache.remove(addr).is_some();
+        drop(cache); // Release lock before write_through
+        self.write_through(&mut origin).await?;
         Ok(was_found)
     }
 }

@@ -53,9 +53,9 @@ pub fn try_create_cln_backend() -> anyhow::Result<Option<DiscoveryBackend>> {
         });
 
     let backend = DiscoveryBackend {
-        partition: "default".to_string(),
         address,
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 1,
             implementation,
             enabled: true,
@@ -100,9 +100,9 @@ pub fn try_create_lnd_backend() -> anyhow::Result<Option<DiscoveryBackend>> {
         });
 
     let backend = DiscoveryBackend {
-        partition: "default".to_string(),
         address: address.clone(),
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 1,
             implementation,
             enabled: true,

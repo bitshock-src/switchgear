@@ -208,14 +208,13 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> anyhow::Result<Option<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, get, partition, addr).await
+        delegate_to_discovery_store_variants!(self, get, addr).await
     }
 
-    async fn get_all(&self, partition: &str) -> anyhow::Result<Vec<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, get_all, partition).await
+    async fn get_all(&self) -> anyhow::Result<Vec<DiscoveryBackend>, Self::Error> {
+        delegate_to_discovery_store_variants!(self, get_all).await
     }
 
     async fn post(
@@ -229,12 +228,8 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
         delegate_to_discovery_store_variants!(self, put, backend).await
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
-        delegate_to_discovery_store_variants!(self, delete, partition, addr).await
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
+        delegate_to_discovery_store_variants!(self, delete, addr).await
     }
 }
 
@@ -242,8 +237,8 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
 impl PingoraBackendProvider for DiscoveryBackendStoreDelegate {
     type Error = PingoraLnError;
 
-    async fn backends(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, backends, partition).await
+    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        delegate_to_discovery_store_variants!(self, backends).await
     }
 }
 

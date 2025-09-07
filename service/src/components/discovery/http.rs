@@ -85,20 +85,8 @@ impl HttpDiscoveryBackendStore {
         })
     }
 
-    fn discovery_partition_url(&self, partition: &str) -> String {
-        format!("{}/{}", self.discovery_url, partition)
-    }
-
-    fn discovery_partition_address_url(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> String {
-        format!(
-            "{}/{}",
-            self.discovery_partition_url(partition),
-            addr.encoded()
-        )
+    fn discovery_address_url(&self, addr: &DiscoveryBackendAddress) -> String {
+        format!("{}/{}", self.discovery_url, addr.encoded())
     }
 }
 
@@ -108,10 +96,9 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
-        let url = self.discovery_partition_address_url(partition, addr);
+        let url = self.discovery_address_url(addr);
 
         let response = self.client.get(url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
@@ -141,8 +128,8 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         }
     }
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let url = self.discovery_partition_url(partition);
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+        let url = &self.discovery_url;
         let response = self.client.get(url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
                 ServiceErrorSource::Upstream,
@@ -207,7 +194,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
-        let url = self.discovery_partition_address_url(&backend.partition, &backend.address);
+        let url = self.discovery_address_url(&backend.address);
 
         let response = self
             .client
@@ -246,12 +233,8 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         }
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
-        let url = self.discovery_partition_address_url(partition, addr);
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
+        let url = self.discovery_address_url(addr);
 
         let response = self.client.delete(url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
@@ -325,17 +308,10 @@ mod tests {
 
         assert_eq!(&client.health_check_url, "https://base.com/health");
 
-        let discovery_partition_url = client.discovery_partition_url("partition");
-        assert_eq!(
-            "https://base.com/discovery/partition",
-            discovery_partition_url,
-        );
-
         let addr = DiscoveryBackendAddress::Url("https://remote.com/backend".parse().unwrap());
-        let discovery_partition_address_url =
-            client.discovery_partition_address_url("partition", &addr);
+        let discovery_partition_address_url = client.discovery_address_url(&addr);
         assert_eq!(
-            format!("https://base.com/discovery/partition/{}", addr.encoded()),
+            format!("https://base.com/discovery/{}", addr.encoded()),
             discovery_partition_address_url,
         );
     }

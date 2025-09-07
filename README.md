@@ -256,7 +256,7 @@ Capacity is measured in the same cycle as the Lightning Node health check. It is
 
 ## Partitioning
 
-An organization may have a global Offer database. A Switchgear instance may be configured to serve a portion of that database, using partitions. Furthermore, every Lightning Node is configured in Discovery to be bound to a specific partition, insuring payments only land on nodes they belong to.
+An organization may have a global Offer database. A Switchgear instance may be configured to serve a portion of that database, using partitions. Furthermore, every Lightning Node is configured in Discovery to be bound to one or more partitions, insuring payments only land on nodes they belong to.
 
 Each Switchgear instance is configured for the partitions it will serve.
 
@@ -276,7 +276,7 @@ https://example.com/offers/cr/{id} - 200 success
 https://example.com/offers/ca/{id} - 404 not found
 ```
 
-Each partition must have Discovery Backends configured for the invoice request to succeed.
+Each partition must have Discovery Backends configured for the invoice request to succeed. A single backend can serve multiple partitions.
 
 See the [Manage Lightning Node Backends with Discovery Service](#manage-lightning-node-backends-with-discovery-service) and [Manage LNURLs with Offer Service](#manage-lnurls-with-offer-service) sections for creating Discovery Backends and Offers with partitions.
 
@@ -465,6 +465,9 @@ swgr discovery token key --public discovery-public.pem --private discovery-priva
 
 # The public key (discovery-public.pem) should be used as the auth-authority in the configuration
 # The private key (discovery-private.pem) is used to mint authentication tokens
+
+# Create a token (default 3600 seconds)
+swgr discovery token mint --key discovery-private.pem --output discovery.token
 ```
 
 ## Offer Service
@@ -508,6 +511,9 @@ swgr offer token key --public offer-public.pem --private offer-private.pem
 
 # The public key (offer-public.pem) should be used as the auth-authority in the configuration
 # The private key (offer-private.pem) is used to mint authentication tokens
+
+# Create a token (default 3600 seconds)
+swgr offer token mint --key offer-private.pem --output offer.token
 ```
 
 ## Persistence
@@ -704,7 +710,7 @@ curl -X POST http://localhost:3001/discovery \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "partition": "default",
+    "partitions": ["default"],
     "address": {
       "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
@@ -728,7 +734,7 @@ curl -X POST http://localhost:3001/discovery \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "partition": "default",
+    "partitions": ["default", "us", "eu"],
     "address": {
       "url": "https://lnd-node.example.com"
     },
@@ -748,10 +754,10 @@ curl -X POST http://localhost:3001/discovery \
   }'
 ```
 
-#### List All Backends In A Partition
+#### List All Backends
 
 ```shell
-curl -X GET http://localhost:3001/discovery/default \
+curl -X GET http://localhost:3001/discovery \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
@@ -759,21 +765,22 @@ curl -X GET http://localhost:3001/discovery/default \
 
 ```shell
 # By public key
-curl -X GET "http://localhost:3001/discovery/default/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
+curl -X GET "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN"
 
 # By URL (base64 encoded)
-curl -X GET "http://localhost:3001/discovery/default/url/aHR0cHM6Ly9sbmQtbm9kZS5leGFtcGxlLmNvbS8" \
+curl -X GET "http://localhost:3001/discovery/url/aHR0cHM6Ly9sbmQtbm9kZS5leGFtcGxlLmNvbS8" \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
 #### Update A Backend
 
 ```shell
-curl -X PUT "http://localhost:3001/discovery/default/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
+curl -X PUT "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "partitions": ["default", "us"],
     "weight": 200,
     "enabled": false,
     "implementation": {
@@ -793,7 +800,7 @@ curl -X PUT "http://localhost:3001/discovery/default/pk/0279be667ef9dcbbac55a062
 #### Delete A Backend
 
 ```shell
-curl -X DELETE "http://localhost:3001/discovery/default/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
+curl -X DELETE "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
@@ -834,24 +841,24 @@ export DISCOVERY_STORE_HTTP_BASE_URL="https://discovery.example.com"
 export DISCOVERY_STORE_HTTP_AUTHORIZATION="/path/to/discovery.token"
 export DISCOVERY_STORE_HTTP_TRUSTED_ROOTS="/path/to/ca.pem"
 
-# List all backends in a partition (simple table format)
-swgr discovery ls default 
+# List all backends (simple table format)
+swgr discovery ls
 
 
 # Get backend details (JSON output)
-swgr discovery get default pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --output backend-details.json
+swgr discovery get pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --output backend-details.json
 
-# Get all backends in partition (JSON output)
-swgr discovery get default
+# Get all backends (JSON output)
+swgr discovery get
 
 # Register a new backend from JSON file
 swgr discovery post --input cln-backend.json
 
 # Update an existing backend
-swgr discovery put default pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
+swgr discovery put pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
 
 # Delete a backend
-swgr discovery delete default pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+swgr discovery delete pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 ```
 
 ### Discovery Data Model
@@ -861,7 +868,7 @@ Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](./doc/discovery-s
 Example CLN backend configuration:
 ```json
 {
-  "partition": "default",
+  "partitions": ["default"],
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },
@@ -884,7 +891,7 @@ Example CLN backend configuration:
 Example LND backend configuration:
 ```json
 {
-  "partition": "default",
+  "partitions": ["default", "us", "eu"],
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },

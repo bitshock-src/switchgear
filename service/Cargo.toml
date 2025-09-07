@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-service"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Service layer and API implementations for Switchgear LNURL load balancer"
@@ -8,7 +8,6 @@ documentation = "https://github.com/bitshock-src/switchgear"
 homepage = "https://bitshock.com"
 repository = "https://github.com/bitshock-src/switchgear"
 license = "Apache-2.0"
-readme = "../README.md"
 keywords = ["bitcoin", "lightning", "lnurl", "api", "service"]
 categories = ["network-programming", "web-programming", "cryptography::cryptocurrencies"]
 publish = true

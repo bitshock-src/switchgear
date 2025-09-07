@@ -6,6 +6,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io;
@@ -18,11 +19,10 @@ pub trait DiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error>;
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error>;
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error>;
 
     async fn post(
         &self,
@@ -31,11 +31,7 @@ pub trait DiscoveryBackendStore {
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error>;
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error>;
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error>;
 }
 
 #[async_trait]
@@ -46,7 +42,6 @@ pub trait HttpDiscoveryBackendClient: DiscoveryBackendStore {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryBackend {
-    pub partition: String,
     pub address: DiscoveryBackendAddress,
     #[serde(flatten)]
     pub backend: DiscoveryBackendSparse,
@@ -79,6 +74,7 @@ impl Display for DiscoveryBackendAddress {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryBackendSparse {
+    pub partitions: BTreeSet<String>,
     pub weight: usize,
     pub enabled: bool,
     pub implementation: DiscoveryBackendImplementation,
@@ -173,33 +169,28 @@ mod test {
         let key = key.public_key(&Secp256k1::new());
 
         let backend = DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
         };
         let address = DiscoveryBackendAddress::PublicKey(key);
-        let backend1 = DiscoveryBackend {
-            partition: "default".to_string(),
-            address,
-            backend,
-        };
+        let backend1 = DiscoveryBackend { address, backend };
 
         let backend = DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
         };
         let address = DiscoveryBackendAddress::Url(Url::parse("http://example.com/").unwrap());
-        let backend2 = DiscoveryBackend {
-            partition: "default".to_string(),
-            address,
-            backend,
-        };
+        let backend2 = DiscoveryBackend { address, backend };
 
         let backends = vec![backend1, backend2];
 
         let backends = serde_json::to_string(&backends).unwrap();
-        let backends_expected = r#"[{"partition":"default","address":{"publicKey":"03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"},"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}},{"partition":"default","address":{"url":"http://example.com/"},"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}}]"#;
+        eprintln!("backends: {}", backends);
+        let backends_expected = r#"[{"address":{"publicKey":"03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"},"partitions":["default"],"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}},{"address":{"url":"http://example.com/"},"partitions":["default"],"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}}]"#;
         assert_eq!(backends, backends_expected);
     }
 
@@ -216,32 +207,26 @@ mod test {
         let key = key.public_key(&Secp256k1::new());
 
         let backend = DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
         };
         let address = DiscoveryBackendAddress::PublicKey(key);
-        let backend1 = DiscoveryBackend {
-            address,
-            partition: "default".to_string(),
-            backend,
-        };
+        let backend1 = DiscoveryBackend { address, backend };
 
         let backend = DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
             implementation: DiscoveryBackendImplementation::RemoteHttp,
         };
         let address = DiscoveryBackendAddress::Url(Url::parse("http://example.com/").unwrap());
-        let backend2 = DiscoveryBackend {
-            address,
-            partition: "default".to_string(),
-            backend,
-        };
+        let backend2 = DiscoveryBackend { address, backend };
 
         let backends_expected = vec![backend1, backend2];
 
-        let backends = r#"[{"partition":"default","address":{"publicKey":"03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"},"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}},{"partition":"default","address":{"url":"http://example.com/"},"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}}]"#;
+        let backends = r#"[{"address":{"publicKey":"03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"},"partitions":["default"],"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}},{"address":{"url":"http://example.com/"},"partitions":["default"],"weight":0,"enabled":true,"implementation":{"type":"remoteHttp"}}]"#;
 
         let backends: Vec<DiscoveryBackend> = serde_json::from_str(backends).unwrap();
         assert_eq!(backends_expected, backends);

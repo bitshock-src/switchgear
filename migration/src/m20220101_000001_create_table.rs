@@ -11,7 +11,11 @@ impl MigrationTrait for DiscoveryBackendMigration {
                 Table::create()
                     .table(DiscoveryBackend::Table)
                     .if_not_exists()
-                    .col(string(DiscoveryBackend::Partition).not_null())
+                    .col(
+                        ColumnDef::new(DiscoveryBackend::Partitions)
+                            .json_binary()
+                            .not_null(),
+                    )
                     .col(string(DiscoveryBackend::Address).not_null())
                     .col(string(DiscoveryBackend::AddressType).not_null())
                     .col(integer(DiscoveryBackend::Weight).not_null())
@@ -19,11 +23,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
                     .col(json(DiscoveryBackend::Implementation).not_null())
                     .col(timestamp_with_time_zone(DiscoveryBackend::CreatedAt).not_null())
                     .col(timestamp_with_time_zone(DiscoveryBackend::UpdatedAt).not_null())
-                    .primary_key(
-                        Index::create()
-                            .col(DiscoveryBackend::Partition)
-                            .col(DiscoveryBackend::Address),
-                    )
+                    .primary_key(Index::create().col(DiscoveryBackend::Address))
                     .to_owned(),
             )
             .await
@@ -39,7 +39,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
 #[derive(DeriveIden)]
 enum DiscoveryBackend {
     Table,
-    Partition,
+    Partitions,
     Address,
     AddressType,
     Weight,

@@ -7,7 +7,7 @@ use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
 pub struct MemoryDiscoveryBackendStore {
-    store: Arc<Mutex<HashMap<(String, DiscoveryBackendAddress), DiscoveryBackend>>>,
+    store: Arc<Mutex<HashMap<DiscoveryBackendAddress, DiscoveryBackend>>>,
 }
 
 impl Default for MemoryDiscoveryBackendStore {
@@ -30,20 +30,15 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
 
     async fn get(
         &self,
-        partition: &str,
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;
-        Ok(store.get(&(partition.to_string(), addr.clone())).cloned())
+        Ok(store.get(addr).cloned())
     }
 
-    async fn get_all(&self, partition: &str) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;
-        let backends: Vec<DiscoveryBackend> = store
-            .iter()
-            .filter(|((p, _), _)| p == partition)
-            .map(|(_, backend)| backend.clone())
-            .collect();
+        let backends: Vec<DiscoveryBackend> = store.values().cloned().collect();
         Ok(backends)
     }
 
@@ -52,7 +47,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         backend: DiscoveryBackend,
     ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = (backend.partition.to_string(), backend.address.clone());
+        let key = backend.address.clone();
         if store.contains_key(&key) {
             return Ok(None);
         }
@@ -63,18 +58,14 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = (backend.partition.to_string(), backend.address.clone());
+        let key = backend.address.clone();
         let was_new = store.insert(key, backend).is_none();
         Ok(was_new)
     }
 
-    async fn delete(
-        &self,
-        partition: &str,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<bool, Self::Error> {
+    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = (partition.to_string(), addr.clone());
+        let key = addr.clone();
         let was_found = store.remove(&key).is_some();
         Ok(was_found)
     }

@@ -44,8 +44,6 @@ pub enum DiscoveryBackendManagementCommands {
     /// Get a backend
     #[command(name = "get")]
     Get {
-        /// Partition name
-        partition: String,
         /// Optional backend location address, default returns all backends for partition
         address: Option<String>,
         /// Optional output path, defaults to stdout
@@ -68,8 +66,6 @@ pub enum DiscoveryBackendManagementCommands {
     /// Update a backend
     #[command(name = "put")]
     Put {
-        /// Partition name
-        partition: String,
         /// Backend location address
         address: String,
         /// Optional backend JSON source path, defaults to stdin
@@ -82,8 +78,6 @@ pub enum DiscoveryBackendManagementCommands {
     /// Delete a backend
     #[command(name = "delete", visible_alias = "rm")]
     Delete {
-        /// Partition name
-        partition: String,
         /// Backend location address
         address: String,
         #[clap(flatten)]
@@ -147,11 +141,11 @@ pub fn new_backend(ln_node_type: LnNodeCommandType, output: Option<&Path>) -> an
         }
     };
     let backend = DiscoveryBackend {
-        partition: "default".to_string(),
         address: DiscoveryBackendAddress::PublicKey(
             "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse()?,
         ),
         backend: DiscoveryBackendSparse {
+            partitions: ["default".to_string()].into(),
             weight: 1,
             enabled: true,
             implementation,
@@ -176,7 +170,7 @@ pub async fn list_backends(
     client_configuration: &DiscoveryBackendManagementClientConfig,
 ) -> anyhow::Result<()> {
     let client = create_backend_client(client_configuration)?;
-    let backends = client.get_all(partition).await?;
+    let backends = client.get_all().await?;
     info!("/{partition} backends");
     for backend in backends {
         info!(
@@ -190,7 +184,6 @@ pub async fn list_backends(
 }
 
 pub async fn get_backend(
-    partition: &str,
     address: Option<&str>,
     output: Option<&Path>,
     client_configuration: &DiscoveryBackendManagementClientConfig,
@@ -199,9 +192,9 @@ pub async fn get_backend(
     if let Some(address) = address {
         let address_parsed = DiscoveryBackendAddress::from_str(address)
             .with_context(|| format!("reading address: {address}"))?;
-        if let Some(backend) = client.get(partition, &address_parsed).await? {
+        if let Some(backend) = client.get(&address_parsed).await? {
             let backend = DiscoveryBackendRest {
-                location: format!("{}/{}", backend.partition, backend.address.encoded()),
+                location: backend.address.encoded(),
                 backend,
             };
             let backend = serde_json::to_string_pretty(&backend)
@@ -217,16 +210,16 @@ pub async fn get_backend(
             warn!("Backend {address} not found");
         }
     } else {
-        let backends = client.get_all(partition).await?;
+        let backends = client.get_all().await?;
         let backends = backends
             .into_iter()
             .map(|backend| DiscoveryBackendRest {
-                location: format!("{}/{}", backend.partition, backend.address.encoded()),
+                location: backend.address.encoded(),
                 backend,
             })
             .collect::<Vec<_>>();
-        let backends = serde_json::to_string_pretty(&backends)
-            .with_context(|| format!("serializing backends for {partition}"))?;
+        let backends =
+            serde_json::to_string_pretty(&backends).with_context(|| "serializing backends")?;
         cli_write_all(output, backends.as_bytes()).with_context(|| {
             format!(
                 "writing backend to: {}",
@@ -269,7 +262,6 @@ pub async fn post_backend(
 }
 
 pub async fn put_backend(
-    partition: &str,
     address: &str,
     backend_path: Option<&Path>,
     client_configuration: &DiscoveryBackendManagementClientConfig,
@@ -292,11 +284,7 @@ pub async fn put_backend(
             backend_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
         )
     })?;
-    let backend = DiscoveryBackend {
-        partition: partition.to_string(),
-        address,
-        backend,
-    };
+    let backend = DiscoveryBackend { address, backend };
     if client.put(backend.clone()).await? {
         info!("Created: {}", backend.address.encoded());
     } else {
@@ -306,14 +294,13 @@ pub async fn put_backend(
 }
 
 pub async fn delete_backend(
-    partition: &str,
     address: &str,
     client_configuration: &DiscoveryBackendManagementClientConfig,
 ) -> anyhow::Result<()> {
     let client = create_backend_client(client_configuration)?;
     let address = DiscoveryBackendAddress::from_str(address)
         .with_context(|| format!("reading address: {address}"))?;
-    if client.delete(partition, &address).await? {
+    if client.delete(&address).await? {
         info!("Deleted: {}", address.encoded());
     } else {
         warn!("Not Found: {}", address.encoded());
