@@ -394,11 +394,11 @@ impl ServerContext {
             .env("OFFER_SERVICE_ADDRESS", offers_svc.address.to_string())
             .env(
                 "DISCOVERY_STORE_HTTP_TRUSTED_ROOTS",
-                self.pki_root_certificate_path.to_string_lossy().to_string(),
+                &self.pki_root_certificate_path,
             )
             .env(
                 "OFFER_STORE_HTTP_TRUSTED_ROOTS",
-                self.pki_root_certificate_path.to_string_lossy().to_string(),
+                &self.pki_root_certificate_path,
             )
             .env(
                 "DISCOVERY_STORE_DATABASE_URL",
@@ -410,8 +410,8 @@ impl ServerContext {
                 ),
             )
             .env(
-                "DISCOVERY_STORE_FILE_STORAGE_DIR",
-                self.discovery_store_dir.to_string_lossy().to_string(),
+                "DISCOVERY_STORE_FILE_STORAGE_PATH",
+                self.discovery_store_dir.join("discovery.json"),
             )
             .env(
                 "OFFER_STORE_DATABASE_URL",
@@ -422,12 +422,9 @@ impl ServerContext {
             )
             .env(
                 "DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH",
-                self.discovery_authority.to_string_lossy().to_string(),
+                &self.discovery_authority,
             )
-            .env(
-                "OFFER_SERVICE_AUTH_AUTHORITY_PATH",
-                self.offer_authority.to_string_lossy().to_string(),
-            )
+            .env("OFFER_SERVICE_AUTH_AUTHORITY_PATH", &self.offer_authority)
             .env("LNURL_SERVICE_ADDRESS", lnurl_svc.address.to_string())
             .env("LNURL_SERVICE_ALLOWED_HOSTS", &lnurl_svc.domain)
             .env(
@@ -440,36 +437,18 @@ impl ServerContext {
         }
 
         if let Some(tls) = &lnurl_svc.tls {
-            command.env(
-                "LNURL_SERVICE_TLS_CERT_PATH",
-                tls.cert_path.to_string_lossy().to_string(),
-            );
-            command.env(
-                "LNURL_SERVICE_TLS_KEY_PATH",
-                tls.key_path.to_string_lossy().to_string(),
-            );
+            command.env("LNURL_SERVICE_TLS_CERT_PATH", &tls.cert_path);
+            command.env("LNURL_SERVICE_TLS_KEY_PATH", &tls.key_path);
         }
 
         if let Some(tls) = &discovery_svc.tls {
-            command.env(
-                "DISCOVERY_SERVICE_TLS_CERT_PATH",
-                tls.cert_path.to_string_lossy().to_string(),
-            );
-            command.env(
-                "DISCOVERY_SERVICE_TLS_KEY_PATH",
-                tls.key_path.to_string_lossy().to_string(),
-            );
+            command.env("DISCOVERY_SERVICE_TLS_CERT_PATH", &tls.cert_path);
+            command.env("DISCOVERY_SERVICE_TLS_KEY_PATH", &tls.key_path);
         }
 
         if let Some(tls) = &offers_svc.tls {
-            command.env(
-                "OFFER_SERVICE_TLS_CERT_PATH",
-                tls.cert_path.to_string_lossy().to_string(),
-            );
-            command.env(
-                "OFFER_SERVICE_TLS_KEY_PATH",
-                tls.key_path.to_string_lossy().to_string(),
-            );
+            command.env("OFFER_SERVICE_TLS_CERT_PATH", &tls.cert_path);
+            command.env("OFFER_SERVICE_TLS_KEY_PATH", &tls.key_path);
         }
 
         if let Some(offer_url) = &self.offer_store_url {
