@@ -133,3 +133,21 @@ async fn test_memory_offer_provider_valid_current_offer_returns_some() {
     let store = MemoryOfferStore::default();
     offer::test_offer_provider_valid_current_offer_returns_some(store).await;
 }
+
+#[tokio::test]
+async fn test_memory_post_offer_with_missing_metadata() {
+    let store = MemoryOfferStore::default();
+    offer::test_post_offer_with_missing_metadata(store).await;
+}
+
+#[tokio::test]
+async fn test_memory_put_offer_with_missing_metadata() {
+    let store = MemoryOfferStore::default();
+    offer::test_put_offer_with_missing_metadata(store).await;
+}
+
+#[tokio::test]
+async fn test_memory_delete_metadata_with_referencing_offers() {
+    let store = MemoryOfferStore::default();
+    offer::test_delete_metadata_with_referencing_offers(store).await;
+}

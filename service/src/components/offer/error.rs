@@ -40,6 +40,8 @@ pub enum OfferStoreErrorSourceKind {
     HttpStatus(u16),
     #[error("Internal error: {0}")]
     Internal(String),
+    #[error("Invalid Input error: {0}")]
+    InvalidInput(String),
 }
 
 impl OfferStoreError {
@@ -123,6 +125,14 @@ impl OfferStoreError {
         Self::new(
             OfferStoreErrorSourceKind::Internal(message),
             esource,
+            context,
+        )
+    }
+
+    pub fn invalid_input_error<C: Into<Cow<'static, str>>>(context: C, message: String) -> Self {
+        Self::new(
+            OfferStoreErrorSourceKind::InvalidInput(message),
+            ServiceErrorSource::Downstream,
             context,
         )
     }
