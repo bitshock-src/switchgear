@@ -146,3 +146,15 @@ async fn test_mysql_offer_provider_valid_current_offer_returns_some() {
     let (store, _guard) = create_mysql_store().await;
     offer::test_offer_provider_valid_current_offer_returns_some(store).await;
 }
+
+#[tokio::test]
+async fn test_mysql_post_offer_with_missing_metadata() {
+    let (store, _guard) = create_mysql_store().await;
+    offer::test_post_offer_with_missing_metadata(store).await;
+}
+
+#[tokio::test]
+async fn test_mysql_put_offer_with_missing_metadata() {
+    let (store, _guard) = create_mysql_store().await;
+    offer::test_put_offer_with_missing_metadata(store).await;
+}

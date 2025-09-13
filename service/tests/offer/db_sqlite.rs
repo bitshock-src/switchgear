@@ -166,3 +166,17 @@ async fn test_sqlite_offer_provider_valid_current_offer_returns_some() {
     let store = create_sqlite_store(t.path()).await;
     offer::test_offer_provider_valid_current_offer_returns_some(store).await;
 }
+
+#[tokio::test]
+async fn test_sqlite_post_offer_with_missing_metadata() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    offer::test_post_offer_with_missing_metadata(store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_put_offer_with_missing_metadata() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    offer::test_put_offer_with_missing_metadata(store).await;
+}

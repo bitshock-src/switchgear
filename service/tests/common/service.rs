@@ -80,8 +80,7 @@ impl TestService {
 
         // Create OfferState with MemoryOfferStore for both stores
         let offer_store = MemoryOfferStore::default();
-        let metadata_store = MemoryOfferStore::default();
-        let offer_state = OfferState::new(offer_store, metadata_store, offer_decoding_key);
+        let offer_state = OfferState::new(offer_store.clone(), offer_store, offer_decoding_key);
 
         // Create listeners
         let discovery_listener =

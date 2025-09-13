@@ -143,3 +143,15 @@ async fn test_postgres_offer_provider_valid_current_offer_returns_some() {
     let (store, _guard) = create_postgres_store().await;
     offer::test_offer_provider_valid_current_offer_returns_some(store).await;
 }
+
+#[tokio::test]
+async fn test_postgres_post_offer_with_missing_metadata() {
+    let (store, _guard) = create_postgres_store().await;
+    offer::test_post_offer_with_missing_metadata(store).await;
+}
+
+#[tokio::test]
+async fn test_postgres_put_offer_with_missing_metadata() {
+    let (store, _guard) = create_postgres_store().await;
+    offer::test_put_offer_with_missing_metadata(store).await;
+}

@@ -150,6 +150,25 @@ impl OfferStore for DbOfferStore {
             Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
                 db_err,
             )))) if db_err.is_unique_violation() => Ok(None),
+            // Foreign key constraint violation (metadata_id doesn't exist)
+            Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
+                db_err,
+            )))) if db_err.is_foreign_key_violation() => Err(OfferStoreError::invalid_input_error(
+                format!("post offer {offer:?}"),
+                format!(
+                    "metadata {} not found for offer {}",
+                    offer.offer.metadata_id, offer.id
+                ),
+            )),
+            Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
+                db_err,
+            )))) if db_err.is_foreign_key_violation() => Err(OfferStoreError::invalid_input_error(
+                format!("post offer {offer:?}"),
+                format!(
+                    "metadata {} not found for offer {}",
+                    offer.offer.metadata_id, offer.id
+                ),
+            )),
             Err(e) => Err(OfferStoreError::from_db(
                 ServiceErrorSource::Internal,
                 format!(
@@ -177,7 +196,7 @@ impl OfferStore for DbOfferStore {
             updated_at: Set(now.into()),
         };
 
-        let _result = OfferRecordTable::insert(active_model)
+        let _result = match OfferRecordTable::insert(active_model)
             .on_conflict(
                 OnConflict::columns([
                     offer_record_table::Column::Partition,
@@ -195,16 +214,42 @@ impl OfferStore for DbOfferStore {
             )
             .exec(&self.db)
             .await
-            .map_err(|e| {
-                OfferStoreError::from_db(
+        {
+            Ok(result) => result,
+            // Foreign key constraint violation (metadata_id doesn't exist)
+            Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
+                db_err,
+            )))) if db_err.is_foreign_key_violation() => {
+                return Err(OfferStoreError::invalid_input_error(
+                    format!("put offer {offer:?}"),
+                    format!(
+                        "metadata {} not found for offer {}",
+                        offer.offer.metadata_id, offer.id
+                    ),
+                ));
+            }
+            Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
+                db_err,
+            )))) if db_err.is_foreign_key_violation() => {
+                return Err(OfferStoreError::invalid_input_error(
+                    format!("put offer {offer:?}"),
+                    format!(
+                        "metadata {} not found for offer {}",
+                        offer.offer.metadata_id, offer.id
+                    ),
+                ));
+            }
+            Err(e) => {
+                return Err(OfferStoreError::from_db(
                     ServiceErrorSource::Internal,
                     format!(
                         "upserting offer for partition {} id {}",
                         offer.partition, offer.id
                     ),
                     e,
-                )
-            })?;
+                ));
+            }
+        };
 
         // Fetch only the timestamps to compare
         let result = OfferRecordTable::find()

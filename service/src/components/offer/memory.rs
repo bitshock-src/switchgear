@@ -56,7 +56,19 @@ impl OfferStore for MemoryOfferStore {
     }
 
     async fn post_offer(&self, offer: OfferRecord) -> Result<Option<Uuid>, Self::Error> {
+        let metadata_store = self.metadata.lock().await;
         let mut store = self.offer.lock().await;
+
+        if !metadata_store.contains_key(&(offer.partition.to_string(), offer.offer.metadata_id)) {
+            return Err(OfferStoreError::invalid_input_error(
+                format!("post offer {offer:?}"),
+                format!(
+                    "metadata {} not found for offer {}",
+                    offer.offer.metadata_id, offer.id
+                ),
+            ));
+        }
+
         if let std::collections::hash_map::Entry::Vacant(e) =
             store.entry((offer.partition.to_string(), offer.id))
         {
@@ -68,7 +80,19 @@ impl OfferStore for MemoryOfferStore {
     }
 
     async fn put_offer(&self, offer: OfferRecord) -> Result<bool, Self::Error> {
+        let metadata_store = self.metadata.lock().await;
         let mut store = self.offer.lock().await;
+
+        if !metadata_store.contains_key(&(offer.partition.to_string(), offer.offer.metadata_id)) {
+            return Err(OfferStoreError::invalid_input_error(
+                format!("put offer {offer:?}"),
+                format!(
+                    "metadata {} not found for offer {}",
+                    offer.offer.metadata_id, offer.id
+                ),
+            ));
+        }
+
         let was_new = store
             .insert((offer.partition.to_string(), offer.id), offer)
             .is_none();

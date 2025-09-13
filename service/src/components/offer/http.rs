@@ -198,6 +198,10 @@ impl OfferStore for HttpOfferStore {
         match response.status() {
             StatusCode::CREATED => Ok(Some(offer.id)),
             StatusCode::CONFLICT => Ok(None), // Already exists
+            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
+                format!("post offer {offer:?}"),
+                format!("invalid input for offer {}", offer.id),
+            )),
             status => Err(OfferStoreError::http_status_error(
                 ServiceErrorSource::Upstream,
                 format!("creating offer {}", offer.id),
@@ -225,6 +229,10 @@ impl OfferStore for HttpOfferStore {
         match response.status() {
             StatusCode::CREATED => Ok(true),     // New resource created
             StatusCode::NO_CONTENT => Ok(false), // Existing resource updated
+            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
+                format!("put offer {offer:?}"),
+                format!("invalid input for offer {}", offer.id),
+            )),
             status => Err(OfferStoreError::http_status_error(
                 ServiceErrorSource::Upstream,
                 format!("updating offer {}", offer.id),

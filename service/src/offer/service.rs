@@ -77,13 +77,17 @@ mod tests {
     use uuid::Uuid;
 
     fn create_test_offer() -> OfferRecord {
+        create_test_offer_with_metadata_id(Uuid::new_v4())
+    }
+
+    fn create_test_offer_with_metadata_id(metadata_id: Uuid) -> OfferRecord {
         OfferRecord {
             partition: "default".to_string(),
             id: Uuid::new_v4(),
             offer: OfferRecordSparse {
                 max_sendable: 1000000,
                 min_sendable: 1000,
-                metadata_id: Uuid::new_v4(),
+                metadata_id,
                 timestamp: Utc::now() - Duration::hours(1),
                 expires: Some(Utc::now() + Duration::hours(1)),
             },
@@ -131,10 +135,20 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let offer_store = MemoryOfferStore::default();
-        offer_store.put_offer(offer).await.unwrap();
-        let metadata_store = MemoryOfferStore::default();
-        let state = OfferState::new(offer_store, metadata_store, decoding_key);
+        let store = MemoryOfferStore::default();
+        let metadata = OfferMetadata {
+            id: offer.offer.metadata_id,
+            partition: offer.partition.clone(),
+            metadata: OfferMetadataSparse {
+                text: "Test offer".to_string(),
+                long_text: Some("This is a test offer description".to_string()),
+                image: None,
+                identifier: None,
+            },
+        };
+        store.put_metadata(metadata).await.unwrap();
+        store.put_offer(offer).await.unwrap();
+        let state = OfferState::new(store.clone(), store, decoding_key);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -171,10 +185,9 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let offer_store = MemoryOfferStore::default();
-        let metadata_store = MemoryOfferStore::default();
-        metadata_store.put_metadata(metadata).await.unwrap();
-        let state = OfferState::new(offer_store, metadata_store, decoding_key);
+        let store = MemoryOfferStore::default();
+        store.put_metadata(metadata).await.unwrap();
+        let state = OfferState::new(store.clone(), store, decoding_key);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -209,9 +222,8 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let offer_store = MemoryOfferStore::default();
-        let metadata_store = MemoryOfferStore::default();
-        let state = OfferState::new(offer_store, metadata_store, decoding_key);
+        let store = MemoryOfferStore::default();
+        let state = OfferState::new(store.clone(), store, decoding_key);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -348,8 +360,11 @@ mod tests {
 
     #[tokio::test]
     async fn post_offer_when_new_then_creates_and_returns_location() {
-        let server = create_empty_test_server();
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let metadata_id = test_metadata.id;
+        let server = create_test_server_with_metadata(test_metadata).await;
+
+        let test_offer = create_test_offer_with_metadata_id(metadata_id);
         let response = server
             .server
             .post("/offers")
@@ -421,8 +436,11 @@ mod tests {
 
     #[tokio::test]
     async fn put_offer_when_new_then_created() {
-        let server = create_empty_test_server();
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let metadata_id = test_metadata.id;
+        let server = create_test_server_with_metadata(test_metadata).await;
+
+        let test_offer = create_test_offer_with_metadata_id(metadata_id);
         let offer_id = test_offer.id;
         let response = server
             .server
@@ -432,6 +450,69 @@ mod tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn post_offer_when_metadata_missing_then_returns_bad_request() {
+        let server = create_empty_test_server();
+        let non_existent_metadata_id = Uuid::new_v4();
+        let test_offer = create_test_offer_with_metadata_id(non_existent_metadata_id);
+
+        let response = server
+            .server
+            .post("/offers")
+            .authorization_bearer(server.authorization.clone())
+            .json(&test_offer)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn put_offer_when_metadata_missing_then_returns_bad_request() {
+        // First create a valid metadata and offer
+        let test_metadata = create_test_metadata();
+        let metadata_id = test_metadata.id;
+        let server = create_test_server_with_metadata(test_metadata).await;
+
+        let test_offer = create_test_offer_with_metadata_id(metadata_id);
+        let offer_id = test_offer.id;
+
+        // Successfully PUT the offer with valid metadata
+        let response = server
+            .server
+            .put(&format!("/offers/default/{offer_id}"))
+            .authorization_bearer(server.authorization.clone())
+            .json(&test_offer.offer)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::CREATED);
+
+        // Verify the offer was created successfully
+        let get_response = server
+            .server
+            .get(&format!("/offers/default/{offer_id}"))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+
+        assert_eq!(get_response.status_code(), StatusCode::OK);
+        let created_offer: OfferRecord = get_response.json();
+        assert_eq!(created_offer.id, offer_id);
+        assert_eq!(created_offer.offer.metadata_id, metadata_id);
+
+        // Now try to update the offer with a non-existent metadata_id
+        let non_existent_metadata_id = Uuid::new_v4();
+        let mut invalid_offer = test_offer.offer.clone();
+        invalid_offer.metadata_id = non_existent_metadata_id;
+
+        let response = server
+            .server
+            .put(&format!("/offers/default/{offer_id}"))
+            .authorization_bearer(server.authorization.clone())
+            .json(&invalid_offer)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     }
 
     // Metadata Tests

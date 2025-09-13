@@ -6,6 +6,7 @@ use switchgear_service::api::offer::{
     OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
     OfferMetadataStore, OfferProvider, OfferRecord, OfferRecordSparse, OfferStore,
 };
+use switchgear_service::api::service::ServiceErrorSource;
 use switchgear_service::components::offer::error::{OfferStoreError, OfferStoreErrorSourceKind};
 use uuid::Uuid;
 
@@ -484,6 +485,76 @@ where
     // Verify hash matches manual calculation
     let manual_hash = sha2::Sha256::digest(result1.metadata_json_string.as_bytes());
     assert_eq!(result1.metadata_json_hash, manual_hash.as_slice());
+}
+
+pub async fn test_post_offer_with_missing_metadata<S>(store: S)
+where
+    S: OfferStore,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+{
+    let offer_id = Uuid::new_v4();
+    let non_existent_metadata_id = Uuid::new_v4();
+
+    let offer = OfferRecord {
+        partition: "default".to_string(),
+        id: offer_id,
+        offer: OfferRecordSparse {
+            max_sendable: 1000,
+            min_sendable: 100,
+            metadata_id: non_existent_metadata_id, // This metadata doesn't exist
+            timestamp: Utc::now(),
+            expires: Some(Utc::now() + chrono::Duration::seconds(3600)),
+        },
+    };
+
+    let result = store.post_offer(offer).await;
+    assert!(result.is_err());
+
+    let error: OfferStoreError = result.unwrap_err().into();
+    match error.source() {
+        OfferStoreErrorSourceKind::InvalidInput(_) => {
+            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+        }
+        _ => panic!(
+            "Expected NotFound or HttpStatus(400) error, got {:?}",
+            error.source()
+        ),
+    }
+}
+
+pub async fn test_put_offer_with_missing_metadata<S>(store: S)
+where
+    S: OfferStore,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+{
+    let offer_id = Uuid::new_v4();
+    let non_existent_metadata_id = Uuid::new_v4();
+
+    let offer = OfferRecord {
+        partition: "default".to_string(),
+        id: offer_id,
+        offer: OfferRecordSparse {
+            max_sendable: 1000,
+            min_sendable: 100,
+            metadata_id: non_existent_metadata_id, // This metadata doesn't exist
+            timestamp: Utc::now(),
+            expires: Some(Utc::now() + chrono::Duration::seconds(3600)),
+        },
+    };
+
+    let result = store.put_offer(offer).await;
+    assert!(result.is_err());
+
+    let error: OfferStoreError = result.unwrap_err().into();
+    match error.source() {
+        OfferStoreErrorSourceKind::InvalidInput(_) => {
+            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+        }
+        _ => panic!(
+            "Expected NotFound or HttpStatus(400) error, got {:?}",
+            error.source()
+        ),
+    }
 }
 
 pub async fn test_offer_provider_different_metadata_different_hashes<S>(store: S)
