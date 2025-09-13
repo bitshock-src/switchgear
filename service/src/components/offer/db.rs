@@ -512,12 +512,23 @@ impl OfferMetadataStore for DbOfferStore {
         let result = OfferMetadataTable::delete_by_id((partition.to_string(), *id))
             .exec(&self.db)
             .await
-            .map_err(|e| {
-                OfferStoreError::from_db(
+            .map_err(|e| match e {
+                sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
+                    db_err,
+                ))) if db_err.is_foreign_key_violation()
+                    // sqlite
+                    || db_err.code().as_deref() == Some("1811") =>
+                {
+                    OfferStoreError::invalid_input_error(
+                        format!("deleting metadata for partition {partition} id {id}"),
+                        format!("metadata {} is referenced by existing offers", id),
+                    )
+                }
+                _ => OfferStoreError::from_db(
                     ServiceErrorSource::Internal,
                     format!("deleting metadata for partition {partition} id {id}"),
                     e,
-                )
+                ),
             })?;
 
         Ok(result.rows_affected > 0)

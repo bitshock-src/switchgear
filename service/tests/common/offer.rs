@@ -436,24 +436,18 @@ where
     // Create offer with valid metadata first
     let (store, offer_id, metadata_id) = setup_store_with_offer_and_metadata(store).await;
 
-    // Delete the metadata to simulate missing metadata scenario
-    // proper database will error here
-    if let Err(e) = store.delete_metadata("default", &metadata_id).await {
-        let e: OfferStoreError = e.into();
-        if let OfferStoreErrorSourceKind::Database(d) = e.source() {
-            if d.to_string().to_lowercase().contains("constraint") {
-                return;
-            }
-        }
-        panic!("Failed to delete metadata: {e}");
-    }
+    store.delete_offer("default", &offer_id).await.unwrap();
+
+    store
+        .delete_metadata("default", &metadata_id)
+        .await
+        .unwrap();
 
     let result = store
         .offer("example.com", "default", &offer_id)
         .await
         .unwrap();
 
-    // With missing metadata, should now return None instead of error
     assert!(result.is_none());
 }
 
@@ -555,6 +549,46 @@ where
             error.source()
         ),
     }
+}
+
+pub async fn test_delete_metadata_with_referencing_offers<S>(store: S)
+where
+    S: OfferStore + OfferMetadataStore,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+    <S as OfferMetadataStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+{
+    // Create metadata
+    let metadata_id = Uuid::new_v4();
+    let metadata = create_test_offer_metadata(metadata_id);
+    store.put_metadata(metadata).await.unwrap();
+
+    // Create offer that references this metadata
+    let offer_id = Uuid::new_v4();
+    let offer = create_test_offer_with_existing_metadata(offer_id, metadata_id);
+    store.put_offer(offer).await.unwrap();
+
+    // Try to delete the metadata - should fail because offer references it
+    let result = store.delete_metadata("default", &metadata_id).await;
+    assert!(result.is_err());
+
+    let error: OfferStoreError = result.unwrap_err().into();
+    match error.source() {
+        OfferStoreErrorSourceKind::InvalidInput(_) => {
+            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+        }
+        _ => panic!("Expected InvalidInput, got {:?}", error.source()),
+    }
+
+    // Delete the referencing offer
+    let delete_result = store.delete_offer("default", &offer_id).await.unwrap();
+    assert!(delete_result);
+
+    // Second attempt to delete the metadata should succeed
+    let second_result = store
+        .delete_metadata("default", &metadata_id)
+        .await
+        .unwrap();
+    assert!(second_result);
 }
 
 pub async fn test_offer_provider_different_metadata_different_hashes<S>(store: S)

@@ -396,6 +396,10 @@ impl OfferMetadataStore for HttpOfferStore {
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
+            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
+                format!("delete metadata {partition}/{id}"),
+                "bad request".to_string(),
+            )),
             status => Err(OfferStoreError::http_status_error(
                 ServiceErrorSource::Upstream,
                 format!("removing offer metadata {id}"),

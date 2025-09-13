@@ -180,3 +180,10 @@ async fn test_sqlite_put_offer_with_missing_metadata() {
     let store = create_sqlite_store(t.path()).await;
     offer::test_put_offer_with_missing_metadata(store).await;
 }
+
+#[tokio::test]
+async fn test_sqlite_delete_metadata_with_referencing_offers() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    offer::test_delete_metadata_with_referencing_offers(store).await;
+}

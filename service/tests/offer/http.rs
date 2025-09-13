@@ -190,6 +190,13 @@ async fn test_http_put_offer_with_missing_metadata() {
 }
 
 #[tokio::test]
+async fn test_http_delete_metadata_with_referencing_offers() {
+    let (store, service) = create_http_store().await;
+    offer::test_delete_metadata_with_referencing_offers(store).await;
+    service.shutdown().await;
+}
+
+#[tokio::test]
 async fn test_http_health() {
     let (store, service) = create_http_store().await;
     store.health().await.unwrap();

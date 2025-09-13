@@ -515,6 +515,52 @@ mod tests {
         assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     }
 
+    #[tokio::test]
+    async fn delete_metadata_when_referenced_by_offers_then_returns_bad_request() {
+        // Create metadata first
+        let test_metadata = create_test_metadata();
+        let metadata_id = test_metadata.id;
+        let server = create_test_server_with_metadata(test_metadata).await;
+
+        // Create offer that references this metadata
+        let test_offer = create_test_offer_with_metadata_id(metadata_id);
+        let response = server
+            .server
+            .put(&format!("/offers/default/{}", test_offer.id))
+            .authorization_bearer(server.authorization.clone())
+            .json(&test_offer.offer)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::CREATED);
+
+        // Try to delete the metadata - should fail because offer references it
+        let response = server
+            .server
+            .delete(&format!("/metadata/default/{metadata_id}"))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+
+        // Delete the referencing offer
+        let delete_offer_response = server
+            .server
+            .delete(&format!("/offers/default/{}", test_offer.id))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+
+        assert_eq!(delete_offer_response.status_code(), StatusCode::NO_CONTENT);
+
+        // Second attempt to delete the metadata should succeed
+        let second_response = server
+            .server
+            .delete(&format!("/metadata/default/{metadata_id}"))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+
+        assert_eq!(second_response.status_code(), StatusCode::NO_CONTENT);
+    }
+
     // Metadata Tests
 
     #[tokio::test]

@@ -155,3 +155,9 @@ async fn test_postgres_put_offer_with_missing_metadata() {
     let (store, _guard) = create_postgres_store().await;
     offer::test_put_offer_with_missing_metadata(store).await;
 }
+
+#[tokio::test]
+async fn test_postgres_delete_metadata_with_referencing_offers() {
+    let (store, _guard) = create_postgres_store().await;
+    offer::test_delete_metadata_with_referencing_offers(store).await;
+}
