@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-pub use tonic_0_14_2 as tonic;
 use tonic::service::{Interceptor, interceptor::InterceptedService};
 
 use hyper_util::client::legacy::connect::HttpConnector;
@@ -19,12 +18,9 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use rustls_pemfile;
 
-pub mod ln_lnd {
-    include!(concat!(env!("OUT_DIR"), "/ln/lnrpc.rs"));
-}
+tonic::include_proto!("lnrpc");
 
-use ln_lnd::lightning_client::LightningClient;
-use ln_lnd::{ChannelBalanceRequest, Invoice};
+use lightning_client::LightningClient;
 
 type ClientCredentials = (Vec<u8>, Vec<u8>);
 

@@ -12,17 +12,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::time::timeout;
-pub use tonic_0_14_2 as tonic;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
 use url::Url;
 
-pub mod ln_cln {
-    include!(concat!(env!("OUT_DIR"), "/ln/cln.rs"));
-}
+tonic::include_proto!("cln");
 
-use ln_cln::node_client::NodeClient;
-use ln_cln::{AmountOrAny, InvoiceRequest, ListpeerchannelsRequest};
+use node_client::NodeClient;
 
 type ClientCredentials = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -302,10 +298,10 @@ impl InnerTonicClnGrpcClient {
         let request = InvoiceRequest {
             amount_msat: match amount_msat {
                 Some(msat) => Some(AmountOrAny {
-                    value: Some(ln_cln::amount_or_any::Value::Amount(ln_cln::Amount { msat })),
+                    value: Some(amount_or_any::Value::Amount(Amount { msat })),
                 }),
                 None => Some(AmountOrAny {
-                    value: Some(ln_cln::amount_or_any::Value::Any(true)),
+                    value: Some(amount_or_any::Value::Any(true)),
                 }),
             },
             description: description_str,

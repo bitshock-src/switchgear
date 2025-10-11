@@ -5,10 +5,6 @@ pub(crate) mod discovery;
 pub(crate) mod lnurl;
 pub(crate) mod offer;
 
-extern crate tonic_0_14_2 as tonic;
-extern crate prost_0_14_1 as prost;
-
-
 pub use axum::extract::scheme;
 
 pub use crate::discovery::auth::DiscoveryAudience;
