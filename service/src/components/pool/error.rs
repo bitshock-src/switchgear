@@ -1,9 +1,9 @@
 use crate::api::service::{HasServiceErrorSource, ServiceErrorSource};
+use http;
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
-use tonic::{Code, Status, transport};
-use http;
+use tonic::{transport, Code, Status};
 
 #[derive(Error, Debug)]
 pub enum LnPoolErrorSourceKind {
@@ -20,13 +20,9 @@ pub enum LnPoolErrorSourceKind {
     #[error("invalid credentials for {0}")]
     InvalidCredentials(String),
     #[error("invalid endpoint URI: {0}")]
-    InvalidEndpointUri(
-        http::uri::InvalidUri,
-    ),
+    InvalidEndpointUri(http::uri::InvalidUri),
     #[error("memory error: {0}")]
-    MemoryError(
-        String
-    ),
+    MemoryError(String),
 }
 
 #[derive(Error, Debug)]
@@ -97,10 +93,7 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_cln_tonic_error<C: Into<Cow<'static, str>>>(
-        source: Status,
-        context: C,
-    ) -> Self {
+    pub fn from_cln_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
         let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::ClnTonicError(source),
@@ -121,10 +114,7 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_lnd_tonic_error<C: Into<Cow<'static, str>>>(
-        source: Status,
-        context: C,
-    ) -> Self {
+    pub fn from_lnd_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
         let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::LndTonicError(source),
@@ -157,10 +147,7 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_memory_error<C: Into<Cow<'static, str>>>(
-        source: String,
-        context: C,
-    ) -> Self {
+    pub fn from_memory_error<C: Into<Cow<'static, str>>>(source: String, context: C) -> Self {
         Self::new(
             LnPoolErrorSourceKind::MemoryError(source),
             ServiceErrorSource::Internal,
@@ -180,9 +167,7 @@ impl LnPoolError {
         self.esource
     }
 
-    fn from_tonic_code(
-        code: Code,
-    ) -> ServiceErrorSource {
+    fn from_tonic_code(code: Code) -> ServiceErrorSource {
         match code {
             Code::InvalidArgument | Code::OutOfRange | Code::AlreadyExists => {
                 ServiceErrorSource::Downstream

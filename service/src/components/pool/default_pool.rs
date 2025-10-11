@@ -1,9 +1,9 @@
 use crate::api::discovery::{DiscoveryBackend, DiscoveryBackendImplementation};
 use crate::api::offer::Offer;
 use crate::api::service::ServiceErrorSource;
-use crate::components::pool::cln::grpc::tonic_client::TonicClnGrpcClient;
+use crate::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use crate::components::pool::error::LnPoolError;
-use crate::components::pool::lnd::grpc::tonic_client::TonicLndGrpcClient;
+use crate::components::pool::lnd::grpc::client::TonicLndGrpcClient;
 use crate::components::pool::{
     Bolt11InvoiceDescription, LnClientPool, LnMetrics, LnMetricsCache, LnRpcClient,
 };

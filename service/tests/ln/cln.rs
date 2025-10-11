@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
-use switchgear_service::components::pool::cln::grpc::tonic_client::TonicClnGrpcClient;
+use switchgear_service::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
 
 async fn try_create_cln_tonic_client() -> anyhow::Result<

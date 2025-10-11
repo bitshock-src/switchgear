@@ -9,18 +9,21 @@ use sha2::Digest;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tonic::service::{Interceptor, interceptor::InterceptedService};
+use tonic::service::{interceptor::InterceptedService, Interceptor};
 
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_timeout::TimeoutConnector;
-use rustls::client::danger::{ServerCertVerifier, HandshakeSignatureValid, ServerCertVerified};
+use hyper_util::client::legacy::connect::HttpConnector;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use rustls_pemfile;
 
-tonic::include_proto!("lnrpc");
+#[allow(clippy::all)]
+pub mod lnrpc {
+    tonic::include_proto!("lnrpc");
+}
 
-use lightning_client::LightningClient;
+use lnrpc::lightning_client::LightningClient;
 
 type ClientCredentials = (Vec<u8>, Vec<u8>);
 
@@ -59,11 +62,7 @@ impl TonicLndGrpcClient {
         match inner.as_ref() {
             None => {
                 let inner_connect = Arc::new(
-                    InnerTonicLndGrpcClient::connect(
-                        self.timeout,
-                        self.config.clone(),
-                    )
-                    .await?,
+                    InnerTonicLndGrpcClient::connect(self.timeout, self.config.clone()).await?,
                 );
                 *inner = Some(inner_connect.clone());
                 Ok(inner_connect)
@@ -90,7 +89,9 @@ impl LnRpcClient for TonicLndGrpcClient {
     ) -> Result<String, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = inner.get_invoice(amount_msat, description, expiry_secs).await;
+        let r = inner
+            .get_invoice(amount_msat, description, expiry_secs)
+            .await;
 
         if r.is_err() {
             self.inner_disconnect().await;
@@ -205,7 +206,7 @@ impl InnerTonicLndGrpcClient {
                 LnPoolError::from_invalid_configuration(
                     "No default crypto provider installed",
                     ServiceErrorSource::Internal,
-                    "getting default crypto provider for LND TLS verification"
+                    "getting default crypto provider for LND TLS verification",
                 )
             })?
             .clone();
@@ -214,7 +215,7 @@ impl InnerTonicLndGrpcClient {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(LndCertificateVerifier::new(
                 cert_der.to_vec(),
-                crypto_provider
+                crypto_provider,
             )))
             .with_no_client_auth();
 
@@ -229,15 +230,16 @@ impl InnerTonicLndGrpcClient {
         timeout_connector.set_read_timeout(Some(timeout));
         timeout_connector.set_write_timeout(Some(timeout));
 
-        let http_client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(timeout_connector);
+        let http_client =
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(timeout_connector);
 
         let macaroon_hex = hex::encode(macaroon_bytes);
         let service = InterceptedService::new(
             http_client,
             MacaroonInterceptor {
                 macaroon: macaroon_hex,
-            }
+            },
         );
 
         Ok(service)
@@ -253,14 +255,13 @@ impl InnerTonicLndGrpcClient {
 
         let (memo, description_hash) = match description {
             Bolt11InvoiceDescription::Direct(d) => (d.to_string(), vec![]),
-            Bolt11InvoiceDescription::DirectIntoHash(d) => (
-                String::new(),
-                sha2::Sha256::digest(d.as_bytes()).to_vec(),
-            ),
+            Bolt11InvoiceDescription::DirectIntoHash(d) => {
+                (String::new(), sha2::Sha256::digest(d.as_bytes()).to_vec())
+            }
             Bolt11InvoiceDescription::Hash(h) => (String::new(), h.to_vec()),
         };
 
-        let invoice_request = Invoice {
+        let invoice_request = lnrpc::Invoice {
             memo,
             value_msat: amount_msat.unwrap_or(0) as i64,
             description_hash,
@@ -289,7 +290,7 @@ impl InnerTonicLndGrpcClient {
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let mut client = self.client.clone();
 
-        let channel_balance_request = ChannelBalanceRequest {};
+        let channel_balance_request = lnrpc::ChannelBalanceRequest {};
         let channels_balance_response = client
             .channel_balance(channel_balance_request)
             .await
@@ -306,7 +307,7 @@ impl InnerTonicLndGrpcClient {
 
         let node_effective_inbound_msat = channels_balance_response
             .remote_balance
-            .map(|balance| balance.msat as u64)
+            .map(|balance| balance.msat)
             .unwrap_or(0);
 
         Ok(LnMetrics {

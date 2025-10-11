@@ -7,7 +7,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
-use switchgear_service::components::pool::lnd::grpc::tonic_client::TonicLndGrpcClient;
+use switchgear_service::components::pool::lnd::grpc::client::TonicLndGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
 
 type LnClientBox = Box<

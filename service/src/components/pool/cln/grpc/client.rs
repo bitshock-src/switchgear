@@ -15,9 +15,12 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity
 
 use url::Url;
 
-tonic::include_proto!("cln");
+#[allow(clippy::all)]
+pub mod cln {
+    tonic::include_proto!("cln");
+}
 
-use node_client::NodeClient;
+use cln::node_client::NodeClient;
 
 type ClientCredentials = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -267,13 +270,13 @@ impl InnerTonicClnGrpcClient {
         let label = format!("{label}:{}", now.as_nanos());
 
         let mut client = self.client.clone();
-        let request = InvoiceRequest {
+        let request = cln::InvoiceRequest {
             amount_msat: match amount_msat {
-                Some(msat) => Some(AmountOrAny {
-                    value: Some(amount_or_any::Value::Amount(Amount { msat })),
+                Some(msat) => Some(cln::AmountOrAny {
+                    value: Some(cln::amount_or_any::Value::Amount(cln::Amount { msat })),
                 }),
-                None => Some(AmountOrAny {
-                    value: Some(amount_or_any::Value::Any(true)),
+                None => Some(cln::AmountOrAny {
+                    value: Some(cln::amount_or_any::Value::Any(true)),
                 }),
             },
             description: description_str,
@@ -301,7 +304,7 @@ impl InnerTonicClnGrpcClient {
     }
 
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
-        let channels_request = ListpeerchannelsRequest {
+        let channels_request = cln::ListpeerchannelsRequest {
             id: None,
             short_channel_id: None,
         };
