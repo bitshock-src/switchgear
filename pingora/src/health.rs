@@ -60,7 +60,7 @@ mod tests {
     use switchgear_service::api::discovery::DiscoveryBackend;
     use switchgear_service::api::offer::Offer;
     use switchgear_service::api::service::ServiceErrorSource;
-    use switchgear_service::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
+    use switchgear_service::components::pool::error::LnPoolError;
     use switchgear_service::components::pool::LnMetrics;
 
     struct MockPingoraLnClientPool {
@@ -88,10 +88,10 @@ mod tests {
                 Err(PingoraLnError::from_pool_err(
                     ServiceErrorSource::Upstream,
                     "metrics failure",
-                    LnPoolError::new(
-                        LnPoolErrorSourceKind::Generic,
-                        ServiceErrorSource::Upstream,
+                    LnPoolError::from_invalid_configuration(
                         "unknown error",
+                        ServiceErrorSource::Upstream,
+                        "get_metrics",
                     ),
                 ))
             } else {

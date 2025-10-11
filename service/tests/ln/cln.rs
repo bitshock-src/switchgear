@@ -7,10 +7,10 @@ use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
-use switchgear_service::components::pool::cln::grpc::client::DefaultClnGrpcClient;
+use switchgear_service::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
 
-async fn try_create_cln_client() -> anyhow::Result<
+async fn try_create_cln_tonic_client() -> anyhow::Result<
     Option<
         Box<
             dyn LnRpcClient<Error = switchgear_service::components::pool::error::LnPoolError>
@@ -20,6 +20,9 @@ async fn try_create_cln_client() -> anyhow::Result<
         >,
     >,
 > {
+    // Install default crypto provider for rustls
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let backend = match try_create_cln_backend()? {
         None => return Ok(None),
         Some(backend) => match backend.backend.implementation {
@@ -28,14 +31,14 @@ async fn try_create_cln_client() -> anyhow::Result<
         },
     };
 
-    let client = DefaultClnGrpcClient::create(Duration::from_secs(1), backend)?;
+    let client = TonicClnGrpcClient::create(Duration::from_secs(1), backend)?;
 
     Ok(Some(Box::new(client)))
 }
 
 #[tokio::test]
-async fn test_cln_invoice_with_direct_description() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_invoice_with_direct_description() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -86,8 +89,8 @@ async fn test_cln_invoice_with_direct_description() {
 }
 
 #[tokio::test]
-async fn test_cln_invoice_with_direct_into_hash_description() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_invoice_with_direct_into_hash_description() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -136,8 +139,8 @@ async fn test_cln_invoice_with_direct_into_hash_description() {
 }
 
 #[tokio::test]
-async fn test_cln_invoice_with_hash_description_produces_error() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_invoice_with_hash_description_produces_error() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -175,8 +178,8 @@ async fn test_cln_invoice_with_hash_description_produces_error() {
 }
 
 #[tokio::test]
-async fn test_cln_invoice_with_none_amount() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_invoice_with_none_amount() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -220,8 +223,8 @@ async fn test_cln_invoice_with_none_amount() {
 }
 
 #[tokio::test]
-async fn test_cln_invoice_with_none_expiry() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_invoice_with_none_expiry() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -267,8 +270,8 @@ async fn test_cln_invoice_with_none_expiry() {
 }
 
 #[tokio::test]
-async fn test_cln_metrics() {
-    let client = match try_create_cln_client().await {
+async fn test_cln_tonic_metrics() {
+    let client = match try_create_cln_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -277,10 +280,10 @@ async fn test_cln_metrics() {
     let metrics_result = client
         .get_metrics()
         .await
-        .expect("Failed to connect to LND node and retrieve metrics");
+        .expect("Failed to connect to CLN node and retrieve metrics");
 
     assert!(
         metrics_result.healthy,
-        "Expected metrics response (proving LND connectivity) but got None"
+        "Expected metrics response (proving CLN connectivity) but got None"
     );
 }

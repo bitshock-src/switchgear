@@ -2,33 +2,36 @@ use crate::api::service::ServiceErrorSource;
 use crate::components::pool::cln::grpc::config::{
     ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
 };
-use crate::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
+use crate::components::pool::error::LnPoolError;
 use crate::components::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
 use async_trait::async_trait;
-use cln_grpc::pb;
-use cln_grpc::pb::node_client::NodeClient;
 use secp256k1::hashes::hex::DisplayHex;
 use sha2::Digest;
 use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-pub use tonic_0_11_0 as tonic;
+
 use url::Url;
+
+#[allow(clippy::all)]
+pub mod cln {
+    tonic::include_proto!("cln");
+}
+
+use cln::node_client::NodeClient;
 
 type ClientCredentials = (Vec<u8>, Vec<u8>, Vec<u8>);
 
-pub struct DefaultClnGrpcClient {
+pub struct TonicClnGrpcClient {
     timeout: Duration,
     config: ClnGrpcDiscoveryBackendImplementation,
     features: Option<LnFeatures>,
-    inner: Arc<Mutex<Option<Arc<InnerClnGrpcClient>>>>,
+    inner: Arc<Mutex<Option<Arc<InnerTonicClnGrpcClient>>>>,
 }
 
-#[allow(clippy::result_large_err)]
-impl DefaultClnGrpcClient {
+impl TonicClnGrpcClient {
     pub fn create(
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
@@ -43,12 +46,12 @@ impl DefaultClnGrpcClient {
         })
     }
 
-    async fn inner_connect(&self) -> Result<Arc<InnerClnGrpcClient>, LnPoolError> {
+    async fn inner_connect(&self) -> Result<Arc<InnerTonicClnGrpcClient>, LnPoolError> {
         let mut inner = self.inner.lock().await;
         match inner.as_ref() {
             None => {
                 let inner_connect = Arc::new(
-                    InnerClnGrpcClient::connect(
+                    InnerTonicClnGrpcClient::connect(
                         self.timeout,
                         self.config.clone(),
                         self.config.url.clone(),
@@ -69,7 +72,7 @@ impl DefaultClnGrpcClient {
 }
 
 #[async_trait]
-impl LnRpcClient for DefaultClnGrpcClient {
+impl LnRpcClient for TonicClnGrpcClient {
     type Error = LnPoolError;
 
     async fn get_invoice<'a>(
@@ -80,30 +83,12 @@ impl LnRpcClient for DefaultClnGrpcClient {
     ) -> Result<String, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(
-            self.timeout,
-            inner.get_invoice(amount_msat, description, expiry_secs),
-        )
-        .await;
+        let r = inner
+            .get_invoice(amount_msat, description, expiry_secs)
+            .await;
 
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => Err(LnPoolError::from_timeout_error(
-                ServiceErrorSource::Upstream,
-                format!(
-                    "CLN get invoice from {}, requesting invoice",
-                    self.config.url
-                ),
-            )),
-        };
-
-        if let Err(e) = &r {
-            match e.source() {
-                LnPoolErrorSourceKind::ClnTonicError(_) | LnPoolErrorSourceKind::Timeout => {
-                    self.inner_disconnect().await;
-                }
-                _ => {}
-            }
+        if r.is_err() {
+            self.inner_disconnect().await;
         }
         r
     }
@@ -111,28 +96,10 @@ impl LnRpcClient for DefaultClnGrpcClient {
     async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(self.timeout, inner.get_metrics()).await;
+        let r = inner.get_metrics().await;
 
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => {
-                return Err(LnPoolError::from_timeout_error(
-                    ServiceErrorSource::Upstream,
-                    format!(
-                        "CLN get metrics for {}, requesting channels",
-                        self.config.url
-                    ),
-                ));
-            }
-        };
-
-        if let Err(e) = &r {
-            match e.source() {
-                LnPoolErrorSourceKind::ClnTonicError(_) | LnPoolErrorSourceKind::Timeout => {
-                    self.inner_disconnect().await;
-                }
-                _ => {}
-            }
+        if r.is_err() {
+            self.inner_disconnect().await;
         }
         r
     }
@@ -142,12 +109,12 @@ impl LnRpcClient for DefaultClnGrpcClient {
     }
 }
 
-struct InnerClnGrpcClient {
+struct InnerTonicClnGrpcClient {
     client: NodeClient<Channel>,
     config: ClnGrpcDiscoveryBackendImplementation,
 }
 
-impl InnerClnGrpcClient {
+impl InnerTonicClnGrpcClient {
     async fn connect(
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
@@ -159,8 +126,8 @@ impl InnerClnGrpcClient {
             Self::load_client_credentials(&auth)?;
 
         let endpoint = Channel::from_shared(url.to_string()).map_err(|e| {
-            LnPoolError::from_cln_invalid_endpoint_uri(
-                e,
+            LnPoolError::from_invalid_configuration(
+                format!("Invalid endpoint URI: {}", e),
                 ServiceErrorSource::Internal,
                 format!("CLN connecting to endpoint address {url}"),
             )
@@ -181,7 +148,6 @@ impl InnerClnGrpcClient {
         Ok(Self { client, config })
     }
 
-    #[allow(clippy::result_large_err)]
     fn load_client_credentials(
         auth: &ClnGrpcClientAuthPath,
     ) -> Result<ClientCredentials, LnPoolError> {
@@ -194,7 +160,7 @@ impl InnerClnGrpcClient {
                 e.to_string(),
                 ServiceErrorSource::Internal,
                 format!(
-                    "loading CLN credentials {auth:?} and reading CA certificate from path {}",
+                    "loading CLN credentials and reading CA certificate from path {}",
                     ca_cert_path.to_string_lossy()
                 ),
             )
@@ -205,8 +171,8 @@ impl InnerClnGrpcClient {
                 e.to_string(),
                 ServiceErrorSource::Internal,
                 format!(
-                    "loading CLN credentials {auth:?} and reading client certificate from path {}",
-                    ca_cert_path.to_string_lossy(),
+                    "loading CLN credentials and reading client certificate from path {}",
+                    client_cert_path.to_string_lossy()
                 ),
             )
         })?;
@@ -216,7 +182,7 @@ impl InnerClnGrpcClient {
                 e.to_string(),
                 ServiceErrorSource::Internal,
                 format!(
-                    "loading CLN credentials {auth:?} and reading client key from path {}",
+                    "loading CLN credentials and reading client key from path {}",
                     client_key_path.to_string_lossy()
                 ),
             )
@@ -246,14 +212,16 @@ impl InnerClnGrpcClient {
         }
 
         let endpoint = endpoint.tls_config(tls_config).map_err(|e| {
-            LnPoolError::from_cln_transport_error(
-                e,
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
                 ServiceErrorSource::Internal,
                 format!("loading CLN TLS configuration into client for {url}"),
             )
         })?;
+
         endpoint
             .connect_timeout(timeout)
+            .timeout(timeout)
             .connect()
             .await
             .map_err(|e| {
@@ -272,10 +240,7 @@ impl InnerClnGrpcClient {
         expiry_secs: Option<u64>,
     ) -> Result<String, LnPoolError> {
         let (description_str, deschashonly, label) = match description {
-            Bolt11InvoiceDescription::Direct(d) => {
-                // Use the direct description as the label
-                (d.to_string(), Some(false), d.to_string())
-            }
+            Bolt11InvoiceDescription::Direct(d) => (d.to_string(), Some(false), d.to_string()),
             Bolt11InvoiceDescription::DirectIntoHash(d) => {
                 let hash = sha2::Sha256::digest(d.as_bytes()).to_vec();
                 (d.to_string(), Some(true), hash.to_lower_hex_string())
@@ -304,13 +269,14 @@ impl InnerClnGrpcClient {
         })?;
         let label = format!("{label}:{}", now.as_nanos());
 
-        let request = pb::InvoiceRequest {
+        let mut client = self.client.clone();
+        let request = cln::InvoiceRequest {
             amount_msat: match amount_msat {
-                Some(msat) => Some(pb::AmountOrAny {
-                    value: Some(pb::amount_or_any::Value::Amount(pb::Amount { msat })),
+                Some(msat) => Some(cln::AmountOrAny {
+                    value: Some(cln::amount_or_any::Value::Amount(cln::Amount { msat })),
                 }),
-                None => Some(pb::AmountOrAny {
-                    value: Some(pb::amount_or_any::Value::Any(true)),
+                None => Some(cln::AmountOrAny {
+                    value: Some(cln::amount_or_any::Value::Any(true)),
                 }),
             },
             description: description_str,
@@ -320,9 +286,7 @@ impl InnerClnGrpcClient {
             ..Default::default()
         };
 
-        Ok(self
-            .client
-            .clone()
+        let response = client
             .invoice(request)
             .await
             .map_err(|e| {
@@ -334,22 +298,23 @@ impl InnerClnGrpcClient {
                     ),
                 )
             })?
-            .into_inner()
-            .bolt11)
+            .into_inner();
+
+        Ok(response.bolt11)
     }
 
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
-        // Get channel information
-        let channels_request = pb::ListpeerchannelsRequest { id: None };
-        let channels_response = self
-            .client
-            .clone()
+        let channels_request = cln::ListpeerchannelsRequest {
+            id: None,
+            short_channel_id: None,
+        };
+        let mut client = self.client.clone();
+        let channels_response = client
             .list_peer_channels(channels_request)
             .await
             .map_err(|e| {
-                LnPoolError::from_cln_tonic_error_with_esource(
+                LnPoolError::from_cln_tonic_error(
                     e,
-                    ServiceErrorSource::Upstream,
                     format!(
                         "CLN get metrics for {}, requesting channels",
                         self.config.url
@@ -360,8 +325,10 @@ impl InnerClnGrpcClient {
 
         let mut node_effective_inbound_msat = 0u64;
 
+        const CHANNELD_NORMAL: i32 = 2;
+
         for channel in &channels_response.channels {
-            if channel.state == pb::ChannelState::ChanneldNormal as i32 {
+            if channel.state == CHANNELD_NORMAL {
                 let receivable_msat = channel
                     .receivable_msat
                     .as_ref()

@@ -1,32 +1,28 @@
 use crate::api::service::{HasServiceErrorSource, ServiceErrorSource};
+use http;
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
+use tonic::{transport, Code, Status};
 
 #[derive(Error, Debug)]
 pub enum LnPoolErrorSourceKind {
     #[error("CLN tonic gRPC error: {0}")]
-    ClnTonicError(crate::components::pool::cln::grpc::client::tonic::Status),
+    ClnTonicError(Status),
     #[error("LND tonic gRPC error: {0}")]
-    LndTonicError(crate::components::pool::lnd::grpc::client::tonic::Status),
+    LndTonicError(Status),
     #[error("CLN transport connection error: {0}")]
-    ClnTransportError(crate::components::pool::cln::grpc::client::tonic::transport::Error),
+    ClnTransportError(transport::Error),
     #[error("LND transport connection error: {0}")]
-    LndTransportError(crate::components::pool::lnd::grpc::client::tonic::transport::Error),
-    #[error("LND connection error: {0}")]
-    LndConnectError(fedimint_tonic_lnd::ConnectError),
-    #[error("Generic Lightning pool operation failed")]
-    Generic,
+    LndTransportError(transport::Error),
     #[error("invalid configuration for: {0}")]
     InvalidConfiguration(String),
     #[error("invalid credentials for {0}")]
     InvalidCredentials(String),
     #[error("invalid endpoint URI: {0}")]
-    InvalidEndpointUri(
-        crate::components::pool::cln::grpc::client::tonic::codegen::http::uri::InvalidUri,
-    ),
-    #[error("operation timed out")]
-    Timeout,
+    InvalidEndpointUri(http::uri::InvalidUri),
+    #[error("memory error: {0}")]
+    MemoryError(String),
 }
 
 #[derive(Error, Debug)]
@@ -49,7 +45,7 @@ impl Display for LnPoolError {
 }
 
 impl LnPoolError {
-    pub fn new<C: Into<Cow<'static, str>>>(
+    fn new<C: Into<Cow<'static, str>>>(
         source: LnPoolErrorSourceKind,
         esource: ServiceErrorSource,
         context: C,
@@ -86,7 +82,7 @@ impl LnPoolError {
     }
 
     pub fn from_cln_invalid_endpoint_uri<C: Into<Cow<'static, str>>>(
-        invalid_uri: crate::components::pool::cln::grpc::client::tonic::codegen::http::uri::InvalidUri,
+        invalid_uri: http::uri::InvalidUri,
         esource: ServiceErrorSource,
         context: C,
     ) -> Self {
@@ -97,11 +93,8 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_cln_tonic_error<C: Into<Cow<'static, str>>>(
-        source: crate::components::pool::cln::grpc::client::tonic::Status,
-        context: C,
-    ) -> Self {
-        let esource = Self::from_cln_tonic_code(source.code());
+    pub fn from_cln_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
+        let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::ClnTonicError(source),
             esource,
@@ -110,7 +103,7 @@ impl LnPoolError {
     }
 
     pub fn from_cln_tonic_error_with_esource<C: Into<Cow<'static, str>>>(
-        source: crate::components::pool::cln::grpc::client::tonic::Status,
+        source: Status,
         esource: ServiceErrorSource,
         context: C,
     ) -> Self {
@@ -121,12 +114,8 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_lnd_tonic_error<C: Into<Cow<'static, str>>>(
-        source: crate::components::pool::lnd::grpc::client::tonic::Status,
-        context: C,
-    ) -> Self {
-        let esource = Self::from_lnd_tonic_code(source.code());
-
+    pub fn from_lnd_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
+        let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::LndTonicError(source),
             esource,
@@ -135,7 +124,7 @@ impl LnPoolError {
     }
 
     pub fn from_lnd_tonic_error_with_esource<C: Into<Cow<'static, str>>>(
-        source: crate::components::pool::lnd::grpc::client::tonic::Status,
+        source: Status,
         esource: ServiceErrorSource,
         context: C,
     ) -> Self {
@@ -147,7 +136,7 @@ impl LnPoolError {
     }
 
     pub fn from_cln_transport_error<C: Into<Cow<'static, str>>>(
-        source: crate::components::pool::cln::grpc::client::tonic::transport::Error,
+        source: transport::Error,
         esource: ServiceErrorSource,
         context: C,
     ) -> Self {
@@ -158,23 +147,12 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_lnd_connect_error<C: Into<Cow<'static, str>>>(
-        source: fedimint_tonic_lnd::ConnectError,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
+    pub fn from_memory_error<C: Into<Cow<'static, str>>>(source: String, context: C) -> Self {
         Self::new(
-            LnPoolErrorSourceKind::LndConnectError(source),
-            esource,
+            LnPoolErrorSourceKind::MemoryError(source),
+            ServiceErrorSource::Internal,
             context,
         )
-    }
-
-    pub fn from_timeout_error<C: Into<Cow<'static, str>>>(
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(LnPoolErrorSourceKind::Timeout, esource, context)
     }
 
     pub fn context(&self) -> &str {
@@ -189,25 +167,9 @@ impl LnPoolError {
         self.esource
     }
 
-    pub fn from_cln_tonic_code(
-        code: crate::components::pool::cln::grpc::client::tonic::Code,
-    ) -> ServiceErrorSource {
+    fn from_tonic_code(code: Code) -> ServiceErrorSource {
         match code {
-            crate::components::pool::cln::grpc::client::tonic::Code::InvalidArgument
-            | crate::components::pool::cln::grpc::client::tonic::Code::OutOfRange => {
-                ServiceErrorSource::Downstream
-            }
-
-            _ => ServiceErrorSource::Upstream,
-        }
-    }
-
-    pub fn from_lnd_tonic_code(
-        code: crate::components::pool::lnd::grpc::client::tonic::Code,
-    ) -> ServiceErrorSource {
-        match code {
-            crate::components::pool::lnd::grpc::client::tonic::Code::OutOfRange
-            | crate::components::pool::lnd::grpc::client::tonic::Code::AlreadyExists => {
+            Code::InvalidArgument | Code::OutOfRange | Code::AlreadyExists => {
                 ServiceErrorSource::Downstream
             }
 

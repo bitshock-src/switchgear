@@ -2,8 +2,13 @@
 name = "switchgear-testing"
 version = "0.1.2"
 edition = "2021"
-
-publish = false
+authors = ["Bitshock <info@bitshock.com>"]
+description = "CI Integration Testing Framework for Switchgear"
+documentation = "https://github.com/bitshock-src/switchgear"
+homepage = "https://bitshock.com"
+repository = "https://github.com/bitshock-src/switchgear"
+license = "Apache-2.0"
+publish = true
 
 [dependencies]
 anyhow = "1.0"

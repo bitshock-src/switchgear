@@ -7,7 +7,7 @@ use sha2::Digest;
 use std::str::FromStr;
 use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
-use switchgear_service::components::pool::lnd::grpc::client::DefaultLndGrpcClient;
+use switchgear_service::components::pool::lnd::grpc::client::TonicLndGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
 
 type LnClientBox = Box<
@@ -17,7 +17,9 @@ type LnClientBox = Box<
         + 'static,
 >;
 
-async fn try_create_lnd_client() -> anyhow::Result<Option<LnClientBox>> {
+async fn try_create_lnd_tonic_client() -> anyhow::Result<Option<LnClientBox>> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let backend = match try_create_lnd_backend()? {
         None => return Ok(None),
         Some(backend) => match backend.backend.implementation {
@@ -26,16 +28,16 @@ async fn try_create_lnd_client() -> anyhow::Result<Option<LnClientBox>> {
         },
     };
 
-    let client = DefaultLndGrpcClient::create(Duration::from_secs(1), backend)?;
+    let client = TonicLndGrpcClient::create(Duration::from_secs(1), backend)?;
 
     Ok(Some(Box::new(client)))
 }
 
 #[tokio::test]
-async fn test_lnd_invoice_with_direct_description() {
-    let client = match try_create_lnd_client().await {
+async fn test_lnd_tonic_invoice_with_direct_description() {
+    let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
-        Ok(None) => return, // Test skipped gracefully
+        Ok(None) => return,
         Err(e) => panic!("{}", e),
     };
 
@@ -84,8 +86,8 @@ async fn test_lnd_invoice_with_direct_description() {
 }
 
 #[tokio::test]
-async fn test_lnd_invoice_with_hash_description() {
-    let client = match try_create_lnd_client().await {
+async fn test_lnd_tonic_invoice_with_hash_description() {
+    let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -128,8 +130,8 @@ async fn test_lnd_invoice_with_hash_description() {
 }
 
 #[tokio::test]
-async fn test_lnd_invoice_with_none_amount() {
-    let client = match try_create_lnd_client().await {
+async fn test_lnd_tonic_invoice_with_none_amount() {
+    let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -173,8 +175,8 @@ async fn test_lnd_invoice_with_none_amount() {
 }
 
 #[tokio::test]
-async fn test_lnd_invoice_with_direct_into_hash_description() {
-    let client = match try_create_lnd_client().await {
+async fn test_lnd_tonic_invoice_with_direct_into_hash_description() {
+    let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -227,10 +229,10 @@ async fn test_lnd_invoice_with_direct_into_hash_description() {
 }
 
 #[tokio::test]
-async fn test_lnd_metrics() {
-    let client = match try_create_lnd_client().await {
+async fn test_lnd_tonic_metrics() {
+    let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
-        Ok(None) => return, // Test skipped gracefully
+        Ok(None) => return,
         Err(e) => panic!("{}", e),
     };
 

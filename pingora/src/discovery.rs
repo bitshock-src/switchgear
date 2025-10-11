@@ -191,7 +191,7 @@ mod tests {
     };
     use switchgear_service::api::offer::Offer;
     use switchgear_service::api::service::ServiceErrorSource;
-    use switchgear_service::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
+    use switchgear_service::components::pool::error::LnPoolError;
     use switchgear_service::components::pool::LnClientPool;
     use switchgear_service::components::pool::LnMetrics;
     use tokio::sync::Mutex;
@@ -214,11 +214,13 @@ mod tests {
                 .map(|s| s.into_iter().collect::<Vec<_>>())
                 .ok_or_else(|| {
                     PingoraLnError::new(
-                        crate::error::PingoraLnErrorSourceKind::PoolError(LnPoolError::new(
-                            LnPoolErrorSourceKind::Generic,
-                            ServiceErrorSource::Internal,
-                            "Mock BackendProvider forced error",
-                        )),
+                        crate::error::PingoraLnErrorSourceKind::PoolError(
+                            LnPoolError::from_invalid_configuration(
+                                "Mock BackendProvider forced error",
+                                ServiceErrorSource::Internal,
+                                "get_offer_invoice",
+                            ),
+                        ),
                         ServiceErrorSource::Internal,
                         "Mock BackendProvider forced error",
                     )
@@ -252,11 +254,13 @@ mod tests {
         fn connect(&self, _key: Self::Key, _backend: &DiscoveryBackend) -> Result<(), Self::Error> {
             if self.should_fail_connect {
                 Err(PingoraLnError::new(
-                    crate::error::PingoraLnErrorSourceKind::PoolError(LnPoolError::new(
-                        LnPoolErrorSourceKind::Generic,
-                        ServiceErrorSource::Internal,
-                        "Mock LnClientPool forced connect error",
-                    )),
+                    crate::error::PingoraLnErrorSourceKind::PoolError(
+                        LnPoolError::from_invalid_configuration(
+                            "Mock LnClientPool forced connect error",
+                            ServiceErrorSource::Internal,
+                            "get_offer_invoice",
+                        ),
+                    ),
                     ServiceErrorSource::Upstream,
                     "Mock LnClientPool forced connect error",
                 ))
@@ -450,11 +454,13 @@ mod tests {
                     .any(|fail_addr| addr_str.contains(fail_addr))
                 {
                     Err(PingoraLnError::new(
-                        crate::error::PingoraLnErrorSourceKind::PoolError(LnPoolError::new(
-                            LnPoolErrorSourceKind::Generic,
-                            ServiceErrorSource::Upstream,
-                            format!("Forced failure for address: {addr_str}"),
-                        )),
+                        crate::error::PingoraLnErrorSourceKind::PoolError(
+                            LnPoolError::from_invalid_configuration(
+                                format!("Forced failure for address: {addr_str}"),
+                                ServiceErrorSource::Upstream,
+                                "get_metrics".to_string(),
+                            ),
+                        ),
                         ServiceErrorSource::Upstream,
                         "Selective mock pool forced connect error",
                     ))
