@@ -41,6 +41,7 @@ COPY server/Cargo.toml ./server/Cargo.toml
 
 COPY service/src ./service/src
 COPY service/proto ./service/proto
+COPY service/build.rs ./service/build.rs
 COPY service/Cargo.toml ./service/Cargo.toml
 
 COPY pingora/src ./pingora/src
@@ -49,7 +50,9 @@ COPY pingora/Cargo.toml ./pingora/Cargo.toml
 COPY migration/src ./migration/src
 COPY migration/Cargo.toml ./migration/Cargo.toml
 
-COPY testing/Cargo-empty.toml ./testing/Cargo.toml
+COPY testing/Cargo.toml ./testing/Cargo-src.toml
+
+RUN sed '/^\[dependencies\]/q' ./testing/Cargo-src.toml > ./testing/Cargo.toml
 
 RUN mkdir -p ./testing/src && touch ./testing/src/lib.rs
 
