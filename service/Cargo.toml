@@ -27,13 +27,19 @@ cln-grpc = "0.4.0"
 email_address = "0.2.9"
 fedimint-tonic-lnd = "0.2.0"
 fs4 = { version = "0.13.1", features = ["tokio"] }
+hex = "0.4"
 http = "1.3.1"
+hyper-util = "0.1"
+hyper-rustls = { version = "0.27.7", features = ["http2", "tls12"], default-features = false }
 image = "0.25.6"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.0"
 jsonwebtoken = "9.3.1"
 lightning-invoice = { version = "0.33.2", features = ["serde", "std"] }
 log = "0.4"
 switchgear-migration = { version = "0.1.0", path = "../migration" }
 prost = "0.12"
+prost_0_14_1 = { package = "prost", version = "0.14.1" }
 qrcode = "0.14.1"
 rand = "0.8.5"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -48,9 +54,14 @@ tempfile = "3.0"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
 tonic_0_11_0 = { package = "tonic", version = "0.11.0", features = ["transport"] }
+tonic_0_14_2 = { package = "tonic", version = "0.14.2", features = ["transport", "tls-ring", "tls-webpki-roots"] }
+tonic-prost = "0.14.2"
 tower = { version = "0.5.2", features = ["balance"] }
 url = { version = "2.5.4", features = ["serde"] }
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
+
+[build-dependencies]
+tonic-prost-build_0_14_2 = { package = "tonic-prost-build", version = "0.14.2" }
 
 [dev-dependencies]
 anyhow = "1.0"
@@ -60,3 +71,4 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 pkcs8 = { version = "0.10", features = ["pem"] }
 rand = "0.8.5"
 rqrr = "0.7.1"
+hyper-util = "0.1"
