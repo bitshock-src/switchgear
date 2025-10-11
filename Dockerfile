@@ -40,6 +40,7 @@ COPY server/src ./server/src
 COPY server/Cargo.toml ./server/Cargo.toml
 
 COPY service/src ./service/src
+COPY service/proto ./service/proto
 COPY service/Cargo.toml ./service/Cargo.toml
 
 COPY pingora/src ./pingora/src
