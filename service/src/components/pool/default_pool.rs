@@ -1,9 +1,9 @@
 use crate::api::discovery::{DiscoveryBackend, DiscoveryBackendImplementation};
 use crate::api::offer::Offer;
 use crate::api::service::ServiceErrorSource;
-use crate::components::pool::cln::grpc::client::DefaultClnGrpcClient;
+use crate::components::pool::cln::grpc::tonic_client::TonicClnGrpcClient;
 use crate::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
-use crate::components::pool::lnd::grpc::client::DefaultLndGrpcClient;
+use crate::components::pool::lnd::grpc::tonic_client::TonicLndGrpcClient;
 use crate::components::pool::{
     Bolt11InvoiceDescription, LnClientPool, LnMetrics, LnMetricsCache, LnRpcClient,
 };
@@ -115,10 +115,10 @@ where
         let client: Box<dyn LnRpcClient<Error = LnPoolError> + std::marker::Send + Sync> =
             match &backend.backend.implementation {
                 DiscoveryBackendImplementation::ClnGrpc(c) => {
-                    Box::new(DefaultClnGrpcClient::create(self.timeout, c.clone())?)
+                    Box::new(TonicClnGrpcClient::create(self.timeout, c.clone())?)
                 }
                 DiscoveryBackendImplementation::LndGrpc(c) => {
-                    Box::new(DefaultLndGrpcClient::create(self.timeout, c.clone())?)
+                    Box::new(TonicLndGrpcClient::create(self.timeout, c.clone())?)
                 }
                 DiscoveryBackendImplementation::RemoteHttp => {
                     return Err(LnPoolError::new(

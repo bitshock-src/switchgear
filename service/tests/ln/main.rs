@@ -15,9 +15,7 @@ use url::Url;
 #[path = "../common/mod.rs"]
 pub mod common;
 
-mod cln;
 mod cln_tonic;
-mod lnd;
 mod lnd_tonic;
 
 pub fn try_create_cln_backend() -> anyhow::Result<Option<DiscoveryBackend>> {

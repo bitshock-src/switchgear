@@ -20,6 +20,9 @@ async fn try_create_cln_tonic_client() -> anyhow::Result<
         >,
     >,
 > {
+    // Install default crypto provider for rustls
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let backend = match try_create_cln_backend()? {
         None => return Ok(None),
         Some(backend) => match backend.backend.implementation {
