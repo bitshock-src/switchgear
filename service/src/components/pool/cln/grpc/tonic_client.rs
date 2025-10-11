@@ -209,8 +209,8 @@ impl InnerTonicClnGrpcClient {
         }
 
         let endpoint = endpoint.tls_config(tls_config).map_err(|e| {
-            LnPoolError::from_invalid_configuration(
-                format!("Transport error: {}", e),
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
                 ServiceErrorSource::Internal,
                 format!("loading CLN TLS configuration into client for {url}"),
             )
@@ -222,10 +222,8 @@ impl InnerTonicClnGrpcClient {
             .connect()
             .await
             .map_err(|e| {
-                let error_msg = format!("Transport error: {}", e);
-
-                LnPoolError::from_invalid_configuration(
-                    error_msg,
+                LnPoolError::from_cln_transport_error(
+                    e,
                     ServiceErrorSource::Upstream,
                     format!("connecting CLN client to {url}"),
                 )

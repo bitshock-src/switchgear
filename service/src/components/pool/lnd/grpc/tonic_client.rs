@@ -126,7 +126,7 @@ impl InnerTonicLndGrpcClient {
     ) -> Result<Self, LnPoolError> {
         let LndGrpcClientAuth::Path(auth) = config.auth.clone();
 
-        let (tls_cert, macaroon) = Self::load_client_credentials(&auth).await?;
+        let (tls_cert, macaroon) = Self::load_client_credentials(&config, &auth).await?;
 
         let service = Self::connect_with_tls(&config, &tls_cert, &macaroon, timeout)?;
 
@@ -143,6 +143,7 @@ impl InnerTonicLndGrpcClient {
     }
 
     async fn load_client_credentials(
+        _config: &LndGrpcDiscoveryBackendImplementation,
         auth: &LndGrpcClientAuthPath,
     ) -> Result<ClientCredentials, LnPoolError> {
         let tls_cert_path = &auth.tls_cert_path;
@@ -174,7 +175,7 @@ impl InnerTonicLndGrpcClient {
     }
 
     fn connect_with_tls(
-        _config: &LndGrpcDiscoveryBackendImplementation,
+        config: &LndGrpcDiscoveryBackendImplementation,
         tls_cert_pem: &[u8],
         macaroon_bytes: &[u8],
         timeout: Duration,
@@ -186,7 +187,7 @@ impl InnerTonicLndGrpcClient {
                 LnPoolError::from_invalid_credentials(
                     e.to_string(),
                     ServiceErrorSource::Internal,
-                    format!("parsing LND TLS certificate"),
+                    format!("parsing LND TLS certificate from: {config:?}"),
                 )
             })?
             .into_iter()
@@ -195,16 +196,16 @@ impl InnerTonicLndGrpcClient {
                 LnPoolError::from_invalid_credentials(
                     "No certificate found in PEM file".to_string(),
                     ServiceErrorSource::Internal,
-                    format!("parsing LND TLS certificate"),
+                    format!("parsing LND TLS certificate from: {config:?}"),
                 )
             })?;
 
         let crypto_provider = rustls::crypto::CryptoProvider::get_default()
             .ok_or_else(|| {
                 LnPoolError::from_invalid_configuration(
-                    "No default crypto provider installed".to_string(),
+                    "No default crypto provider installed",
                     ServiceErrorSource::Internal,
-                    "getting default crypto provider for LND TLS verification".to_string(),
+                    "getting default crypto provider for LND TLS verification"
                 )
             })?
             .clone();
