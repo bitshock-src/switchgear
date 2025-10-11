@@ -11,7 +11,6 @@ use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 
 use url::Url;
@@ -81,22 +80,9 @@ impl LnRpcClient for TonicClnGrpcClient {
     ) -> Result<String, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(
-            self.timeout,
-            inner.get_invoice(amount_msat, description, expiry_secs),
-        )
-        .await;
-
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => Err(LnPoolError::from_timeout_error(
-                ServiceErrorSource::Upstream,
-                format!(
-                    "CLN get invoice from {}, requesting invoice",
-                    self.config.url
-                ),
-            )),
-        };
+        let r = inner
+            .get_invoice(amount_msat, description, expiry_secs)
+            .await;
 
         if r.is_err() {
             self.inner_disconnect().await;
@@ -107,20 +93,7 @@ impl LnRpcClient for TonicClnGrpcClient {
     async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(self.timeout, inner.get_metrics()).await;
-
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => {
-                return Err(LnPoolError::from_timeout_error(
-                    ServiceErrorSource::Upstream,
-                    format!(
-                        "CLN get metrics for {}, requesting channels",
-                        self.config.url
-                    ),
-                ));
-            }
-        };
+        let r = inner.get_metrics().await;
 
         if r.is_err() {
             self.inner_disconnect().await;
@@ -245,11 +218,14 @@ impl InnerTonicClnGrpcClient {
 
         endpoint
             .connect_timeout(timeout)
+            .timeout(timeout)
             .connect()
             .await
             .map_err(|e| {
+                let error_msg = format!("Transport error: {}", e);
+
                 LnPoolError::from_invalid_configuration(
-                    format!("Transport error: {}", e),
+                    error_msg,
                     ServiceErrorSource::Upstream,
                     format!("connecting CLN client to {url}"),
                 )
@@ -263,9 +239,7 @@ impl InnerTonicClnGrpcClient {
         expiry_secs: Option<u64>,
     ) -> Result<String, LnPoolError> {
         let (description_str, deschashonly, label) = match description {
-            Bolt11InvoiceDescription::Direct(d) => {
-                (d.to_string(), Some(false), d.to_string())
-            }
+            Bolt11InvoiceDescription::Direct(d) => (d.to_string(), Some(false), d.to_string()),
             Bolt11InvoiceDescription::DirectIntoHash(d) => {
                 let hash = sha2::Sha256::digest(d.as_bytes()).to_vec();
                 (d.to_string(), Some(true), hash.to_lower_hex_string())
@@ -315,9 +289,8 @@ impl InnerTonicClnGrpcClient {
             .invoice(request)
             .await
             .map_err(|e| {
-                LnPoolError::from_invalid_configuration(
-                    format!("gRPC error: {}", e),
-                    ServiceErrorSource::Upstream,
+                LnPoolError::from_cln_tonic_error(
+                    e,
                     format!(
                         "CLN get invoice from {}, requesting invoice",
                         self.config.url
@@ -332,16 +305,15 @@ impl InnerTonicClnGrpcClient {
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let channels_request = ListpeerchannelsRequest {
             id: None,
-            short_channel_id: None
+            short_channel_id: None,
         };
         let mut client = self.client.clone();
         let channels_response = client
             .list_peer_channels(channels_request)
             .await
             .map_err(|e| {
-                LnPoolError::from_invalid_configuration(
-                    format!("gRPC error: {}", e),
-                    ServiceErrorSource::Upstream,
+                LnPoolError::from_cln_tonic_error(
+                    e,
                     format!(
                         "CLN get metrics for {}, requesting channels",
                         self.config.url

@@ -2,7 +2,7 @@ use crate::api::discovery::{DiscoveryBackend, DiscoveryBackendImplementation};
 use crate::api::offer::Offer;
 use crate::api::service::ServiceErrorSource;
 use crate::components::pool::cln::grpc::tonic_client::TonicClnGrpcClient;
-use crate::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
+use crate::components::pool::error::LnPoolError;
 use crate::components::pool::lnd::grpc::tonic_client::TonicLndGrpcClient;
 use crate::components::pool::{
     Bolt11InvoiceDescription, LnClientPool, LnMetrics, LnMetricsCache, LnRpcClient,
@@ -44,10 +44,9 @@ where
     ) -> Result<Arc<Box<dyn LnRpcClient<Error = LnPoolError> + Send + Sync + 'static>>, LnPoolError>
     {
         let pool = self.pool.lock().map_err(|e| {
-            LnPoolError::new(
-                LnPoolErrorSourceKind::Generic,
-                ServiceErrorSource::Internal,
+            LnPoolError::from_memory_error(
                 e.to_string(),
+                format!("fetching client from pool for key: {key:?}"),
             )
         })?;
         let client = pool.get(key).ok_or_else(|| {
@@ -100,11 +99,7 @@ where
         let metrics = client.get_metrics().await?;
 
         let mut cache = self.metrics_cache.lock().map_err(|e| {
-            LnPoolError::new(
-                LnPoolErrorSourceKind::Generic,
-                ServiceErrorSource::Internal,
-                e.to_string(),
-            )
+            LnPoolError::from_memory_error(e.to_string(), format!("get node metrics key: {key:?}"))
         })?;
 
         cache.insert(key.clone(), metrics.clone());
@@ -121,20 +116,16 @@ where
                     Box::new(TonicLndGrpcClient::create(self.timeout, c.clone())?)
                 }
                 DiscoveryBackendImplementation::RemoteHttp => {
-                    return Err(LnPoolError::new(
-                        LnPoolErrorSourceKind::Generic,
+                    return Err(LnPoolError::from_invalid_configuration(
+                        "RemoteHttp backends not available".to_string(),
                         ServiceErrorSource::Internal,
-                        "RemoteHttp backends not available",
+                        format!("connecting ln client {key:?}"),
                     ));
                 }
             };
 
         let mut pool = self.pool.lock().map_err(|e| {
-            LnPoolError::new(
-                LnPoolErrorSourceKind::Generic,
-                ServiceErrorSource::Internal,
-                e.to_string(),
-            )
+            LnPoolError::from_memory_error(e.to_string(), format!("connecting ln client {key:?}"))
         })?;
         pool.insert(key, Arc::new(client));
 

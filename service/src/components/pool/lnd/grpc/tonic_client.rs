@@ -9,10 +9,10 @@ use sha2::Digest;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tonic::service::{Interceptor, interceptor::InterceptedService};
 
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_timeout::TimeoutConnector;
 use rustls::client::danger::{ServerCertVerifier, HandshakeSignatureValid, ServerCertVerified};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, SignatureScheme};
@@ -26,7 +26,7 @@ type ClientCredentials = (Vec<u8>, Vec<u8>);
 
 type Service = InterceptedService<
     hyper_util::client::legacy::Client<
-        hyper_rustls::HttpsConnector<HttpConnector>,
+        TimeoutConnector<hyper_rustls::HttpsConnector<HttpConnector>>,
         tonic::body::Body,
     >,
     MacaroonInterceptor,
@@ -90,22 +90,7 @@ impl LnRpcClient for TonicLndGrpcClient {
     ) -> Result<String, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(
-            self.timeout,
-            inner.get_invoice(amount_msat, description, expiry_secs),
-        )
-        .await;
-
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => Err(LnPoolError::from_timeout_error(
-                ServiceErrorSource::Upstream,
-                format!(
-                    "LND get invoice from {}, requesting invoice",
-                    self.config.url
-                ),
-            )),
-        };
+        let r = inner.get_invoice(amount_msat, description, expiry_secs).await;
 
         if r.is_err() {
             self.inner_disconnect().await;
@@ -116,20 +101,7 @@ impl LnRpcClient for TonicLndGrpcClient {
     async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
         let inner = self.inner_connect().await?;
 
-        let r = timeout(self.timeout, inner.get_metrics()).await;
-
-        let r = match r {
-            Ok(r) => r,
-            Err(_) => {
-                return Err(LnPoolError::from_timeout_error(
-                    ServiceErrorSource::Upstream,
-                    format!(
-                        "LND get metrics for {}, requesting channels",
-                        self.config.url
-                    ),
-                ));
-            }
-        };
+        let r = inner.get_metrics().await;
 
         if r.is_err() {
             self.inner_disconnect().await;
@@ -149,14 +121,14 @@ struct InnerTonicLndGrpcClient {
 
 impl InnerTonicLndGrpcClient {
     async fn connect(
-        _timeout: Duration,
+        timeout: Duration,
         config: LndGrpcDiscoveryBackendImplementation,
     ) -> Result<Self, LnPoolError> {
         let LndGrpcClientAuth::Path(auth) = config.auth.clone();
 
         let (tls_cert, macaroon) = Self::load_client_credentials(&auth).await?;
 
-        let service = Self::connect_with_tls(&config, &tls_cert, &macaroon)?;
+        let service = Self::connect_with_tls(&config, &tls_cert, &macaroon, timeout)?;
 
         let uri = config.url.to_string().parse().map_err(|e| {
             LnPoolError::from_invalid_configuration(
@@ -205,6 +177,7 @@ impl InnerTonicLndGrpcClient {
         _config: &LndGrpcDiscoveryBackendImplementation,
         tls_cert_pem: &[u8],
         macaroon_bytes: &[u8],
+        timeout: Duration,
     ) -> Result<Service, LnPoolError> {
         let mut cert_reader = std::io::Cursor::new(tls_cert_pem);
         let cert_der = rustls_pemfile::certs(&mut cert_reader)
@@ -244,14 +217,19 @@ impl InnerTonicLndGrpcClient {
             )))
             .with_no_client_auth();
 
-        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+        let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
             .with_tls_config(tls_config)
             .https_or_http()
             .enable_http2()
             .build();
 
+        let mut timeout_connector = TimeoutConnector::new(https_connector);
+        timeout_connector.set_connect_timeout(Some(timeout));
+        timeout_connector.set_read_timeout(Some(timeout));
+        timeout_connector.set_write_timeout(Some(timeout));
+
         let http_client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(connector);
+            .build(timeout_connector);
 
         let macaroon_hex = hex::encode(macaroon_bytes);
         let service = InterceptedService::new(
@@ -294,9 +272,8 @@ impl InnerTonicLndGrpcClient {
             .add_invoice(invoice_request)
             .await
             .map_err(|e| {
-                LnPoolError::from_invalid_configuration(
-                    format!("gRPC error: {}", e),
-                    ServiceErrorSource::Upstream,
+                LnPoolError::from_lnd_tonic_error(
+                    e,
                     format!(
                         "LND get invoice from {}, requesting invoice",
                         self.config.url
@@ -316,9 +293,8 @@ impl InnerTonicLndGrpcClient {
             .channel_balance(channel_balance_request)
             .await
             .map_err(|e| {
-                LnPoolError::from_invalid_configuration(
-                    format!("gRPC error: {}", e),
-                    ServiceErrorSource::Upstream,
+                LnPoolError::from_lnd_tonic_error(
+                    e,
                     format!(
                         "LND get metrics for {}, requesting channels",
                         self.config.url

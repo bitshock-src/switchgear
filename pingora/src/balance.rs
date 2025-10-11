@@ -309,8 +309,9 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use switchgear_service::api::balance::LnBalancer;
     use switchgear_service::api::discovery::DiscoveryBackend;
+    use switchgear_service::api::service::ServiceErrorSource;
     use switchgear_service::components::backoff::StopBackoffProvider;
-    use switchgear_service::components::pool::error::{LnPoolError, LnPoolErrorSourceKind};
+    use switchgear_service::components::pool::error::LnPoolError;
     use switchgear_service::components::pool::{LnClientPool, LnMetrics, LnMetricsCache};
     use uuid::Uuid;
 
@@ -339,10 +340,10 @@ mod tests {
                     Ok("mock_invoice".to_string())
                 }
             } else {
-                Err(LnPoolError::new(
-                    LnPoolErrorSourceKind::Generic,
-                    ServiceErrorSource::Upstream,
+                Err(LnPoolError::from_invalid_configuration(
                     "Mock pool forced failure",
+                    ServiceErrorSource::Upstream,
+                    "mock get_invoice",
                 ))
             }
         }

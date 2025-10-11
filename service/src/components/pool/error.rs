@@ -15,8 +15,6 @@ pub enum LnPoolErrorSourceKind {
     ClnTransportError(transport::Error),
     #[error("LND transport connection error: {0}")]
     LndTransportError(transport::Error),
-    #[error("Generic Lightning pool operation failed")]
-    Generic,
     #[error("invalid configuration for: {0}")]
     InvalidConfiguration(String),
     #[error("invalid credentials for {0}")]
@@ -25,8 +23,10 @@ pub enum LnPoolErrorSourceKind {
     InvalidEndpointUri(
         http::uri::InvalidUri,
     ),
-    #[error("operation timed out")]
-    Timeout,
+    #[error("memory error: {0}")]
+    MemoryError(
+        String
+    ),
 }
 
 #[derive(Error, Debug)]
@@ -49,7 +49,7 @@ impl Display for LnPoolError {
 }
 
 impl LnPoolError {
-    pub fn new<C: Into<Cow<'static, str>>>(
+    fn new<C: Into<Cow<'static, str>>>(
         source: LnPoolErrorSourceKind,
         esource: ServiceErrorSource,
         context: C,
@@ -101,7 +101,7 @@ impl LnPoolError {
         source: Status,
         context: C,
     ) -> Self {
-        let esource = Self::from_cln_tonic_code(source.code());
+        let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::ClnTonicError(source),
             esource,
@@ -125,8 +125,7 @@ impl LnPoolError {
         source: Status,
         context: C,
     ) -> Self {
-        let esource = Self::from_lnd_tonic_code(source.code());
-
+        let esource = Self::from_tonic_code(source.code());
         Self::new(
             LnPoolErrorSourceKind::LndTonicError(source),
             esource,
@@ -158,12 +157,15 @@ impl LnPoolError {
         )
     }
 
-
-    pub fn from_timeout_error<C: Into<Cow<'static, str>>>(
-        esource: ServiceErrorSource,
+    pub fn from_memory_error<C: Into<Cow<'static, str>>>(
+        source: String,
         context: C,
     ) -> Self {
-        Self::new(LnPoolErrorSourceKind::Timeout, esource, context)
+        Self::new(
+            LnPoolErrorSourceKind::MemoryError(source),
+            ServiceErrorSource::Internal,
+            context,
+        )
     }
 
     pub fn context(&self) -> &str {
@@ -178,25 +180,11 @@ impl LnPoolError {
         self.esource
     }
 
-    pub fn from_cln_tonic_code(
+    fn from_tonic_code(
         code: Code,
     ) -> ServiceErrorSource {
         match code {
-            Code::InvalidArgument
-            | Code::OutOfRange => {
-                ServiceErrorSource::Downstream
-            }
-
-            _ => ServiceErrorSource::Upstream,
-        }
-    }
-
-    pub fn from_lnd_tonic_code(
-        code: Code,
-    ) -> ServiceErrorSource {
-        match code {
-            Code::OutOfRange
-            | Code::AlreadyExists => {
+            Code::InvalidArgument | Code::OutOfRange | Code::AlreadyExists => {
                 ServiceErrorSource::Downstream
             }
 
