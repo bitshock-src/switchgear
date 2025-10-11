@@ -1,13 +1,15 @@
 use crate::api::service::ServiceErrorSource;
 use crate::components::pool::error::LnPoolError;
 use crate::components::pool::lnd::grpc::config::{
-    LndGrpcClientAuth, LndGrpcDiscoveryBackendImplementation,
+    LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
 use crate::components::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
 use async_trait::async_trait;
 use sha2::Digest;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
+use tokio::time::timeout;
 pub use tonic_0_14_2 as tonic;
 use tonic::service::{Interceptor, interceptor::InterceptedService};
 
@@ -24,67 +26,7 @@ pub mod ln_lnd {
 use ln_lnd::lightning_client::LightningClient;
 use ln_lnd::{ChannelBalanceRequest, Invoice};
 
-
-#[derive(Debug)]
-struct LndCertificateVerifier {
-    expected_cert: Vec<u8>,
-}
-
-impl LndCertificateVerifier {
-    fn new(cert_der: Vec<u8>) -> Self {
-        Self {
-            expected_cert: cert_der,
-        }
-    }
-}
-
-impl ServerCertVerifier for LndCertificateVerifier {
-    fn verify_server_cert(
-        &self,
-        end_entity: &CertificateDer,
-        _intermediates: &[CertificateDer],
-        _server_name: &ServerName,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<ServerCertVerified, TlsError> {
-        // For LND, we just check if the presented cert matches our expected cert
-        if end_entity.as_ref() == self.expected_cert.as_slice() {
-            Ok(ServerCertVerified::assertion())
-        } else {
-            Err(TlsError::General(
-                "Server certificate does not match expected".to_string(),
-            ))
-        }
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, TlsError> {
-        let provider = rustls::crypto::CryptoProvider::get_default()
-            .expect("Must install default crypto provider");
-        rustls::crypto::verify_tls12_signature(message, cert, dss, &provider.signature_verification_algorithms)
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer,
-        dss: &DigitallySignedStruct,
-    ) -> Result<HandshakeSignatureValid, TlsError> {
-        let provider = rustls::crypto::CryptoProvider::get_default()
-            .expect("Must install default crypto provider");
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &provider.signature_verification_algorithms)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        let provider = rustls::crypto::CryptoProvider::get_default()
-            .expect("Must install default crypto provider");
-        provider.signature_verification_algorithms.supported_schemes()
-    }
-}
+type ClientCredentials = (Vec<u8>, Vec<u8>);
 
 type Service = InterceptedService<
     hyper_util::client::legacy::Client<
@@ -95,109 +37,48 @@ type Service = InterceptedService<
 >;
 
 pub struct TonicLndGrpcClient {
+    timeout: Duration,
     config: LndGrpcDiscoveryBackendImplementation,
     features: Option<LnFeatures>,
-    client: Arc<tokio::sync::Mutex<Option<LightningClient<Service>>>>,
+    inner: Arc<Mutex<Option<Arc<InnerTonicLndGrpcClient>>>>,
 }
 
 impl TonicLndGrpcClient {
     pub fn create(
-        _timeout: Duration,
+        timeout: Duration,
         config: LndGrpcDiscoveryBackendImplementation,
     ) -> Result<Self, LnPoolError> {
         Ok(Self {
+            timeout,
             config,
             features: Some(LnFeatures {
                 invoice_from_desc_hash: true,
             }),
-            client: Arc::new(tokio::sync::Mutex::new(None)),
+            inner: Arc::new(Default::default()),
         })
     }
 
-    async fn get_client(&self) -> Result<LightningClient<Service>, LnPoolError> {
-        let mut client_guard = self.client.lock().await;
-        if client_guard.is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-
-            let LndGrpcClientAuth::Path(auth) = self.config.auth.clone();
-
-            let tls_cert_pem = tokio::fs::read(&auth.tls_cert_path).await.map_err(|e| {
-                LnPoolError::from_invalid_credentials(
-                    e.to_string(),
-                    ServiceErrorSource::Internal,
-                    format!(
-                        "loading LND TLS certificate from {}",
-                        auth.tls_cert_path.to_string_lossy()
-                    ),
-                )
-            })?;
-
-            let macaroon_bytes = tokio::fs::read(&auth.macaroon_path).await.map_err(|e| {
-                LnPoolError::from_invalid_credentials(
-                    e.to_string(),
-                    ServiceErrorSource::Internal,
-                    format!(
-                        "loading LND macaroon from {}",
-                        auth.macaroon_path.to_string_lossy()
-                    ),
-                )
-            })?;
-
-            let mut cert_reader = std::io::Cursor::new(&tls_cert_pem);
-            let cert_der = rustls_pemfile::certs(&mut cert_reader)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| {
-                    LnPoolError::from_invalid_credentials(
-                        e.to_string(),
-                        ServiceErrorSource::Internal,
-                        format!("parsing LND TLS certificate from {}", auth.tls_cert_path.to_string_lossy()),
+    async fn inner_connect(&self) -> Result<Arc<InnerTonicLndGrpcClient>, LnPoolError> {
+        let mut inner = self.inner.lock().await;
+        match inner.as_ref() {
+            None => {
+                let inner_connect = Arc::new(
+                    InnerTonicLndGrpcClient::connect(
+                        self.timeout,
+                        self.config.clone(),
                     )
-                })?
-                .into_iter()
-                .next()
-                .ok_or_else(|| {
-                    LnPoolError::from_invalid_credentials(
-                        "No certificate found in PEM file".to_string(),
-                        ServiceErrorSource::Internal,
-                        format!("parsing LND TLS certificate from {}", auth.tls_cert_path.to_string_lossy()),
-                    )
-                })?;
-
-            let tls_config = ClientConfig::builder()
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(LndCertificateVerifier::new(cert_der.to_vec())))
-                .with_no_client_auth();
-
-            let connector = hyper_rustls::HttpsConnectorBuilder::new()
-                .with_tls_config(tls_config)
-                .https_or_http()
-                .enable_http2()
-                .build();
-
-            let http_client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-                .build(connector);
-
-            let macaroon_hex = hex::encode(&macaroon_bytes);
-            let service = InterceptedService::new(
-                http_client,
-                MacaroonInterceptor {
-                    macaroon: macaroon_hex,
-                }
-            );
-
-            let uri = self.config.url.to_string().parse().map_err(|e| {
-                LnPoolError::from_invalid_configuration(
-                    format!("Invalid URI: {}", e),
-                    ServiceErrorSource::Internal,
-                    format!("parsing LND URL {}", self.config.url),
-                )
-            })?;
-
-            let lightning_client = LightningClient::with_origin(service, uri);
-            *client_guard = Some(lightning_client);
+                    .await?,
+                );
+                *inner = Some(inner_connect.clone());
+                Ok(inner_connect)
+            }
+            Some(inner) => Ok(inner.clone()),
         }
+    }
 
-        Ok(client_guard.as_ref().unwrap().clone())
+    async fn inner_disconnect(&self) {
+        let mut inner = self.inner.lock().await;
+        *inner = None;
     }
 }
 
@@ -211,7 +92,189 @@ impl LnRpcClient for TonicLndGrpcClient {
         description: Bolt11InvoiceDescription<'a>,
         expiry_secs: Option<u64>,
     ) -> Result<String, Self::Error> {
-        let mut client = self.get_client().await?;
+        let inner = self.inner_connect().await?;
+
+        let r = timeout(
+            self.timeout,
+            inner.get_invoice(amount_msat, description, expiry_secs),
+        )
+        .await;
+
+        let r = match r {
+            Ok(r) => r,
+            Err(_) => Err(LnPoolError::from_timeout_error(
+                ServiceErrorSource::Upstream,
+                format!(
+                    "LND get invoice from {}, requesting invoice",
+                    self.config.url
+                ),
+            )),
+        };
+
+        if r.is_err() {
+            self.inner_disconnect().await;
+        }
+        r
+    }
+
+    async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
+        let inner = self.inner_connect().await?;
+
+        let r = timeout(self.timeout, inner.get_metrics()).await;
+
+        let r = match r {
+            Ok(r) => r,
+            Err(_) => {
+                return Err(LnPoolError::from_timeout_error(
+                    ServiceErrorSource::Upstream,
+                    format!(
+                        "LND get metrics for {}, requesting channels",
+                        self.config.url
+                    ),
+                ));
+            }
+        };
+
+        if r.is_err() {
+            self.inner_disconnect().await;
+        }
+        r
+    }
+
+    fn get_features(&self) -> Option<&LnFeatures> {
+        self.features.as_ref()
+    }
+}
+
+struct InnerTonicLndGrpcClient {
+    client: LightningClient<Service>,
+    config: LndGrpcDiscoveryBackendImplementation,
+}
+
+impl InnerTonicLndGrpcClient {
+    async fn connect(
+        _timeout: Duration,
+        config: LndGrpcDiscoveryBackendImplementation,
+    ) -> Result<Self, LnPoolError> {
+        let LndGrpcClientAuth::Path(auth) = config.auth.clone();
+
+        let (tls_cert, macaroon) = Self::load_client_credentials(&auth).await?;
+
+        let service = Self::connect_with_tls(&config, &tls_cert, &macaroon)?;
+
+        let uri = config.url.to_string().parse().map_err(|e| {
+            LnPoolError::from_invalid_configuration(
+                format!("Invalid URI: {}", e),
+                ServiceErrorSource::Internal,
+                format!("parsing LND URL {}", config.url),
+            )
+        })?;
+
+        let client = LightningClient::with_origin(service, uri);
+        Ok(Self { client, config })
+    }
+
+    async fn load_client_credentials(
+        auth: &LndGrpcClientAuthPath,
+    ) -> Result<ClientCredentials, LnPoolError> {
+        let tls_cert_path = &auth.tls_cert_path;
+        let macaroon_path = &auth.macaroon_path;
+
+        let tls_cert = tokio::fs::read(tls_cert_path).await.map_err(|e| {
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
+                ServiceErrorSource::Internal,
+                format!(
+                    "loading LND TLS certificate from {}",
+                    tls_cert_path.to_string_lossy()
+                ),
+            )
+        })?;
+
+        let macaroon = tokio::fs::read(macaroon_path).await.map_err(|e| {
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
+                ServiceErrorSource::Internal,
+                format!(
+                    "loading LND macaroon from {}",
+                    macaroon_path.to_string_lossy()
+                ),
+            )
+        })?;
+
+        Ok((tls_cert, macaroon))
+    }
+
+    fn connect_with_tls(
+        _config: &LndGrpcDiscoveryBackendImplementation,
+        tls_cert_pem: &[u8],
+        macaroon_bytes: &[u8],
+    ) -> Result<Service, LnPoolError> {
+        let mut cert_reader = std::io::Cursor::new(tls_cert_pem);
+        let cert_der = rustls_pemfile::certs(&mut cert_reader)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                LnPoolError::from_invalid_credentials(
+                    e.to_string(),
+                    ServiceErrorSource::Internal,
+                    format!("parsing LND TLS certificate"),
+                )
+            })?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                LnPoolError::from_invalid_credentials(
+                    "No certificate found in PEM file".to_string(),
+                    ServiceErrorSource::Internal,
+                    format!("parsing LND TLS certificate"),
+                )
+            })?;
+
+        let crypto_provider = rustls::crypto::CryptoProvider::get_default()
+            .ok_or_else(|| {
+                LnPoolError::from_invalid_configuration(
+                    "No default crypto provider installed".to_string(),
+                    ServiceErrorSource::Internal,
+                    "getting default crypto provider for LND TLS verification".to_string(),
+                )
+            })?
+            .clone();
+
+        let tls_config = ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(LndCertificateVerifier::new(
+                cert_der.to_vec(),
+                crypto_provider
+            )))
+            .with_no_client_auth();
+
+        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_tls_config(tls_config)
+            .https_or_http()
+            .enable_http2()
+            .build();
+
+        let http_client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector);
+
+        let macaroon_hex = hex::encode(macaroon_bytes);
+        let service = InterceptedService::new(
+            http_client,
+            MacaroonInterceptor {
+                macaroon: macaroon_hex,
+            }
+        );
+
+        Ok(service)
+    }
+
+    async fn get_invoice<'a>(
+        &self,
+        amount_msat: Option<u64>,
+        description: Bolt11InvoiceDescription<'a>,
+        expiry_secs: Option<u64>,
+    ) -> Result<String, LnPoolError> {
+        let mut client = self.client.clone();
 
         let (memo, description_hash) = match description {
             Bolt11InvoiceDescription::Direct(d) => (d.to_string(), vec![]),
@@ -249,8 +312,8 @@ impl LnRpcClient for TonicLndGrpcClient {
         Ok(response.payment_request)
     }
 
-    async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
-        let mut client = self.get_client().await?;
+    async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
+        let mut client = self.client.clone();
 
         let channel_balance_request = ChannelBalanceRequest {};
         let channels_balance_response = client
@@ -278,9 +341,61 @@ impl LnRpcClient for TonicLndGrpcClient {
             node_effective_inbound_msat,
         })
     }
+}
 
-    fn get_features(&self) -> Option<&LnFeatures> {
-        self.features.as_ref()
+#[derive(Debug)]
+struct LndCertificateVerifier {
+    expected_cert: Vec<u8>,
+    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
+}
+
+impl LndCertificateVerifier {
+    fn new(cert_der: Vec<u8>, crypto_provider: Arc<rustls::crypto::CryptoProvider>) -> Self {
+        Self {
+            expected_cert: cert_der,
+            supported_algs: crypto_provider.signature_verification_algorithms,
+        }
+    }
+}
+
+impl ServerCertVerifier for LndCertificateVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer,
+        _intermediates: &[CertificateDer],
+        _server_name: &ServerName,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        if end_entity.as_ref() == self.expected_cert.as_slice() {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(TlsError::General(
+                "Server certificate does not match expected".to_string(),
+            ))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.supported_algs)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.supported_algs)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported_algs.supported_schemes()
     }
 }
 

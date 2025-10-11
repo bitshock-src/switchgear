@@ -18,6 +18,8 @@ type LnClientBox = Box<
 >;
 
 async fn try_create_lnd_tonic_client() -> anyhow::Result<Option<LnClientBox>> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let backend = match try_create_lnd_backend()? {
         None => return Ok(None),
         Some(backend) => match backend.backend.implementation {
@@ -35,7 +37,7 @@ async fn try_create_lnd_tonic_client() -> anyhow::Result<Option<LnClientBox>> {
 async fn test_lnd_tonic_invoice_with_direct_description() {
     let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
-        Ok(None) => return, // Test skipped gracefully
+        Ok(None) => return,
         Err(e) => panic!("{}", e),
     };
 
@@ -230,7 +232,7 @@ async fn test_lnd_tonic_invoice_with_direct_into_hash_description() {
 async fn test_lnd_tonic_metrics() {
     let client = match try_create_lnd_tonic_client().await {
         Ok(Some(client)) => client,
-        Ok(None) => return, // Test skipped gracefully
+        Ok(None) => return,
         Err(e) => panic!("{}", e),
     };
 
