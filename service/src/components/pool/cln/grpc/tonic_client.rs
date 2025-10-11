@@ -38,8 +38,6 @@ impl TonicClnGrpcClient {
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
     ) -> Result<Self, LnPoolError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-
         Ok(Self {
             timeout,
             config,
