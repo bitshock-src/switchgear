@@ -17,12 +17,12 @@ use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity
 
 use url::Url;
 
-pub mod cln_legacy {
-    include!(concat!(env!("OUT_DIR"), "/legacy/cln.rs"));
+pub mod ln_cln {
+    include!(concat!(env!("OUT_DIR"), "/ln/cln.rs"));
 }
 
-use cln_legacy::node_client::NodeClient;
-use cln_legacy::{AmountOrAny, InvoiceRequest, ListpeerchannelsRequest};
+use ln_cln::node_client::NodeClient;
+use ln_cln::{AmountOrAny, InvoiceRequest, ListpeerchannelsRequest};
 
 type ClientCredentials = (Vec<u8>, Vec<u8>, Vec<u8>);
 
@@ -304,10 +304,10 @@ impl InnerTonicClnGrpcClient {
         let request = InvoiceRequest {
             amount_msat: match amount_msat {
                 Some(msat) => Some(AmountOrAny {
-                    value: Some(cln_legacy::amount_or_any::Value::Amount(cln_legacy::Amount { msat })),
+                    value: Some(ln_cln::amount_or_any::Value::Amount(ln_cln::Amount { msat })),
                 }),
                 None => Some(AmountOrAny {
-                    value: Some(cln_legacy::amount_or_any::Value::Any(true)),
+                    value: Some(ln_cln::amount_or_any::Value::Any(true)),
                 }),
             },
             description: description_str,
@@ -336,7 +336,10 @@ impl InnerTonicClnGrpcClient {
     }
 
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
-        let channels_request = ListpeerchannelsRequest { id: None };
+        let channels_request = ListpeerchannelsRequest {
+            id: None,
+            short_channel_id: None
+        };
         let mut client = self.client.clone();
         let channels_response = client
             .list_peer_channels(channels_request)

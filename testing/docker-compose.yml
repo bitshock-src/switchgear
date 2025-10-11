@@ -49,16 +49,17 @@ services:
     restart: "no"
 
   cln:
-    image: elementsproject/lightningd:v24.08
+    image: elementsproject/lightningd:v25.09
     container_name: cln-regtest
     environment:
       LIGHTNINGD_NETWORK: regtest
     command: [
       "--bitcoin-rpcconnect=bitcoin",
-      "--bitcoin-rpcport=18443", 
+      "--bitcoin-rpcport=18443",
       "--bitcoin-rpcuser=bitcoin",
       "--bitcoin-rpcpassword=bitcoin123",
       "--grpc-port=9736",
+      "--grpc-host=0.0.0.0",
       "--log-level=debug",
       "--bind-addr=0.0.0.0:9735",
       "--announce-addr=cln:9735"
@@ -76,7 +77,7 @@ services:
     restart: unless-stopped
 
   lnd:
-    image: lightninglabs/lnd:v0.18.1-beta
+    image: lightninglabs/lnd:v0.19.3-beta
     container_name: lnd-regtest
     command: [
       "lnd",

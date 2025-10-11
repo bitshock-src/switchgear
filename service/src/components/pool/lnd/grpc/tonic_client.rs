@@ -17,12 +17,12 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use rustls_pemfile;
 
-pub mod lnd_legacy {
-    include!(concat!(env!("OUT_DIR"), "/legacy/lnrpc.rs"));
+pub mod ln_lnd {
+    include!(concat!(env!("OUT_DIR"), "/ln/lnrpc.rs"));
 }
 
-use lnd_legacy::lightning_client::LightningClient;
-use lnd_legacy::{ChannelBalanceRequest, Invoice};
+use ln_lnd::lightning_client::LightningClient;
+use ln_lnd::{ChannelBalanceRequest, Invoice};
 
 
 #[derive(Debug)]
