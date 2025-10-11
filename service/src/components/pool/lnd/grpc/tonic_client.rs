@@ -27,18 +27,13 @@ use ln_lnd::{ChannelBalanceRequest, Invoice};
 
 #[derive(Debug)]
 struct LndCertificateVerifier {
-    expected_certs: Vec<Vec<u8>>,
-    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
+    expected_cert: Vec<u8>,
 }
 
 impl LndCertificateVerifier {
     fn new(cert_der: Vec<u8>) -> Self {
-        let provider = rustls::crypto::CryptoProvider::get_default()
-            .expect("Must install default crypto provider");
-
         Self {
-            expected_certs: vec![cert_der],
-            supported_algs: provider.signature_verification_algorithms,
+            expected_cert: cert_der,
         }
     }
 }
@@ -47,38 +42,19 @@ impl ServerCertVerifier for LndCertificateVerifier {
     fn verify_server_cert(
         &self,
         end_entity: &CertificateDer,
-        intermediates: &[CertificateDer],
+        _intermediates: &[CertificateDer],
         _server_name: &ServerName,
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, TlsError> {
-        let mut presented_certs = intermediates
-            .iter()
-            .map(|c| c.as_ref().to_vec())
-            .collect::<Vec<Vec<u8>>>();
-        presented_certs.push(end_entity.as_ref().to_vec());
-        presented_certs.sort();
-
-        let mut our_certs = self.expected_certs.clone();
-        our_certs.sort();
-
-        if our_certs.len() != presented_certs.len() {
-            return Err(TlsError::General(format!(
-                "Mismatched number of certificates (Expected: {}, Presented: {})",
-                our_certs.len(),
-                presented_certs.len()
-            )));
+        // For LND, we just check if the presented cert matches our expected cert
+        if end_entity.as_ref() == self.expected_cert.as_slice() {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(TlsError::General(
+                "Server certificate does not match expected".to_string(),
+            ))
         }
-
-        for (expected, presented) in our_certs.iter().zip(presented_certs.iter()) {
-            if *expected != *presented {
-                return Err(TlsError::General(
-                    "Server certificates do not match expected".to_string(),
-                ));
-            }
-        }
-
-        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(
@@ -87,7 +63,9 @@ impl ServerCertVerifier for LndCertificateVerifier {
         cert: &CertificateDer,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
-        rustls::crypto::verify_tls12_signature(message, cert, dss, &self.supported_algs)
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .expect("Must install default crypto provider");
+        rustls::crypto::verify_tls12_signature(message, cert, dss, &provider.signature_verification_algorithms)
     }
 
     fn verify_tls13_signature(
@@ -96,11 +74,15 @@ impl ServerCertVerifier for LndCertificateVerifier {
         cert: &CertificateDer,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.supported_algs)
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .expect("Must install default crypto provider");
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &provider.signature_verification_algorithms)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.supported_algs.supported_schemes()
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .expect("Must install default crypto provider");
+        provider.signature_verification_algorithms.supported_schemes()
     }
 }
 
