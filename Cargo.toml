@@ -1,3 +1,25 @@
+[package]
+name = "switchgear"
+version = "0.1.5"
+edition = "2021"
+authors = ["Bitshock <info@bitshock.com>"]
+description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"
+documentation = "https://github.com/bitshock-src/switchgear"
+homepage = "https://bitshock.com"
+repository = "https://github.com/bitshock-src/switchgear"
+license = "Apache-2.0"
+keywords = ["bitcoin", "lightning", "lnurl", "load-balancer", "payments"]
+categories = ["command-line-utilities", "network-programming", "web-programming"]
+publish = true
+readme = "README.md"
+
+include = [
+    "Cargo.toml",
+    "README.md",
+    "doc/*.png",
+    "src/",
+]
+
 [workspace]
 members = [
     "server",
