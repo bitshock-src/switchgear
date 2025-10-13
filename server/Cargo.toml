@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-server"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"
@@ -38,15 +38,15 @@ shellexpand = "3.1.1"
 signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 simplelog = {version = "0.12.2", features = ["paris"] }
-switchgear-pingora = { version = "0.1.5",path = "../pingora" }
-switchgear-service = { version = "0.1.5",path = "../service" }
+switchgear-pingora = { version = "0.1.6",path = "../pingora" }
+switchgear-service = { version = "0.1.6",path = "../service" }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.17.0", features = ["v4", "serde"] }
 
 [dev-dependencies]
 chrono = { version = "0.4.41", features = ["serde"] }
 lightning-invoice = { version = "0.33.2", features = ["serde", "std"] }
-switchgear-testing  = { version = "0.1.5", path = "../testing" }
+switchgear-testing  = { version = "0.1.6", path = "../testing" }
 rcgen = { version = "0.14.1", features = ["crypto"] }
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "rustls-tls"] }
 serde_yaml = "0.9"
