@@ -10,14 +10,7 @@ repository = "https://github.com/bitshock-src/switchgear"
 license = "Apache-2.0"
 keywords = ["bitcoin", "lightning", "lnurl", "load-balancer", "payments"]
 categories = ["command-line-utilities", "network-programming", "web-programming"]
-readme = "../README.md"
-include = [
-    "Cargo.toml",
-    "../README.md",
-    "../doc/*.png",
-    "../LICENSE",
-    "src/",
-]
+readme = "./README.md"
 publish = true
 
 [dependencies]
