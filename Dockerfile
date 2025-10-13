@@ -50,6 +50,9 @@ COPY pingora/Cargo.toml ./pingora/Cargo.toml
 COPY migration/src ./migration/src
 COPY migration/Cargo.toml ./migration/Cargo.toml
 
+COPY switchgear/src ./switchgear/src
+COPY switchgear/Cargo.toml ./switchgear/Cargo.toml
+
 COPY testing/Cargo.toml ./testing/Cargo-src.toml
 
 RUN sed '/^\[dependencies\]/q' ./testing/Cargo-src.toml > ./testing/Cargo.toml
