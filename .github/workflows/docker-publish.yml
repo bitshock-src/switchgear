@@ -2,7 +2,6 @@ name: Docker Multi-Arch Build
 
 on:
   push:
-    branches: [ "main" ]
     tags: [ 'v*.*.*' ]
 
 env:
