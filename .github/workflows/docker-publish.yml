@@ -4,11 +4,25 @@ on:
   push:
     tags: [ 'v*.*.*' ]
 
-env:
-  IMAGE_NAME: bitshock/switchgear
-
 jobs:
+  check_has_image_name:
+    runs-on: ubuntu-latest
+    outputs:
+      has_image_name: ${{ steps.check.outputs.has_image_name }}
+    steps:
+      - name: Check if IMAGE_NAME secret is set
+        id: check
+        run: |
+          if [ -z "${{ secrets.IMAGE_NAME }}" ]; then
+            echo "WARNING: IMAGE_NAME secret is not set. Skipping Docker build."
+            echo "has_image_name=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_image_name=true" >> $GITHUB_OUTPUT
+          fi
+
   build_and_push:
+    needs: check_has_image_name
+    if: needs.check_has_image_name.outputs.has_image_name == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -27,7 +41,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ secrets.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}}
 

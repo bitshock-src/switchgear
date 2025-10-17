@@ -37,5 +37,5 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-      - name: Run unit tests
-        run: cargo test --lib
+      - name: Run tests
+        run: cargo test
