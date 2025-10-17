@@ -13,7 +13,8 @@ services:
       "-rpcpassword=bitcoin123",
       "-zmqpubrawblock=tcp://0.0.0.0:28332",
       "-zmqpubrawtx=tcp://0.0.0.0:28333",
-      "-txindex=1"
+      "-txindex=1",
+      "-loglevel=info"
     ]
     ports:
       - "18443:18443"  # RPC port
@@ -38,15 +39,21 @@ services:
       bitcoin:
         condition: service_healthy
       cln:
-        condition: service_started
+        condition: service_healthy
       lnd:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./shared-credentials:/shared
     networks:
       - lightning_network
     restart: "no"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/setup_complete"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
 
   cln:
     image: elementsproject/lightningd:v25.09
@@ -60,7 +67,7 @@ services:
       "--bitcoin-rpcpassword=bitcoin123",
       "--grpc-port=9736",
       "--grpc-host=0.0.0.0",
-      "--log-level=debug",
+      "--log-level=info",
       "--bind-addr=0.0.0.0:9735",
       "--announce-addr=cln:9735"
     ]
@@ -75,6 +82,12 @@ services:
     networks:
       - lightning_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "lightning-cli", "--regtest", "getinfo"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
   lnd:
     image: lightninglabs/lnd:v0.19.3-beta
@@ -98,7 +111,8 @@ services:
       "--tlsextraip=127.0.0.1",
       "--noseedbackup",
       "--accept-keysend",
-      "--accept-amp"
+      "--accept-amp",
+      "--debuglevel=info"
     ]
     ports:
       - "10009:10009"  # gRPC port
@@ -112,12 +126,20 @@ services:
     networks:
       - lightning_network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "lncli --network=regtest getinfo >/dev/null 2>&1 || (echo 'password123' | lncli --network=regtest create --stdin 2>/dev/null || echo 'password123' | lncli --network=regtest unlock --stdin 2>/dev/null)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
   postgres:
     image: postgres:16-alpine
     container_name: postgres-db
     environment:
       POSTGRES_PASSWORD: postgres
+      POSTGRES_LOG_MIN_MESSAGES: info
+    command: ["postgres", "-c", "log_min_messages=${POSTGRES_LOG_MIN_MESSAGES:-info}"]
     volumes:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
@@ -131,6 +153,7 @@ services:
     container_name: mysql-db
     environment:
       MYSQL_ROOT_PASSWORD: mysql
+    command: ["mysqld", "--log-error-verbosity=2"]
     volumes:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:
