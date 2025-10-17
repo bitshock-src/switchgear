@@ -16,8 +16,86 @@ jobs:
     name: Check
     runs-on: ubuntu-latest
     container: ghcr.io/${{ github.repository }}/ci-rust:latest
+
+    services:
+      bitcoin:
+        image: bitcoin/bitcoin:27.0
+        options: >-
+          --name bitcoin-regtest
+          --health-cmd "bitcoin-cli -regtest -rpcuser=bitcoin -rpcpassword=bitcoin123 -rpcconnect=127.0.0.1 -rpcport=18443 getblockchaininfo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 30s
+        env:
+          BITCOIN_ARGS: "-printtoconsole -regtest=1 -fallbackfee=0.0002 -rpcallowip=0.0.0.0/0 -rpcbind=0.0.0.0:18443 -rpcuser=bitcoin -rpcpassword=bitcoin123 -zmqpubrawblock=tcp://0.0.0.0:28332 -zmqpubrawtx=tcp://0.0.0.0:28333 -txindex=1 -loglevel=info"
+        ports:
+          - 18443:18443
+          - 18444:18444
+          - 28332:28332
+          - 28333:28333
+
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_LOG_MIN_MESSAGES: info
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 5432:5432
+
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: mysql
+        options: --health-cmd "mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 5
+        ports:
+          - 3306:3306
+
+      cln:
+        image: elementsproject/lightningd:v25.09
+        env:
+          LIGHTNINGD_NETWORK: regtest
+          LIGHTNINGD_ARGS: "--bitcoin-rpcconnect=bitcoin --bitcoin-rpcport=18443 --bitcoin-rpcuser=bitcoin --bitcoin-rpcpassword=bitcoin123 --grpc-port=9736 --grpc-host=0.0.0.0 --log-level=info --bind-addr=0.0.0.0:9735 --announce-addr=cln:9735"
+        options: >-
+          --name cln-regtest
+          --health-cmd "lightning-cli --regtest getinfo"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+          --health-start-period 30s
+        ports:
+          - 9735:9735
+          - 9736:9736
+
+      lnd:
+        image: lightninglabs/lnd:v0.19.3-beta
+        env:
+          LND_ARGS: "lnd --bitcoin.active --bitcoin.regtest --bitcoin.node=bitcoind --bitcoind.rpchost=bitcoin:18443 --bitcoind.rpcuser=bitcoin --bitcoind.rpcpass=bitcoin123 --bitcoind.zmqpubrawblock=tcp://bitcoin:28332 --bitcoind.zmqpubrawtx=tcp://bitcoin:28333 --rpclisten=0.0.0.0:10009 --restlisten=0.0.0.0:8080 --listen=0.0.0.0:9734 --externalip=lnd:9734 --tlsextradomain=localhost --tlsextraip=0.0.0.0 --tlsextraip=127.0.0.1 --noseedbackup --accept-keysend --accept-amp --debuglevel=info"
+        options: >-
+          --name lnd-regtest
+          --health-cmd "sh -c \"lncli --network=regtest getinfo >/dev/null 2>&1 || (echo 'password123' | lncli --network=regtest create --stdin 2>/dev/null || echo 'password123' | lncli --network=regtest unlock --stdin 2>/dev/null)\""
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+          --health-start-period 30s
+        ports:
+          - 10009:10009
+          - 8080:8080
+          - 9734:9734
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Start setup container
+        run: |
+          # Build and run the setup container immediately
+          docker build -t setup-container testing/setup
+          docker run -d --name setup \
+            --network ${{ job.container.network }} \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${{ github.workspace }}/testing/shared-credentials:/shared \
+            setup-container
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4
@@ -38,4 +116,13 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Run tests
-        run: cargo test
+        env:
+          LNURL_BALANCER_CREDENTIALS_PATH: ${{ github.workspace }}/testing/shared-credentials/credentials
+        run: |
+          # Wait for setup to complete
+          echo "Waiting for setup to complete..."
+          timeout 300 bash -c 'until docker exec setup test -f /tmp/setup_complete 2>/dev/null; do echo "Waiting..."; sleep 1; done' || (echo "Setup did not complete in time" && docker logs setup && exit 1)
+          echo "Setup completed successfully"
+
+          # Run tests
+          cargo test
