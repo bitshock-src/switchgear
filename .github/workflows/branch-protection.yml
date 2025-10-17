@@ -10,6 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUSTUP_TOOLCHAIN: 1.90.0
 
 jobs:
   check:
@@ -18,9 +19,6 @@ jobs:
     container: bitshock/linux-musl-rust:1.90.0
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Rust toolchain
-        run: rustup default 1.90.0
 
       - name: Check formatting
         run: cargo fmt -- --check
