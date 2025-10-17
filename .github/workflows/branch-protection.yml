@@ -87,6 +87,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare shared credentials directory
+        run: mkdir -p ${{ github.workspace }}/testing/shared-credentials
+
       - name: Start setup container
         run: |
           # Build and run the setup container immediately
@@ -130,4 +133,4 @@ jobs:
           cargo test --test discovery
           cargo test --test offer
           cargo test --test ln
-#          cargo test --test features       
+#          cargo test --test features
