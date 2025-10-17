@@ -8,3 +8,5 @@ RUN apt-get update && \
         libclang-dev \
         protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
+
+RUN rustup component add rustfmt clippy
