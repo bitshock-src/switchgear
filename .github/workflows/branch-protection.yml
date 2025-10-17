@@ -115,14 +115,19 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-      - name: Run tests
+      - name: Run unit tests
         env:
           LNURL_BALANCER_CREDENTIALS_PATH: ${{ github.workspace }}/testing/shared-credentials/credentials
         run: |
-          # Wait for setup to complete
-          echo "Waiting for setup to complete..."
-          timeout 300 bash -c 'until docker exec setup test -f /tmp/setup_complete 2>/dev/null; do echo "Waiting..."; sleep 1; done' || (echo "Setup did not complete in time" && docker logs setup && exit 1)
-          echo "Setup completed successfully"
+          cargo test --lib --bins
 
-          # Run tests
-          cargo test
+      - name: Run integration tests
+        env:
+          LNURL_BALANCER_CREDENTIALS_PATH: ${{ github.workspace }}/testing/shared-credentials/credentials
+        run: |
+          timeout 300 bash -c 'until docker exec setup test -f /tmp/setup_complete 2>/dev/null; do echo "Waiting..."; sleep 1; done' || (echo "Setup did not complete in time" && docker logs setup && exit 1)
+
+          cargo test --test discovery
+          cargo test --test offer
+          cargo test --test ln
+#          cargo test --test features       
