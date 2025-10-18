@@ -25,16 +25,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start Docker Compose services
-        env:
-          SHARED_CREDENTIALS_PATH: ${{ github.workspace }}/testing/shared-credentials
         run: |
-          # Create shared-credentials directory
-          mkdir -p ${{ github.workspace }}/testing/shared-credentials
-
-          # Start docker compose with absolute path for shared credentials
           cd testing
-          docker compose up -d > /tmp/docker-compose.log 2>&1 &
-          echo "Docker Compose services starting in background (PID: $!)"
+          echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ${{ github.workspace }}/.env
+          docker compose up -d
+          docker compose ps
           cd ..
 
       - name: Cache cargo registry and build
@@ -63,15 +58,14 @@ jobs:
 
       - name: Run integration tests
         run: |
-          echo "Waiting for setup to complete..."
-          timeout 300 bash -c 'until [ -f ${{ github.workspace }}/testing/shared-credentials/credentials/setup_complete ]; do echo "Waiting... checking $(pwd)/testing/shared-credentials/credentials/setup_complete"; ls -la testing/shared-credentials/ 2>/dev/null || true; sleep 5; done' || (echo "Setup did not complete in time" && docker compose -f testing/docker-compose.yml logs && exit 1)
-          echo "Setup completed successfully"
+          . ${{ github.workspace }}/.env
+          cat ${{ github.workspace }}/.env
+          timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
 
-          export LNURL_BALANCER_CREDENTIALS_PATH=${{ github.workspace }}/testing/shared-credentials/credentials
           cargo test --test discovery
           cargo test --test offer
           cargo test --test ln
-#          cargo test --test features
+          cargo test --test features
 
       - name: Stop Docker Compose services
         if: always()
