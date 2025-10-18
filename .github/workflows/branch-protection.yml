@@ -27,9 +27,8 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          export SHARED_CREDENTIALS_PATH=$GITHUB_WORKSPACE/shared
-          echo $SHARED_CREDENTIALS_PATH
-          mkdir -p $SHARED_CREDENTIALS_PATH
+          mkdir ./shared-credentials
+          chmod 777 ./shared-credentials
           docker compose up -d
           cd ..
 
@@ -57,7 +56,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          find $GITHUB_WORKSPACE/shared
+          find ./testing/shared-credentials
 #
 #          cargo test --test discovery
 #          cargo test --test offer
