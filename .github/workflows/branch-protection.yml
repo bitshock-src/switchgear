@@ -58,9 +58,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          . ./.env
-          env
-          find ${LNURL_BALANCER_CREDENTIALS_PATH}
+          . ./.env && find ${LNURL_BALANCER_CREDENTIALS_PATH}
 #          ls -laR testing/shared-credentials/ || echo "Directory does not exist"
 #          timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
 #
