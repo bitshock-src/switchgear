@@ -26,6 +26,7 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
+          docker network create services 
           cd testing
           docker compose down -v
           docker compose up -d --build --wait

@@ -10,6 +10,7 @@ async fn create_postgres_store() -> (DbDiscoveryBackendStore, TestPostgresDataba
         Uuid::new_v4().to_string().replace("-", "")
     );
     let services = IntegrationTestServices::create().unwrap();
+    eprintln!("services: {:?}", services);
     let db = TestPostgresDatabase::new(db_name, services.postgres());
 
     let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)

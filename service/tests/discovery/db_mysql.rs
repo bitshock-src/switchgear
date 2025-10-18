@@ -10,6 +10,7 @@ async fn create_mysql_store() -> (DbDiscoveryBackendStore, TestMysqlDatabase) {
         Uuid::new_v4().to_string().replace("-", "")
     );
     let services = IntegrationTestServices::create().unwrap();
+    eprintln!("services: {:?}", services);
     let db = TestMysqlDatabase::new(db_name, services.mysql());
 
     let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)

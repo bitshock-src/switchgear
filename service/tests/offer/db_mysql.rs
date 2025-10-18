@@ -10,6 +10,8 @@ async fn create_mysql_store() -> (DbOfferStore, TestMysqlDatabase) {
         Uuid::new_v4().to_string().replace("-", "")
     );
     let services = IntegrationTestServices::create().unwrap();
+    eprintln!("services: {:?}", services);
+
     let db = TestMysqlDatabase::new(db_name, services.mysql());
 
     let store = DbOfferStore::connect(db.connection_url(), 5).await.unwrap();

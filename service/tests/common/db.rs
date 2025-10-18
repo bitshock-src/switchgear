@@ -1,15 +1,14 @@
-use std::net::SocketAddr;
 use std::thread;
 
 pub struct TestMysqlDatabase {
     db_name: String,
     connection_url: String,
-    addr: SocketAddr,
+    addr: String,
 }
 
 impl TestMysqlDatabase {
-    // 3306
-    pub fn new(db_name: String, addr: SocketAddr) -> Self {
+    pub fn new(db_name: String, addr: &str) -> Self {
+        let addr_c = addr.to_string();
         let db_name_clone = db_name.clone();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -21,7 +20,7 @@ impl TestMysqlDatabase {
                 use sqlx::mysql::MySqlPoolOptions;
 
                 let pool = match MySqlPoolOptions::new()
-                    .connect(&format!("mysql://root:mysql@{addr}/mysql"))
+                    .connect(&format!("mysql://root:mysql@{addr_c}/mysql"))
                     .await
                 {
                     Ok(pool) => pool,
@@ -39,7 +38,7 @@ impl TestMysqlDatabase {
         Self {
             db_name,
             connection_url,
-            addr,
+            addr: addr.to_string(),
         }
     }
 
@@ -51,7 +50,7 @@ impl TestMysqlDatabase {
 impl Drop for TestMysqlDatabase {
     fn drop(&mut self) {
         let db_name = self.db_name.clone();
-        let addr = self.addr;
+        let addr = self.addr.clone();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
@@ -81,12 +80,13 @@ impl Drop for TestMysqlDatabase {
 pub struct TestPostgresDatabase {
     db_name: String,
     connection_url: String,
-    addr: SocketAddr,
+    addr: String,
 }
 
 impl TestPostgresDatabase {
-    pub fn new(db_name: String, addr: SocketAddr) -> Self {
+    pub fn new(db_name: String, addr: &str) -> Self {
         let db_name_clone = db_name.clone();
+        let addr_c = addr.to_string();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
@@ -97,7 +97,7 @@ impl TestPostgresDatabase {
                 use sqlx::postgres::PgPoolOptions;
 
                 let pool = match PgPoolOptions::new()
-                    .connect(&format!("postgres://postgres:postgres@{addr}/postgres"))
+                    .connect(&format!("postgres://postgres:postgres@{addr_c}/postgres"))
                     .await
                 {
                     Ok(pool) => pool,
@@ -115,7 +115,7 @@ impl TestPostgresDatabase {
         Self {
             db_name,
             connection_url,
-            addr,
+            addr: addr.to_string(),
         }
     }
 
@@ -127,7 +127,7 @@ impl TestPostgresDatabase {
 impl Drop for TestPostgresDatabase {
     fn drop(&mut self) {
         let db_name = self.db_name.clone();
-        let addr = self.addr;
+        let addr = self.addr.clone();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,

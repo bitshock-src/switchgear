@@ -7,6 +7,8 @@ use uuid::Uuid;
 async fn create_postgres_store() -> (DbOfferStore, TestPostgresDatabase) {
     let db_name = format!("test_offer_{}", Uuid::new_v4().to_string().replace("-", ""));
     let services = IntegrationTestServices::create().unwrap();
+    eprintln!("services: {:?}", services);
+
     let db = TestPostgresDatabase::new(db_name, services.postgres());
 
     let store = DbOfferStore::connect(db.connection_url(), 5).await.unwrap();
