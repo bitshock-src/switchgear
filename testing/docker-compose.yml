@@ -171,6 +171,9 @@ services:
       - "8888:80"
     networks:
       - lightning_network
+    depends_on:
+      setup:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

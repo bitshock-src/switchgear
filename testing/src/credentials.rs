@@ -174,10 +174,7 @@ fn download_credentials() -> anyhow::Result<()> {
     let credentials_url = match env::var(CREDENTIALS_URL_ENV) {
         Ok(url) => url,
         Err(_) => {
-            return Err(anyhow::anyhow!(
-                "{} is not set",
-                CREDENTIALS_URL_ENV
-            ));
+            return Err(anyhow::anyhow!("{} is not set", CREDENTIALS_URL_ENV));
         }
     };
 
@@ -188,15 +185,17 @@ fn download_credentials() -> anyhow::Result<()> {
 
     // Check if credentials already exist after acquiring lock
     if credentials_path.exists() {
-        eprintln!("✓ Credentials already exist at {}", credentials_path.display());
+        eprintln!(
+            "✓ Credentials already exist at {}",
+            credentials_path.display()
+        );
         return Ok(());
     }
 
     eprintln!("Downloading credentials from {}...", credentials_url);
 
     // Create target directory if it doesn't exist
-    fs::create_dir_all("target")
-        .context("Failed to create target directory")?;
+    fs::create_dir_all("target").context("Failed to create target directory")?;
 
     // Download credentials.tar.gz using ureq
     let download_path = "target/credentials.tar.gz";
@@ -205,7 +204,8 @@ fn download_credentials() -> anyhow::Result<()> {
         .with_context(|| format!("Failed to download credentials from {}", credentials_url))?;
 
     // Read response body into bytes
-    let bytes = response.into_body()
+    let bytes = response
+        .into_body()
         .read_to_vec()
         .context("Failed to read response body")?;
 
