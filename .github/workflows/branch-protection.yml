@@ -26,9 +26,9 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
-          cd testing
-          docker compose up -d
-          cd ..
+          # Start docker compose in background so we don't wait for build to complete
+          (cd testing && docker compose up -d  > /tmp/docker-compose.log 2>&1) &
+          echo "Docker Compose services starting in background (PID: $!)"
 
       - name: Cache cargo registry and build
         uses: actions/cache@v4
@@ -57,7 +57,7 @@ jobs:
       - name: Run integration tests
         run: |
           echo "Waiting for setup to complete..."
-          timeout 300 bash -c 'until [ -f testing/shared-credentials/credentials/setup_complete ]; do echo "Waiting for credentials file..."; sleep 1; done' || (echo "Setup did not complete in time" && docker compose -f testing/docker-compose.yml logs && exit 1)
+          timeout 300 bash -c 'until [ -f ${{ github.workspace }}/testing/shared-credentials/credentials/setup_complete ]; do echo "Waiting... checking $(pwd)/testing/shared-credentials/credentials/setup_complete"; ls -la testing/shared-credentials/ 2>/dev/null || true; sleep 5; done' || (echo "Setup did not complete in time" && docker compose -f testing/docker-compose.yml logs && exit 1)
           echo "Setup completed successfully"
 
           export LNURL_BALANCER_CREDENTIALS_PATH=${{ github.workspace }}/testing/shared-credentials/credentials
