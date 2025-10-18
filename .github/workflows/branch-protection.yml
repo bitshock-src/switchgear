@@ -30,6 +30,7 @@ jobs:
           mkdir ./shared-credentials
           chmod 777 ./shared-credentials
           docker compose up -d --wait
+          find ./shared-credentials
           cd ..
 
 #      - name: Cache cargo registry and build
