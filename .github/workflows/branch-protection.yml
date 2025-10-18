@@ -27,7 +27,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ${{ github.workspace }}/.env
+          echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ../.env
           docker compose up -d
           docker compose ps
           cd ..
@@ -51,15 +51,13 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Run unit tests
-        env:
-          LNURL_BALANCER_CREDENTIALS_PATH: ${{ github.workspace }}/testing/shared-credentials/credentials
         run: |
           cargo test --lib --bins
 
       - name: Run integration tests
         run: |
-          . ${{ github.workspace }}/.env
-          cat ${{ github.workspace }}/.env
+          . ./.env
+          cat ./.env
           timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
 
           cargo test --test discovery
