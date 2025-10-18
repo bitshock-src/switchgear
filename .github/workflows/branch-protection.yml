@@ -27,11 +27,9 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          mkdir -p ./shared-credentials/credentials
-          chmod 777 -R ./shared-credentials
-          echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ../.env
-          docker compose up -d
-          docker compose ps
+          SHARED_CREDENTIALS_PATH=$GITHUB_WORKSPACE/shared
+          mkdir $SHARED_CREDENTIALS_PATH
+          SHARED_CREDENTIALS_PATH docker compose up -d
           cd ..
 
 #      - name: Cache cargo registry and build
@@ -58,9 +56,7 @@ jobs:
 
       - name: Run integration tests
         run: |
-          . ./.env && find ${LNURL_BALANCER_CREDENTIALS_PATH}
-#          ls -laR testing/shared-credentials/ || echo "Directory does not exist"
-#          timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
+          find $GITHUB_WORKSPACE/shared
 #
 #          cargo test --test discovery
 #          cargo test --test offer
