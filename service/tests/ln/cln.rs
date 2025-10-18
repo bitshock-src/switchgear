@@ -9,8 +9,9 @@ use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
 use switchgear_service::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
+use switchgear_testing::credentials::LnCredentials;
 
-async fn try_create_cln_tonic_client() -> anyhow::Result<
+async fn try_create_cln_tonic_client(credentials: &LnCredentials) -> anyhow::Result<
     Option<
         Box<
             dyn LnRpcClient<Error = switchgear_service::components::pool::error::LnPoolError>
@@ -23,7 +24,7 @@ async fn try_create_cln_tonic_client() -> anyhow::Result<
     // Install default crypto provider for rustls
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    let backend = match try_create_cln_backend()? {
+    let backend = match try_create_cln_backend(credentials)? {
         None => return Ok(None),
         Some(backend) => match backend.backend.implementation {
             DiscoveryBackendImplementation::ClnGrpc(b) => b,
@@ -38,7 +39,8 @@ async fn try_create_cln_tonic_client() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_cln_tonic_invoice_with_direct_description() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -90,7 +92,8 @@ async fn test_cln_tonic_invoice_with_direct_description() {
 
 #[tokio::test]
 async fn test_cln_tonic_invoice_with_direct_into_hash_description() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -140,7 +143,8 @@ async fn test_cln_tonic_invoice_with_direct_into_hash_description() {
 
 #[tokio::test]
 async fn test_cln_tonic_invoice_with_hash_description_produces_error() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -179,7 +183,8 @@ async fn test_cln_tonic_invoice_with_hash_description_produces_error() {
 
 #[tokio::test]
 async fn test_cln_tonic_invoice_with_none_amount() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -224,7 +229,8 @@ async fn test_cln_tonic_invoice_with_none_amount() {
 
 #[tokio::test]
 async fn test_cln_tonic_invoice_with_none_expiry() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),
@@ -271,7 +277,8 @@ async fn test_cln_tonic_invoice_with_none_expiry() {
 
 #[tokio::test]
 async fn test_cln_tonic_metrics() {
-    let client = match try_create_cln_tonic_client().await {
+    let credentials = LnCredentials::create().unwrap();
+    let client = match try_create_cln_tonic_client(&credentials).await {
         Ok(Some(client)) => client,
         Ok(None) => return, // Test skipped gracefully
         Err(e) => panic!("{}", e),

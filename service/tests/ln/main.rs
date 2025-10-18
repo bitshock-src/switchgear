@@ -9,7 +9,7 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_testing::credentials::{get_backends, RegTestLnNode, RegTestLnNodeAddress};
+use switchgear_testing::credentials::{ LnCredentials, RegTestLnNode, RegTestLnNodeAddress};
 use url::Url;
 
 #[path = "../common/mod.rs"]
@@ -18,8 +18,8 @@ pub mod common;
 mod cln;
 mod lnd;
 
-pub fn try_create_cln_backend() -> anyhow::Result<Option<DiscoveryBackend>> {
-    let backends = get_backends()?;
+pub fn try_create_cln_backend(credentials: &LnCredentials) -> anyhow::Result<Option<DiscoveryBackend>> {
+    let backends = credentials.get_backends()?;
 
     if backends.is_empty() {
         return Ok(None);
@@ -65,8 +65,8 @@ pub fn try_create_cln_backend() -> anyhow::Result<Option<DiscoveryBackend>> {
     Ok(Some(backend))
 }
 
-pub fn try_create_lnd_backend() -> anyhow::Result<Option<DiscoveryBackend>> {
-    let backends = get_backends()?;
+pub fn try_create_lnd_backend(credentials: &LnCredentials) -> anyhow::Result<Option<DiscoveryBackend>> {
+    let backends = credentials.get_backends()?;
 
     if backends.is_empty() {
         return Ok(None);
