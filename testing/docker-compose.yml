@@ -44,7 +44,7 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./shared-credentials:/shared
+      - ${SHARED_CREDENTIALS_PATH:-./shared-credentials}:/shared
     networks:
       - lightning_network
     restart: "no"
