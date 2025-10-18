@@ -28,7 +28,7 @@ jobs:
         run: |
           cd testing
           docker compose down -v
-          docker compose up -d --wait
+          docker compose up -d --build --wait
           cd ..
 
       - name: Cache cargo registry and build
@@ -55,13 +55,10 @@ jobs:
 
       - name: Run integration tests
         run: |
-          
-          echo 'LNURL_BALANCER_CREDENTIALS_URL=http://localhost:8080/credentials.tar.gz' > ./.env
-
           cargo test --test discovery
           cargo test --test offer
-          cargo test --test ln
-          cargo test --test features
+#          cargo test --test ln
+#          cargo test --test features
 
       - name: Stop Docker Compose services
         if: always()

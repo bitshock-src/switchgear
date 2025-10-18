@@ -1,6 +1,7 @@
 use crate::common::db::TestPostgresDatabase;
 use crate::common::discovery;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
+use switchgear_testing::services::IntegrationTestServices;
 use uuid::Uuid;
 
 async fn create_postgres_store() -> (DbDiscoveryBackendStore, TestPostgresDatabase) {
@@ -8,7 +9,8 @@ async fn create_postgres_store() -> (DbDiscoveryBackendStore, TestPostgresDataba
         "test_discovery_{}",
         Uuid::new_v4().to_string().replace("-", "")
     );
-    let db = TestPostgresDatabase::new(db_name, 5432);
+    let services = IntegrationTestServices::create().unwrap();
+    let db = TestPostgresDatabase::new(db_name, services.postgres());
 
     let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)
         .await

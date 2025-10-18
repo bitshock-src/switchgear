@@ -77,7 +77,7 @@ pub struct LnCredentials {
 
 impl LnCredentials {
     pub fn create() -> anyhow::Result<Self> {
-        let _ = dotenvy::dotenv();
+        dotenvy::dotenv()?;
 
         let credentials_dir =
             if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
@@ -105,9 +105,7 @@ Do one of:
                     }
                 };
 
-                let credentials_dir = tempfile::Builder::new()
-                    .prefix("credentials-")
-                    .tempdir_in("target")?;
+                let credentials_dir = TempDir::new()?;
                 Self::download_credentials(credentials_dir.path(), &credentials_url)?;
                 Some(credentials_dir)
             };

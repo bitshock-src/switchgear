@@ -143,7 +143,7 @@ services:
     volumes:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     networks:
       - lightning_network
     restart: unless-stopped
@@ -157,7 +157,7 @@ services:
     volumes:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT}:3306"
     networks:
       - lightning_network
     restart: unless-stopped

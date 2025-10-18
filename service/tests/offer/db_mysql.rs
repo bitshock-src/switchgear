@@ -1,6 +1,7 @@
 use crate::common::db::TestMysqlDatabase;
 use crate::common::offer;
 use switchgear_service::components::offer::db::DbOfferStore;
+use switchgear_testing::services::IntegrationTestServices;
 use uuid::Uuid;
 
 async fn create_mysql_store() -> (DbOfferStore, TestMysqlDatabase) {
@@ -8,7 +9,8 @@ async fn create_mysql_store() -> (DbOfferStore, TestMysqlDatabase) {
         "test_discovery_{}",
         Uuid::new_v4().to_string().replace("-", "")
     );
-    let db = TestMysqlDatabase::new(db_name, 3306);
+    let services = IntegrationTestServices::create().unwrap();
+    let db = TestMysqlDatabase::new(db_name, services.mysql());
 
     let store = DbOfferStore::connect(db.connection_url(), 5).await.unwrap();
     store.migrate_up().await.unwrap();

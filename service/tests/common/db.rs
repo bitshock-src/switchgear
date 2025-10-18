@@ -1,14 +1,15 @@
+use std::net::SocketAddr;
 use std::thread;
 
 pub struct TestMysqlDatabase {
     db_name: String,
     connection_url: String,
-    port: u16,
+    addr: SocketAddr,
 }
 
 impl TestMysqlDatabase {
     // 3306
-    pub fn new(db_name: String, port: u16) -> Self {
+    pub fn new(db_name: String, addr: SocketAddr) -> Self {
         let db_name_clone = db_name.clone();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -20,7 +21,7 @@ impl TestMysqlDatabase {
                 use sqlx::mysql::MySqlPoolOptions;
 
                 let pool = match MySqlPoolOptions::new()
-                    .connect(&format!("mysql://root:mysql@localhost:{port}/mysql"))
+                    .connect(&format!("mysql://root:mysql@{addr}/mysql"))
                     .await
                 {
                     Ok(pool) => pool,
@@ -34,11 +35,11 @@ impl TestMysqlDatabase {
         })
         .join();
 
-        let connection_url = format!("mysql://root:mysql@localhost:{port}/{db_name}");
+        let connection_url = format!("mysql://root:mysql@{addr}/{db_name}");
         Self {
             db_name,
             connection_url,
-            port,
+            addr,
         }
     }
 
@@ -50,7 +51,7 @@ impl TestMysqlDatabase {
 impl Drop for TestMysqlDatabase {
     fn drop(&mut self) {
         let db_name = self.db_name.clone();
-        let port = self.port;
+        let addr = self.addr;
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
@@ -61,7 +62,7 @@ impl Drop for TestMysqlDatabase {
                 use sqlx::mysql::MySqlPoolOptions;
 
                 let pool = match MySqlPoolOptions::new()
-                    .connect(&format!("mysql://root:mysql@localhost:{port}/mysql"))
+                    .connect(&format!("mysql://root:mysql@{addr}/mysql"))
                     .await
                 {
                     Ok(pool) => pool,
@@ -80,12 +81,11 @@ impl Drop for TestMysqlDatabase {
 pub struct TestPostgresDatabase {
     db_name: String,
     connection_url: String,
-    port: u16,
+    addr: SocketAddr,
 }
 
 impl TestPostgresDatabase {
-    // 5432
-    pub fn new(db_name: String, port: u16) -> Self {
+    pub fn new(db_name: String, addr: SocketAddr) -> Self {
         let db_name_clone = db_name.clone();
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -97,9 +97,7 @@ impl TestPostgresDatabase {
                 use sqlx::postgres::PgPoolOptions;
 
                 let pool = match PgPoolOptions::new()
-                    .connect(&format!(
-                        "postgres://postgres:postgres@localhost:{port}/postgres"
-                    ))
+                    .connect(&format!("postgres://postgres:postgres@{addr}/postgres"))
                     .await
                 {
                     Ok(pool) => pool,
@@ -113,11 +111,11 @@ impl TestPostgresDatabase {
         })
         .join();
 
-        let connection_url = format!("postgres://postgres:postgres@localhost:{port}/{db_name}");
+        let connection_url = format!("postgres://postgres:postgres@{addr}/{db_name}");
         Self {
             db_name,
             connection_url,
-            port,
+            addr,
         }
     }
 
@@ -129,7 +127,7 @@ impl TestPostgresDatabase {
 impl Drop for TestPostgresDatabase {
     fn drop(&mut self) {
         let db_name = self.db_name.clone();
-        let port = self.port;
+        let addr = self.addr;
         let _ = thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
@@ -140,7 +138,7 @@ impl Drop for TestPostgresDatabase {
                 use sqlx::postgres::PgPoolOptions;
 
                 let pool = match PgPoolOptions::new()
-                    .connect(&format!("postgres://postgres:postgres@localhost:{port}/postgres"))
+                    .connect(&format!("postgres://postgres:postgres@{addr}/postgres"))
                     .await
                 {
                     Ok(pool) => pool,
