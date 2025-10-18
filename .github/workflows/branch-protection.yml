@@ -30,6 +30,7 @@ jobs:
           mkdir ./shared-credentials
           chmod 777 ./shared-credentials
           docker compose up -d --wait
+          sudo chown -R $UID:$UID ./shared-credentials
           find ./shared-credentials
           cd ..
 
