@@ -30,7 +30,7 @@ jobs:
           export SHARED_CREDENTIALS_PATH=$GITHUB_WORKSPACE/shared
           echo $SHARED_CREDENTIALS_PATH
           mkdir -p $SHARED_CREDENTIALS_PATH
-          SHARED_CREDENTIALS_PATH docker compose up -d
+          docker compose up -d
           cd ..
 
 #      - name: Cache cargo registry and build
