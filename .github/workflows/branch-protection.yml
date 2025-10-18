@@ -27,8 +27,9 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          SHARED_CREDENTIALS_PATH=$GITHUB_WORKSPACE/shared
-          mkdir $SHARED_CREDENTIALS_PATH
+          export SHARED_CREDENTIALS_PATH=$GITHUB_WORKSPACE/shared
+          echo $SHARED_CREDENTIALS_PATH
+          mkdir -p $SHARED_CREDENTIALS_PATH
           SHARED_CREDENTIALS_PATH docker compose up -d
           cd ..
 
