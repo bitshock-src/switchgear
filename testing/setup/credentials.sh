@@ -36,9 +36,9 @@ echo "$CLN_PUBKEY" > "$CREDS_DIR/cln/node_id"
 
 echo "$CLN_ADDRESS" > "$CREDS_DIR/cln/address.txt"
 
-docker cp cln-regtest:/root/.lightning/regtest/ca.pem "$CREDS_DIR/cln/" 2>/dev/null || echo "Warning: Could not copy CLN ca.pem"
-docker cp cln-regtest:/root/.lightning/regtest/client.pem "$CREDS_DIR/cln/" 2>/dev/null || echo "Warning: Could not copy CLN client.pem"
-docker cp cln-regtest:/root/.lightning/regtest/client-key.pem "$CREDS_DIR/cln/" 2>/dev/null || echo "Warning: Could not copy CLN client-key.pem"
+docker cp cln-regtest:/root/.lightning/regtest/ca.pem "$CREDS_DIR/cln/"
+docker cp cln-regtest:/root/.lightning/regtest/client.pem "$CREDS_DIR/cln/"
+docker cp cln-regtest:/root/.lightning/regtest/client-key.pem "$CREDS_DIR/cln/"
 
 LND_PUBKEY=$(docker exec lnd-regtest lncli --network=regtest getinfo | jq -r ".identity_pubkey")
 echo "$LND_PUBKEY" > "$CREDS_DIR/lnd/node_id"
@@ -65,3 +65,6 @@ echo "  - Node ID: $(cat $CREDS_DIR/lnd/node_id)"
 echo "  - Address: $(cat $CREDS_DIR/lnd/address.txt)"
 echo "  - tls.cert: $CREDS_DIR/lnd/tls.cert"
 echo "  - admin.macaroon: $CREDS_DIR/lnd/admin.macaroon"
+
+cd /shared
+tar -czf credentials.tar.gz credentials/

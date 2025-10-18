@@ -27,43 +27,41 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          mkdir ./shared-credentials
-          chmod 777 ./shared-credentials
+          docker compose down -v
           docker compose up -d --wait
-          chown -R $UID:$UID ./shared-credentials
-          find ./shared-credentials
           cd ..
 
-#      - name: Cache cargo registry and build
-#        uses: actions/cache@v4
-#        with:
-#          path: |
-#            ~/.cargo/registry/index/
-#            ~/.cargo/registry/cache/
-#            ~/.cargo/git/db/
-#            target/
-#          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-#          restore-keys: |
-#            ${{ runner.os }}-cargo-
-#
-#      - name: Check formatting
-#        run: cargo fmt -- --check
-#
-#      - name: Run clippy
-#        run: cargo clippy -- -D warnings
-#
-#      - name: Run unit tests
-#        run: |
-#          cargo test --lib --bins
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run unit tests
+        run: |
+          cargo test --lib --bins
 
       - name: Run integration tests
         run: |
-          find ./testing/shared-credentials
-#
-#          cargo test --test discovery
-#          cargo test --test offer
-#          cargo test --test ln
-#          cargo test --test features
+          
+          echo LNURL_BALANCER_CREDENTIALS_URL=https://localhost:8080/credentials.tar.gz > ./.env
+
+          cargo test --test discovery
+          cargo test --test offer
+          cargo test --test ln
+          cargo test --test features
 
       - name: Stop Docker Compose services
         if: always()

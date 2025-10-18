@@ -44,7 +44,7 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${SHARED_CREDENTIALS_PATH:-./shared-credentials}:/shared
+      - shared:/shared
     networks:
       - lightning_network
     restart: "no"
@@ -162,7 +162,20 @@ services:
       - lightning_network
     restart: unless-stopped
 
+  credentials-server:
+    image: nginx:alpine
+    container_name: credentials-server
+    volumes:
+      - shared:/usr/share/nginx/html
+    ports:
+      - "8888:80"
+    networks:
+      - lightning_network
+    restart: unless-stopped
+
 volumes:
+  shared:
+    external: false
   lnurl-balancer_bitcoin_data:
     external: false
   lnurl-balancer_cln_data:

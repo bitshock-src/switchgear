@@ -4,10 +4,15 @@ use std::env;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::str::FromStr;
+use std::sync::Mutex;
 
-const CREDENTIALS_PATH_ENV: &str = "LNURL_BALANCER_CREDENTIALS_PATH";
+const CREDENTIALS_URL_ENV: &str = "LNURL_BALANCER_CREDENTIALS_URL";
 const SKIP_INTEGRATION_TESTS_ENV: &str = "LNURL_SKIP_INTEGRATION_TESTS";
+const CREDENTIALS_DIR: &str = "target/credentials";
+
+static DOWNLOAD_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClnRegTestLnNode {
@@ -68,25 +73,29 @@ pub fn get_backends() -> anyhow::Result<Vec<RegTestLnNode>> {
         return Ok(Vec::new());
     }
 
-    match get_backends_path() {
-        None => {
-            panic!(
-                "
-            
-❌❌❌ ERROR ❌❌❌
-
-{CREDENTIALS_PATH_ENV} is not set. Do one of:
-
-1. configure test environment (see testing/README.md) and set {CREDENTIALS_PATH_ENV}
-2. set env {SKIP_INTEGRATION_TESTS_ENV}=true to skip integration tests
-
-❌❌❌ ERROR ❌❌❌
-
+    if let Err(e) = download_credentials() {
+        panic!(
             "
-            );
-        }
-        Some(base_path) => get_backends_from_path(base_path),
+
+❌❌❌ ERROR ❌❌❌
+
+Failed to download credentials: {}
+
+Do one of:
+
+1. configure test environment (see testing/README.md) and ensure credentials server is running
+2. set env {CREDENTIALS_URL_ENV} to the URL of your credentials server
+3. set env {SKIP_INTEGRATION_TESTS_ENV}=true to skip integration tests
+
+❌❌❌ ERROR ❌❌❌
+
+            ",
+            e
+        );
     }
+
+    let base_path = PathBuf::from(CREDENTIALS_DIR);
+    get_backends_from_path(base_path)
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -158,9 +167,72 @@ fn get_backends_from_path(base_path: PathBuf) -> anyhow::Result<Vec<RegTestLnNod
     Ok(backends)
 }
 
-fn get_backends_path() -> Option<PathBuf> {
+fn download_credentials() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
-    env::var(CREDENTIALS_PATH_ENV).ok().map(PathBuf::from)
+
+    // Check if the environment variable is set
+    let credentials_url = match env::var(CREDENTIALS_URL_ENV) {
+        Ok(url) => url,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "{} is not set",
+                CREDENTIALS_URL_ENV
+            ));
+        }
+    };
+
+    let credentials_path = PathBuf::from(CREDENTIALS_DIR);
+
+    // Use a mutex to ensure only one thread downloads at a time
+    let _guard = DOWNLOAD_LOCK.lock().unwrap();
+
+    // Check if credentials already exist after acquiring lock
+    if credentials_path.exists() {
+        eprintln!("✓ Credentials already exist at {}", credentials_path.display());
+        return Ok(());
+    }
+
+    eprintln!("Downloading credentials from {}...", credentials_url);
+
+    // Create target directory if it doesn't exist
+    fs::create_dir_all("target")
+        .context("Failed to create target directory")?;
+
+    // Download credentials.tar.gz using ureq
+    let download_path = "target/credentials.tar.gz";
+    let response = ureq::get(&credentials_url)
+        .call()
+        .with_context(|| format!("Failed to download credentials from {}", credentials_url))?;
+
+    // Read response body into bytes
+    let bytes = response.into_body()
+        .read_to_vec()
+        .context("Failed to read response body")?;
+
+    fs::write(download_path, &bytes)
+        .with_context(|| format!("Failed to write to {}", download_path))?;
+
+    eprintln!("✓ Downloaded credentials to {}", download_path);
+
+    // Extract tarball to target/
+    let extract_status = Command::new("tar")
+        .args(["-xzf", download_path, "-C", "target/"])
+        .status()
+        .context("Failed to execute tar")?;
+
+    if !extract_status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to extract credentials: tar exited with {}",
+            extract_status
+        ));
+    }
+
+    eprintln!("✓ Extracted credentials to {}", credentials_path.display());
+
+    // Clean up tarball
+    let _ = fs::remove_file(download_path);
+
+    Ok(())
 }
 
 fn read_node_address(node_path: &Path) -> anyhow::Result<RegTestLnNodeAddress> {
