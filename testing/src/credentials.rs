@@ -1,11 +1,12 @@
 use anyhow::Context;
+use flate2::read::GzDecoder;
 use secp256k1::PublicKey;
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::str::FromStr;
+use tar::Archive;
 use tempfile::TempDir;
 
 const CREDENTIALS_URL_ENV: &str = "LNURL_BALANCER_CREDENTIALS_URL";
@@ -106,8 +107,7 @@ Do one of:
 
                 let credentials_dir = tempfile::Builder::new()
                     .prefix("credentials-")
-                    .tempdir_in("target")
-                    .expect("Failed to create credentials tempdir");
+                    .tempdir_in("target")?;
                 Self::download_credentials(credentials_dir.path(), &credentials_url)?;
                 Some(credentials_dir)
             };
@@ -119,40 +119,24 @@ Do one of:
         let download_path = credentials_dir.join("credentials.tar.gz");
         let response = ureq::get(credentials_url)
             .call()
-            .with_context(|| format!("Failed to download credentials from {}", credentials_url))?;
+            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
 
-        // Read response body into bytes
         let bytes = response
             .into_body()
             .read_to_vec()
-            .context("Failed to read response body")?;
+            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
 
         fs::write(&download_path, &bytes)
-            .with_context(|| format!("Failed to write to {}", download_path.display()))?;
+            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
 
-        eprintln!("✓ Downloaded credentials to {}", download_path.display());
+        let tar_gz = fs::File::open(&download_path)
+            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
 
-        // Extract tarball to the unique directory
-        let extract_status = Command::new("tar")
-            .args([
-                "-xzvf",
-                download_path.to_str().unwrap(),
-                "-C",
-                credentials_dir.to_str().unwrap(),
-            ])
-            .status()
-            .context("Failed to execute tar")?;
-
-        if !extract_status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to extract credentials: tar exited with {}",
-                extract_status
-            ));
-        }
-
-        let credentials_path = credentials_dir.join("credentials");
-        eprintln!("✓ Extracted credentials to {}", credentials_path.display());
-
+        let tar = GzDecoder::new(tar_gz);
+        let mut archive = Archive::new(tar);
+        archive
+            .unpack(credentials_dir)
+            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
         Ok(())
     }
 
@@ -162,7 +146,7 @@ Do one of:
             Some(base_path) => base_path.path(),
         };
 
-        let entries = fs::read_dir(&base_path)
+        let entries = fs::read_dir(base_path)
             .with_context(|| format!("reading directory {}", base_path.display()))?;
 
         let mut backends = Vec::new();
@@ -180,7 +164,7 @@ Do one of:
             let dir_name = match path.file_name() {
                 Some(name) => match name.to_str() {
                     Some(s) => s,
-                    None => continue, // Skip non-UTF8 names
+                    None => continue,
                 },
                 None => continue,
             };
@@ -193,7 +177,6 @@ Do one of:
                 continue;
             };
 
-            // Read node ID
             let node_id_path = path.join("node_id");
             let node_id_str = fs::read_to_string(&node_id_path)
                 .with_context(|| format!("reading node ID from {}", node_id_path.display(),))?;
@@ -206,7 +189,6 @@ Do one of:
                 format!("parsing {} public key from bytes", node_id_path.display(),)
             })?;
 
-            // Read address from address.txt
             let address = Self::read_node_address(&path)?;
 
             let node = match node_type {

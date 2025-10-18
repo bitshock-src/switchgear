@@ -11,7 +11,9 @@ use switchgear_service::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
 use switchgear_testing::credentials::LnCredentials;
 
-async fn try_create_cln_tonic_client(credentials: &LnCredentials) -> anyhow::Result<
+async fn try_create_cln_tonic_client(
+    credentials: &LnCredentials,
+) -> anyhow::Result<
     Option<
         Box<
             dyn LnRpcClient<Error = switchgear_service::components::pool::error::LnPoolError>

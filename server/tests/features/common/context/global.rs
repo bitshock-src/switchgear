@@ -26,7 +26,7 @@ pub struct GlobalContext {
     pki_root_cn: String,
     pki_root_issuer: Issuer<'static, KeyPair>,
     ln_nodes: Vec<RegTestLnNode>,
-    credentials: LnCredentials,
+    _credentials: LnCredentials,
 }
 
 impl GlobalContext {
@@ -54,7 +54,7 @@ impl GlobalContext {
             pki_root_cn,
             pki_root_issuer,
             ln_nodes,
-            credentials,
+            _credentials: credentials,
         }))
     }
 
