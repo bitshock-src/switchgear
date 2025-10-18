@@ -27,8 +27,8 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          mkdir ./shared-credentials
-          chmod 777 ./shared-credentials
+          mkdir -p ./shared-credentials/credentials
+          chmod 777 -R ./shared-credentials
           echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ../.env
           docker compose up -d
           docker compose ps
