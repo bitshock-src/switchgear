@@ -10,4 +10,5 @@ else
 fi
 
 touch /tmp/setup_complete
+touch /shared/credentials/setup_complete
 sleep infinity
