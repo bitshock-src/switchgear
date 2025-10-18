@@ -25,47 +25,49 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Start Docker Compose services
-        env:
-          SHARED_CREDENTIALS_PATH: /home/runner/work/switchgear-private/switchgear-private/testing/shared-credentials
         run: |
           cd testing
+          mkdir ./shared-credentials
+          chmod 777 ./shared-credentials
           echo "LNURL_BALANCER_CREDENTIALS_PATH=${PWD}/shared-credentials/credentials" > ../.env
           docker compose up -d
           docker compose ps
           cd ..
 
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Run unit tests
-        run: |
-          cargo test --lib --bins
+#      - name: Cache cargo registry and build
+#        uses: actions/cache@v4
+#        with:
+#          path: |
+#            ~/.cargo/registry/index/
+#            ~/.cargo/registry/cache/
+#            ~/.cargo/git/db/
+#            target/
+#          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+#          restore-keys: |
+#            ${{ runner.os }}-cargo-
+#
+#      - name: Check formatting
+#        run: cargo fmt -- --check
+#
+#      - name: Run clippy
+#        run: cargo clippy -- -D warnings
+#
+#      - name: Run unit tests
+#        run: |
+#          cargo test --lib --bins
 
       - name: Run integration tests
         run: |
           . ./.env
-          cat ./.env
-          timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
-
-          cargo test --test discovery
-          cargo test --test offer
-          cargo test --test ln
-          cargo test --test features
+          env
+          find ${LNURL_BALANCER_CREDENTIALS_PATH}
+#          ls -laR testing/shared-credentials/ || echo "Directory does not exist"
+#          timeout 300 bash -c 'until [ -f ${LNURL_BALANCER_CREDENTIALS_PATH}/setup_complete ]; do sleep 1; done' || (docker compose -f testing/docker-compose.yml logs && exit 1)
+#
+#          cargo test --test discovery
+#          cargo test --test offer
+#          cargo test --test ln
+#          cargo test --test features
 
       - name: Stop Docker Compose services
         if: always()

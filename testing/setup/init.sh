@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+touch /shared/setup_started
+
 /ln.sh
 
 if [ $# -eq 0 ]; then
