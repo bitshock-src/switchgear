@@ -61,6 +61,7 @@ jobs:
         run: |
           ls -l /etc/resolv.conf
           cat /etc/resolv.conf
+          cat /etc/nsswitch.conf || true
           curl --verbose http://credentials-server:8888/credentials.tar.gz > /dev/null || true
           curl --verbose http://credentials-server.services_network:8888/credentials.tar.gz > /dev/null || true
           cargo test --package switchgear-testing --lib services::tests::test_services -- --nocapture
