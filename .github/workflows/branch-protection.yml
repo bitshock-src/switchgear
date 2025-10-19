@@ -63,6 +63,10 @@ jobs:
           curl --verbose http://127.0.0.1:8888/credentials.tar.gz > /dev/null || true
           curl --verbose http://credentials-server:8888/credentials.tar.gz > /dev/null || true
 
+          curl --verbose http://localhost:80/credentials.tar.gz > /dev/null || true
+          curl --verbose http://127.0.0.1:80/credentials.tar.gz > /dev/null || true
+          curl --verbose http://credentials-server:80/credentials.tar.gz > /dev/null || true
+
 #          cargo test --test discovery
 #          cargo test --test offer
 #          cargo test --test ln
