@@ -19,7 +19,7 @@ impl IntegrationTestServices {
 
         let postgres_port = env::var("POSTGRES_PORT")?.parse::<u16>()?;
         let postgres = format!(
-            "{}.services_network:{postgres_port}",
+            "{}:{postgres_port}",
             env::var("POSTGRES_HOSTNAME")?
         );
         eprintln!("attempting to resolve: {postgres}");
@@ -29,7 +29,7 @@ impl IntegrationTestServices {
 
         let mysql_port = env::var("MYSQL_PORT")?.parse::<u16>()?;
         let mysql = format!(
-            "{}.services_network:{mysql_port}",
+            "{}:{mysql_port}",
             env::var("MYSQL_HOSTNAME")?
         );
         eprintln!("attempting to resolve: {mysql}");
@@ -39,7 +39,7 @@ impl IntegrationTestServices {
 
         let credentials_port = env::var("CREDENTIALS_SERVER_PORT")?.parse::<u16>()?;
         let credentials = format!(
-            "{}.services_network:{credentials_port}",
+            "{}:{credentials_port}",
             env::var("CREDENTIALS_SERVER_HOSTNAME")?
         );
         eprintln!("attempting to resolve: {credentials}");
