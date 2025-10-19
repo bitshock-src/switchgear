@@ -1,3 +1,4 @@
+use crate::services::SKIP_INTEGRATION_TESTS_ENV;
 use anyhow::Context;
 use flate2::read::GzDecoder;
 use secp256k1::PublicKey;
@@ -10,7 +11,6 @@ use tar::Archive;
 use tempfile::TempDir;
 
 const CREDENTIALS_URL_ENV: &str = "LNURL_BALANCER_CREDENTIALS_URL";
-const SKIP_INTEGRATION_TESTS_ENV: &str = "LNURL_SKIP_INTEGRATION_TESTS";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClnRegTestLnNode {

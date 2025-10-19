@@ -1,51 +1,41 @@
-use anyhow::Context;
 use std::env;
-use std::net::ToSocketAddrs;
-use std::path::PathBuf;
+
+pub const SKIP_INTEGRATION_TESTS_ENV: &str = "LNURL_SKIP_INTEGRATION_TESTS";
 
 #[derive(Debug)]
 pub struct IntegrationTestServices {
-    postgres: String,
-    mysql: String,
-    credentials: String,
+    postgres: Option<String>,
+    mysql: Option<String>,
+    credentials: Option<String>,
 }
 
 impl IntegrationTestServices {
     pub fn create() -> anyhow::Result<Self> {
         let _ = dotenvy::dotenv();
-        let services_env_file = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env");
-        dotenvy::from_path(&services_env_file)
-            .with_context(|| format!("loading .env file {}", services_env_file.display()))?;
 
-        let postgres_port = env::var("POSTGRES_PORT")?.parse::<u16>()?;
-        let postgres = format!(
-            "{}:{postgres_port}",
-            env::var("POSTGRES_HOSTNAME")?
-        );
-        eprintln!("attempting to resolve: {postgres}");
-        let postgres = postgres
-            .to_socket_addrs()
-            .map_or_else(|_| format!("localhost:{postgres_port}"), |_| postgres);
+        let postgres = match Self::env_or_panic("POSTGRES_PORT") {
+            None => None,
+            Some(port) => {
+                let port = port.parse::<u16>()?;
+                Self::env_or_panic("POSTGRES_HOSTNAME").map(|s| format!("{s}:{port}"))
+            }
+        };
 
-        let mysql_port = env::var("MYSQL_PORT")?.parse::<u16>()?;
-        let mysql = format!(
-            "{}:{mysql_port}",
-            env::var("MYSQL_HOSTNAME")?
-        );
-        eprintln!("attempting to resolve: {mysql}");
-        let mysql = mysql
-            .to_socket_addrs()
-            .map_or_else(|_| format!("localhost:{mysql_port}"), |_| mysql);
+        let mysql = match Self::env_or_panic("MYSQL_PORT") {
+            None => None,
+            Some(port) => {
+                let port = port.parse::<u16>()?;
+                Self::env_or_panic("MYSQL_HOSTNAME").map(|s| format!("{s}:{port}"))
+            }
+        };
 
-        let credentials_port = env::var("CREDENTIALS_SERVER_PORT")?.parse::<u16>()?;
-        let credentials = format!(
-            "{}:{credentials_port}",
-            env::var("CREDENTIALS_SERVER_HOSTNAME")?
-        );
-        eprintln!("attempting to resolve: {credentials}");
-        let credentials = credentials
-            .to_socket_addrs()
-            .map_or_else(|_| format!("localhost:{credentials_port}"), |_| credentials);
+        let credentials = match Self::env_or_panic("CREDENTIALS_SERVER_PORT") {
+            None => None,
+            Some(port) => {
+                let port = port.parse::<u16>()?;
+                Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME").map(|s| format!("{s}:{port}"))
+            }
+        };
 
         Ok(Self {
             postgres,
@@ -54,16 +44,51 @@ impl IntegrationTestServices {
         })
     }
 
-    pub fn postgres(&self) -> &str {
-        &self.postgres
+    pub fn postgres(&self) -> Option<&String> {
+        self.postgres.as_ref()
     }
 
-    pub fn mysql(&self) -> &str {
-        &self.mysql
+    pub fn mysql(&self) -> Option<&String> {
+        self.mysql.as_ref()
     }
 
-    pub fn credentials(&self) -> &str {
-        &self.credentials
+    pub fn credentials(&self) -> Option<&String> {
+        self.credentials.as_ref()
+    }
+
+    fn env_or_panic(config_env: &str) -> Option<String> {
+        match env::var(config_env) {
+            Ok(r) => Some(r),
+            Err(_) => {
+                if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
+                    eprintln!("⚠️ WARNING: {SKIP_INTEGRATION_TESTS_ENV} is true, skipping integration tests for {config_env}");
+                    return None;
+                }
+                panic!(
+                    "
+
+❌❌❌ ERROR ❌❌❌
+
+Do one of:
+
+CONFIGURE INTEGRATION TEST ENVIRONMENT
+
+* follow testing/README.md and configure integration tests
+* set env {config_env} to configure the service
+
+- or -
+
+SKIP INTEGRATION TESTS FOR \"{config_env}\"
+
+* set env {SKIP_INTEGRATION_TESTS_ENV}=true
+* unset env {config_env} 
+
+❌❌❌ ERROR ❌❌❌
+
+"
+                );
+            }
+        }
     }
 }
 
