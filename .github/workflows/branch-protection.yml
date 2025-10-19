@@ -26,8 +26,6 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
-          export CREDENTIALS_SERVER_CONFIG=$GITHUB_WORKSPACE/testing/credentials-server-config
-          echo "Using absolute path: $CREDENTIALS_SERVER_CONFIG"
           cd testing
           docker compose down -v
           docker compose up -d --build --wait
@@ -61,14 +59,9 @@ jobs:
 
       - name: Run integration tests
         run: |
-          curl --verbose http://localhost:8888/credentials.tar.gz > /dev/null || true
-          curl --verbose http://127.0.0.1:8888/credentials.tar.gz > /dev/null || true
           curl --verbose http://credentials-server:8888/credentials.tar.gz > /dev/null || true
-
-
-
-#          cargo test --test discovery
-#          cargo test --test offer
+          cargo test --test discovery
+          cargo test --test offer
 #          cargo test --test ln
 #          cargo test --test features
 
