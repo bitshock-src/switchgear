@@ -24,12 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+        # docker network connect services_network $(hostname)
+
       - name: Start Docker Compose services
         run: |
           cd testing
           docker compose down -v
           docker compose up -d --build --wait
-#          docker network connect services_network $(hostname)
           cd ..
 
       - name: Cache cargo registry and build
