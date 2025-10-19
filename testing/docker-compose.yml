@@ -174,7 +174,6 @@ services:
     ports:
       - "${CREDENTIALS_SERVER_PORT}:8888"
     networks:
-      - lightning_network
       - services
     depends_on:
       setup:
@@ -182,6 +181,12 @@ services:
     restart: unless-stopped
     entrypoint: ["nginx"]
     command: ["-g", "daemon off;"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/credentials.tar.gz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
 volumes:
   shared:
