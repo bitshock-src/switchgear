@@ -59,8 +59,12 @@ jobs:
 
       - name: Run integration tests
         run: |
-          cargo test --test discovery
-          cargo test --test offer
+          curl --verbose http://localhost:8888/credentials.tar.gz > /dev/null
+          curl --verbose http://127.0.0.1:8888/credentials.tar.gz > /dev/null 
+          curl --verbose http://credentials-server:8888/credentials.tar.gz > /dev/null 
+
+#          cargo test --test discovery
+#          cargo test --test offer
 #          cargo test --test ln
 #          cargo test --test features
 

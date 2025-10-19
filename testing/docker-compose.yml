@@ -169,7 +169,7 @@ services:
     container_name: credentials-server
     hostname: "${CREDENTIALS_SERVER_HOSTNAME}"
     environment:
-      - NGINX_PORT=80
+      - NGINX_PORT=0.0.0.0:80
     volumes:
       - shared:/usr/share/nginx/html
     ports:
