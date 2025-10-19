@@ -25,7 +25,7 @@ impl IntegrationTestServices {
 
         let mysql_hostname = env::var("MYSQL_HOSTNAME")?;
         let mysql_port = env::var("MYSQL_PORT")?.parse::<u16>()?;
-        let mysql = match postgres_hostname.to_socket_addrs() {
+        let mysql = match mysql_hostname.to_socket_addrs() {
             Ok(_) => format!("{mysql_hostname}:{mysql_port}"),
             Err(_) => format!("localhost:{mysql_port}"),
         };

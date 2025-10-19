@@ -140,7 +140,7 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_LOG_MIN_MESSAGES: info
-    command: ["postgres", "-c", "log_min_messages=${POSTGRES_LOG_MIN_MESSAGES:-info}"]
+    command: ["postgres", "-c", "log_min_messages=${POSTGRES_LOG_MIN_MESSAGES:-info}", "-c", "listen_addresses=*"]
     volumes:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
@@ -156,7 +156,7 @@ services:
     hostname: "${MYSQL_HOSTNAME}"
     environment:
       MYSQL_ROOT_PASSWORD: mysql
-    command: ["mysqld", "--log-error-verbosity=2"]
+    command: ["mysqld", "--log-error-verbosity=2", "--bind-address=0.0.0.0"]
     volumes:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:
