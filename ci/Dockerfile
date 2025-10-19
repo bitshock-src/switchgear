@@ -9,7 +9,7 @@ RUN apt-get update && \
         protobuf-compiler \
         ca-certificates \
         curl \
-        iputils \
+        iputils-ping  \
         gnupg && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
