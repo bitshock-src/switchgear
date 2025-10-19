@@ -145,8 +145,8 @@ services:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT}:5432"
-#    networks:
-#      - services
+    networks:
+      - services
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
@@ -166,8 +166,8 @@ services:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:
       - "${MYSQL_PORT}:3306"
-#    networks:
-#      - services
+    networks:
+      - services
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pmysql"]
@@ -184,8 +184,8 @@ services:
       - shared:/usr/share/nginx/html
     ports:
       - "${CREDENTIALS_SERVER_PORT}:8888"
-#    networks:
-#      - services
+    networks:
+      - services
     depends_on:
       setup:
         condition: service_healthy
@@ -216,6 +216,6 @@ volumes:
 networks:
   lightning_network:
     driver: bridge
-#  services:
-#    name: services_network
-#    driver: bridge
+  services:
+    name: $SERVICES_NETWORK_NAME
+    driver: bridge
