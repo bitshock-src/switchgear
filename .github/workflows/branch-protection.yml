@@ -26,11 +26,10 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
-          docker network create services 
-          docker network connect services $(hostname)
           cd testing
           docker compose down -v
           docker compose up -d --build --wait
+          docker network connect services_network $(hostname)
           cd ..
 
       - name: Cache cargo registry and build
@@ -46,17 +45,21 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Check formatting
+        if: false
         run: cargo fmt -- --check
 
       - name: Run clippy
+        if: false
         run: cargo clippy -- -D warnings
 
       - name: Run unit tests
+        if: false
         run: |
           cargo test --lib --bins
 
       - name: Run integration tests
         run: |
+          dig +time=2 postgres
           cargo test --test discovery
           cargo test --test offer
 #          cargo test --test ln

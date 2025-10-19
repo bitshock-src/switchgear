@@ -203,4 +203,5 @@ networks:
   lightning_network:
     driver: bridge
   services:
-    external: true
+    name: services_network
+    driver: bridge
