@@ -28,6 +28,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
+          . ./.env
           docker compose down -v
           docker compose up -d --build --wait
           docker network connect $SERVICES_NETWORK_NAME $(hostname)
