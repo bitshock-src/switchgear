@@ -27,6 +27,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           docker network create services 
+          docker network connect lightning_network $(hostname)
           cd testing
           docker compose down -v
           docker compose up -d --build --wait
