@@ -22,7 +22,10 @@ impl IntegrationTestServices {
         let postgres_port = env::var("POSTGRES_PORT")?.parse::<u16>()?;
         let postgres = match postgres_hostname.to_socket_addrs() {
             Ok(_) => format!("{postgres_hostname}:{postgres_port}"),
-            Err(_) => format!("localhost:{postgres_port}"),
+            Err(e) => {
+                eprintln!("dns lookup failure: {e:?}");
+                format!("localhost:{postgres_port}")
+            }
         };
 
         let mysql_hostname = format!("{}.services_network", env::var("MYSQL_HOSTNAME")?);
@@ -30,7 +33,10 @@ impl IntegrationTestServices {
         let mysql_port = env::var("MYSQL_PORT")?.parse::<u16>()?;
         let mysql = match mysql_hostname.to_socket_addrs() {
             Ok(_) => format!("{mysql_hostname}:{mysql_port}"),
-            Err(_) => format!("localhost:{mysql_port}"),
+            Err(e) => {
+                eprintln!("dns lookup failure: {e:?}");
+                format!("localhost:{mysql_port}")
+            }
         };
 
         let credentials_hostname = format!(
@@ -41,7 +47,10 @@ impl IntegrationTestServices {
         let credentials_port = env::var("CREDENTIALS_SERVER_PORT")?.parse::<u16>()?;
         let credentials = match credentials_hostname.to_socket_addrs() {
             Ok(_) => format!("{credentials_hostname}:{credentials_port}"),
-            Err(_) => format!("localhost:{credentials_port}"),
+            Err(e) => {
+                eprintln!("dns lookup failure: {e:?}");
+                format!("localhost:{credentials_port}")
+            }
         };
 
         Ok(Self {
