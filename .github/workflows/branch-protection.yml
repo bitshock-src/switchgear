@@ -26,6 +26,8 @@ jobs:
 
       - name: Start Docker Compose services
         run: |
+          export CREDENTIALS_SERVER_CONFIG=$GITHUB_WORKSPACE/testing/credentials-server-config
+          echo "Using absolute path: $CREDENTIALS_SERVER_CONFIG"
           cd testing
           docker compose down -v
           docker compose up -d --build --wait
