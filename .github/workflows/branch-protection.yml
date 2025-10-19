@@ -59,6 +59,8 @@ jobs:
 
       - name: Run integration tests
         run: |
+          ping -c 5 -W 2 postgres
+          ping -c 5 -W 2 mysql
           cargo test --test discovery
           cargo test --test offer
 #          cargo test --test ln
