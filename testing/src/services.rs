@@ -57,3 +57,15 @@ impl IntegrationTestServices {
         &self.credentials
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use crate::services::IntegrationTestServices;
+
+    #[test]
+    pub fn test_services() {
+        let services = IntegrationTestServices::create().unwrap();
+        eprintln!("{:?}", services);
+    }
+}

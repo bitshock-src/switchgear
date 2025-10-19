@@ -60,8 +60,10 @@ jobs:
       - name: Run integration tests
         run: |
           curl --verbose http://credentials-server:8888/credentials.tar.gz > /dev/null || true
-          cargo test --test discovery
-          cargo test --test offer
+          cargo test --package switchgear-testing --lib services::tests::test_services -- --nocapture
+
+      #          cargo test --test discovery
+#          cargo test --test offer
 #          cargo test --test ln
 #          cargo test --test features
 
