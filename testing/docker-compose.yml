@@ -165,12 +165,11 @@ services:
     restart: unless-stopped
 
   credentials-server:
-    image: nginx:alpine
+    build: ./credentials-server
     container_name: credentials-server
     hostname: "${CREDENTIALS_SERVER_HOSTNAME}"
     volumes:
       - shared:/usr/share/nginx/html
-      - ${CREDENTIALS_SERVER_CONFIG:-./credentials-server-config}:/etc/nginx/conf.d:ro
     ports:
       - "${CREDENTIALS_SERVER_PORT}:8888"
     networks:
