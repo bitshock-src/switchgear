@@ -17,41 +17,35 @@ impl IntegrationTestServices {
         dotenvy::from_path(&services_env_file)
             .with_context(|| format!("loading .env file {}", services_env_file.display()))?;
 
-        let postgres_hostname = format!("{}.services_network", env::var("POSTGRES_HOSTNAME")?);
-        eprintln!("attempting to resolve: {postgres_hostname}");
         let postgres_port = env::var("POSTGRES_PORT")?.parse::<u16>()?;
-        let postgres = match postgres_hostname.to_socket_addrs() {
-            Ok(_) => format!("{postgres_hostname}:{postgres_port}"),
-            Err(e) => {
-                eprintln!("dns lookup failure: {e:?}");
-                format!("localhost:{postgres_port}")
-            }
-        };
+        let postgres = format!(
+            "{}.services_network:{postgres_port}",
+            env::var("POSTGRES_HOSTNAME")?
+        );
+        eprintln!("attempting to resolve: {postgres}");
+        let postgres = postgres
+            .to_socket_addrs()
+            .map_or_else(|_| format!("localhost:{postgres_port}"), |_| postgres);
 
-        let mysql_hostname = format!("{}.services_network", env::var("MYSQL_HOSTNAME")?);
-        eprintln!("attempting to resolve: {mysql_hostname}");
         let mysql_port = env::var("MYSQL_PORT")?.parse::<u16>()?;
-        let mysql = match mysql_hostname.to_socket_addrs() {
-            Ok(_) => format!("{mysql_hostname}:{mysql_port}"),
-            Err(e) => {
-                eprintln!("dns lookup failure: {e:?}");
-                format!("localhost:{mysql_port}")
-            }
-        };
+        let mysql = format!(
+            "{}.services_network:{mysql_port}",
+            env::var("MYSQL_HOSTNAME")?
+        );
+        eprintln!("attempting to resolve: {mysql}");
+        let mysql = mysql
+            .to_socket_addrs()
+            .map_or_else(|_| format!("localhost:{mysql_port}"), |_| mysql);
 
-        let credentials_hostname = format!(
-            "{}.services_network",
+        let credentials_port = env::var("CREDENTIALS_SERVER_PORT")?.parse::<u16>()?;
+        let credentials = format!(
+            "{}.services_network:{credentials_port}",
             env::var("CREDENTIALS_SERVER_HOSTNAME")?
         );
-        eprintln!("attempting to resolve: {credentials_hostname}");
-        let credentials_port = env::var("CREDENTIALS_SERVER_PORT")?.parse::<u16>()?;
-        let credentials = match credentials_hostname.to_socket_addrs() {
-            Ok(_) => format!("{credentials_hostname}:{credentials_port}"),
-            Err(e) => {
-                eprintln!("dns lookup failure: {e:?}");
-                format!("localhost:{credentials_port}")
-            }
-        };
+        eprintln!("attempting to resolve: {credentials}");
+        let credentials = credentials
+            .to_socket_addrs()
+            .map_or_else(|_| format!("localhost:{credentials_port}"), |_| credentials);
 
         Ok(Self {
             postgres,
