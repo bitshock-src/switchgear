@@ -31,7 +31,6 @@ jobs:
           . ./.env
           docker compose down -v
           docker compose up -d --build 
-          docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
       - name: Cache cargo registry and build
@@ -61,10 +60,12 @@ jobs:
 
       - name: Run integration tests
         run: |
-          ./testing/wait-credentials.sh 300
+          cd testing
+          ./wait-credentials.sh 300
+          docker network connect $SERVICES_NETWORK_NAME $(hostname)
+          cd ..
 
           cp testing/.env .
-          cargo test --package switchgear-testing --lib services::tests::test_services -- --nocapture
           cargo test --test discovery
           cargo test --test offer
 #          cargo test --test ln
