@@ -79,9 +79,7 @@ jobs:
             cat ./compose.log || true
             exit 1
           fi
-          
-          cat ./compose.log
-          
+                    
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
