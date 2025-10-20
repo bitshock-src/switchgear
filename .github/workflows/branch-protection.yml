@@ -24,13 +24,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-
       - name: Start Docker Compose services
         run: |
           cd testing
-          . ./.env
           docker compose down -v
-          docker compose up -d --build 
+          nohup docker compose up -d --build > compose.log 2>&1 &
+          sleep 2
           cd ..
 
       - name: Cache cargo registry and build
@@ -61,8 +60,8 @@ jobs:
       - name: Run integration tests
         run: |
           cd testing
-          ./wait-credentials.sh 300
-          docker network connect $SERVICES_NETWORK_NAME $(hostname)
+          ./check-credentials-health.sh 300
+          . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
           cp testing/.env .
