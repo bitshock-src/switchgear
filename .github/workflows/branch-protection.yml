@@ -27,9 +27,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          docker compose down -v
-          nohup docker compose up -d --build > compose.log 2>&1 &
-          sleep 2
+          tmux new-session -d -s compose 'docker compose up -d --build --wait'
           cd ..
 
       - name: Cache cargo registry and build
@@ -56,8 +54,8 @@ jobs:
 
       - name: Run integration tests
         run: |
+          tmux attach -t compose
           cd testing
-          ./wait-credentials.sh 300
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 

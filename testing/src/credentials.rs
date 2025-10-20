@@ -1,16 +1,13 @@
-use crate::services::SKIP_INTEGRATION_TESTS_ENV;
+use crate::services::IntegrationTestServices;
 use anyhow::Context;
 use flate2::read::GzDecoder;
 use secp256k1::PublicKey;
-use std::env;
 use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tar::Archive;
 use tempfile::TempDir;
-
-const CREDENTIALS_URL_ENV: &str = "LNURL_BALANCER_CREDENTIALS_URL";
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClnRegTestLnNode {
@@ -77,39 +74,15 @@ pub struct LnCredentials {
 
 impl LnCredentials {
     pub fn create() -> anyhow::Result<Self> {
-        dotenvy::dotenv()?;
-
-        let credentials_dir =
-            if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
-                eprintln!("⚠️ WARNING: {SKIP_INTEGRATION_TESTS_ENV} is true, skipping tests");
-                None
-            } else {
-                let credentials_url = match env::var(CREDENTIALS_URL_ENV) {
-                    Ok(url) => url,
-                    Err(_) => {
-                        panic!(
-                            "
-
-❌❌❌ ERROR ❌❌❌
-
-Do one of:
-
-1. configure test environment (see testing/README.md) and ensure credentials server is running
-2. set env {CREDENTIALS_URL_ENV} to the URL of your credentials server
-3. set env {SKIP_INTEGRATION_TESTS_ENV}=true to skip integration tests
-
-❌❌❌ ERROR ❌❌❌
-
-                "
-                        );
-                    }
-                };
-
+        let services = IntegrationTestServices::create()?;
+        let credentials_dir = match services.credentials() {
+            None => None,
+            Some(credentials_url) => {
                 let credentials_dir = TempDir::new()?;
-                Self::download_credentials(credentials_dir.path(), &credentials_url)?;
+                Self::download_credentials(credentials_dir.path(), credentials_url)?;
                 Some(credentials_dir)
-            };
-
+            }
+        };
         Ok(Self { credentials_dir })
     }
 

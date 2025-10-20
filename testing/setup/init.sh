@@ -1,8 +1,6 @@
 #!/bin/sh
 set -e
 
-touch /shared/setup_started
-
 /ln.sh
 
 if [ $# -eq 0 ]; then
@@ -12,5 +10,4 @@ else
 fi
 
 touch /tmp/setup_complete
-touch /shared/credentials/setup_complete
 sleep infinity

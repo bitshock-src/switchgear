@@ -1,6 +1,6 @@
 use std::env;
 
-pub const SKIP_INTEGRATION_TESTS_ENV: &str = "LNURL_SKIP_INTEGRATION_TESTS";
+pub const SKIP_INTEGRATION_TESTS_ENV: &str = "SWGR_SKIP_INTEGRATION_TESTS";
 
 #[derive(Debug)]
 pub struct IntegrationTestServices {
@@ -33,7 +33,8 @@ impl IntegrationTestServices {
             None => None,
             Some(port) => {
                 let port = port.parse::<u16>()?;
-                Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME").map(|s| format!("{s}:{port}"))
+                Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME")
+                    .map(|s| format!("http://{s}:{port}/credentials.tar.gz"))
             }
         };
 
@@ -57,13 +58,14 @@ impl IntegrationTestServices {
     }
 
     fn env_or_panic(config_env: &str) -> Option<String> {
+        if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
+            eprintln!("⚠️ WARNING: {SKIP_INTEGRATION_TESTS_ENV} is true, skipping integration tests for {config_env}");
+            return None;
+        }
+
         match env::var(config_env) {
             Ok(r) => Some(r),
             Err(_) => {
-                if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
-                    eprintln!("⚠️ WARNING: {SKIP_INTEGRATION_TESTS_ENV} is true, skipping integration tests for {config_env}");
-                    return None;
-                }
                 panic!(
                     "
 
@@ -73,15 +75,14 @@ Do one of:
 
 CONFIGURE INTEGRATION TEST ENVIRONMENT
 
-* follow testing/README.md and configure integration tests
+* configure integration tests - see testing/README.md
 * set env {config_env} to configure the service
 
 - or -
 
-SKIP INTEGRATION TESTS FOR \"{config_env}\"
+SKIP INTEGRATION TESTS
 
 * set env {SKIP_INTEGRATION_TESTS_ENV}=true
-* unset env {config_env} 
 
 ❌❌❌ ERROR ❌❌❌
 
