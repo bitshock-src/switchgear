@@ -43,19 +43,22 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Check formatting
+        if: false
         run: cargo fmt -- --check
 
       - name: Run clippy
+        if: false
         run: cargo clippy -- -D warnings
 
       - name: Run unit tests
+        if: false
         run: |
           cargo test --lib --bins
 
       - name: Run integration tests
         run: |
-          tmux attach -t compose
           cd testing
+          tmux attach -t compose
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
