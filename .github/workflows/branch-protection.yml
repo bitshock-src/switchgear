@@ -58,7 +58,7 @@ jobs:
       - name: Run integration tests
         run: |
           cd testing
-          tmux attach -t compose
+          tmux attach -t compose || true
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
