@@ -60,7 +60,7 @@ jobs:
       - name: Run integration tests
         run: |
           cd testing
-          ./check-credentials-health.sh 300
+          ./wait-credentials.sh 300
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
