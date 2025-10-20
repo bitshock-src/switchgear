@@ -3,14 +3,15 @@ FROM rust:1.90.0
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y \
+        ca-certificates \
         clang \
         cmake \
+        curl \
+        gnupg \
+        iputils-ping  \
         libclang-dev \
         protobuf-compiler \
-        ca-certificates \
-        curl \
-        iputils-ping  \
-        gnupg && \
+        tmux && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     chmod a+r /etc/apt/keyrings/docker.gpg && \
