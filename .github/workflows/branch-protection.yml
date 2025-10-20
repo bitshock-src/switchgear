@@ -55,13 +55,19 @@ jobs:
         run: |
           cargo test --lib --bins
 
-      - name: Run integration tests
+      - name: Compile integration tests
+        run: |
+          cargo test --test discovery --no-run
+          cargo test --test offer --no-run
+
+      - name: Wait for integration tests services
         run: |
           cd testing
 
           MAX_WAIT=300
           ELAPSED=0
           while [ ! -f ./compose-ready ] && [ $ELAPSED -lt $MAX_WAIT ]; do
+            docker compose ps --format "table {{.Service}}\t{{.Status}}"
             sleep 1
             ELAPSED=$((ELAPSED + 1))
           done
@@ -77,6 +83,8 @@ jobs:
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
+      - name: Run integration tests
+        run: |
           cp testing/.env .
           cargo test --test discovery
           cargo test --test offer
