@@ -27,7 +27,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          tmux new-session -d -s compose 'docker compose up -d --build --wait'
+          nohup /bin/sh -c 'docker compose up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
           cd ..
 
       - name: Cache cargo registry and build
@@ -58,7 +58,22 @@ jobs:
       - name: Run integration tests
         run: |
           cd testing
-          tmux attach -t compose || true
+
+          MAX_WAIT=300
+          ELAPSED=0
+          while [ ! -f ./compose-ready ] && [ $ELAPSED -lt $MAX_WAIT ]; do
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+
+          if [ ! -f ./compose-ready ]; then
+            echo "Docker compose did not complete in ${MAX_WAIT}s"
+            cat ./compose.log || true
+            exit 1
+          fi
+          
+          cat ./compose.log
+          
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
