@@ -13,7 +13,8 @@ services:
       "-rpcpassword=bitcoin123",
       "-zmqpubrawblock=tcp://0.0.0.0:28332",
       "-zmqpubrawtx=tcp://0.0.0.0:28333",
-      "-txindex=1"
+      "-txindex=1",
+      "-loglevel=info"
     ]
     ports:
       - "18443:18443"  # RPC port
@@ -38,19 +39,26 @@ services:
       bitcoin:
         condition: service_healthy
       cln:
-        condition: service_started
+        condition: service_healthy
       lnd:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./shared-credentials:/shared
+      - shared:/shared
     networks:
       - lightning_network
     restart: "no"
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/setup_complete"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
 
   cln:
     image: elementsproject/lightningd:v25.09
     container_name: cln-regtest
+    hostname: "${CLN_HOSTNAME}"
     environment:
       LIGHTNINGD_NETWORK: regtest
     command: [
@@ -58,15 +66,15 @@ services:
       "--bitcoin-rpcport=18443",
       "--bitcoin-rpcuser=bitcoin",
       "--bitcoin-rpcpassword=bitcoin123",
-      "--grpc-port=9736",
+      "--grpc-port=${CLN_PORT}",
       "--grpc-host=0.0.0.0",
-      "--log-level=debug",
+      "--log-level=info",
       "--bind-addr=0.0.0.0:9735",
       "--announce-addr=cln:9735"
     ]
     ports:
       - "9735:9735"   # Lightning P2P port
-      - "9736:9736"   # gRPC port
+      - "${CLN_PORT}:${CLN_PORT}"   # gRPC port
     volumes:
       - lnurl-balancer_cln_data:/root/.lightning
     depends_on:
@@ -74,11 +82,19 @@ services:
         condition: service_healthy
     networks:
       - lightning_network
+      - services
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "lightning-cli", "--regtest", "getinfo"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
   lnd:
     image: lightninglabs/lnd:v0.19.3-beta
     container_name: lnd-regtest
+    hostname: "${LND_HOSTNAME}"
     command: [
       "lnd",
       "--bitcoin.active",
@@ -89,7 +105,7 @@ services:
       "--bitcoind.rpcpass=bitcoin123",
       "--bitcoind.zmqpubrawblock=tcp://bitcoin:28332",
       "--bitcoind.zmqpubrawtx=tcp://bitcoin:28333",
-      "--rpclisten=0.0.0.0:10009",
+      "--rpclisten=0.0.0.0:${LND_PORT}",
       "--restlisten=0.0.0.0:8080",
       "--listen=0.0.0.0:9734",
       "--externalip=lnd:9734",
@@ -98,10 +114,11 @@ services:
       "--tlsextraip=127.0.0.1",
       "--noseedbackup",
       "--accept-keysend",
-      "--accept-amp"
+      "--accept-amp",
+      "--debuglevel=info"
     ]
     ports:
-      - "10009:10009"  # gRPC port
+      - "${LND_PORT}:${LND_PORT}"  # gRPC port
       - "8080:8080"    # REST port
       - "9734:9734"    # Lightning P2P port
     volumes:
@@ -111,35 +128,84 @@ services:
         condition: service_healthy
     networks:
       - lightning_network
+      - services
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "-c", "lncli --network=regtest getinfo >/dev/null 2>&1 || (echo 'password123' | lncli --network=regtest create --stdin 2>/dev/null || echo 'password123' | lncli --network=regtest unlock --stdin 2>/dev/null)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
 
   postgres:
     image: postgres:16-alpine
     container_name: postgres-db
+    hostname: "${POSTGRES_HOSTNAME}"
     environment:
       POSTGRES_PASSWORD: postgres
+      POSTGRES_LOG_MIN_MESSAGES: info
+    command: ["postgres", "-c", "log_min_messages=${POSTGRES_LOG_MIN_MESSAGES:-info}", "-c", "listen_addresses=*"]
     volumes:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT}:5432"
     networks:
-      - lightning_network
+      - services
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   mysql:
     image: mysql:8.0
     container_name: mysql-db
+    hostname: "${MYSQL_HOSTNAME}"
     environment:
       MYSQL_ROOT_PASSWORD: mysql
+    command: ["mysqld", "--log-error-verbosity=2", "--bind-address=0.0.0.0"]
     volumes:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT}:3306"
     networks:
-      - lightning_network
+      - services
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pmysql"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  credentials-server:
+    build: ./credentials-server
+    container_name: credentials-server
+    hostname: "${CREDENTIALS_SERVER_HOSTNAME}"
+    volumes:
+      - shared:/usr/share/nginx/html
+    ports:
+      - "${CREDENTIALS_SERVER_PORT}:8888"
+    networks:
+      - services
+    depends_on:
+      setup:
+        condition: service_healthy
+    restart: unless-stopped
+    entrypoint: ["nginx"]
+    command: ["-g", "daemon off;"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/credentials.tar.gz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
 volumes:
+  shared:
+    external: false
   lnurl-balancer_bitcoin_data:
     external: false
   lnurl-balancer_cln_data:
@@ -153,4 +219,7 @@ volumes:
 
 networks:
   lightning_network:
+    driver: bridge
+  services:
+    name: $SERVICES_NETWORK_NAME
     driver: bridge

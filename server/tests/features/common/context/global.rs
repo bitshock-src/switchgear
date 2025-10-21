@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::offer::http::HttpOfferStore;
 use switchgear_testing::credentials::{
-    get_backends, ClnRegTestLnNode, LndRegTestLnNode, RegTestLnNode,
+    ClnRegTestLnNode, LnCredentials, LndRegTestLnNode, RegTestLnNode,
 };
 use tempfile::TempDir;
 
@@ -26,11 +26,13 @@ pub struct GlobalContext {
     pki_root_cn: String,
     pki_root_issuer: Issuer<'static, KeyPair>,
     ln_nodes: Vec<RegTestLnNode>,
+    _credentials: LnCredentials,
 }
 
 impl GlobalContext {
     pub fn create(feature_test_config_path: &Path) -> anyhow::Result<Option<Self>> {
-        let ln_nodes = get_backends()?;
+        let credentials = LnCredentials::create()?;
+        let ln_nodes = credentials.get_backends()?;
         if ln_nodes.is_empty() {
             return Ok(None);
         }
@@ -52,6 +54,7 @@ impl GlobalContext {
             pki_root_cn,
             pki_root_issuer,
             ln_nodes,
+            _credentials: credentials,
         }))
     }
 
