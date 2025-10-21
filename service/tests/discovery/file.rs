@@ -88,6 +88,7 @@ async fn test_file_shared_post_operations_between_clones() {
     // Post backend1 to store1
     let addr = store1.post(backend1.clone()).await.unwrap();
     assert_eq!(addr, Some(backend1.address.clone()));
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store2 can see backend1
     let retrieved = store2.get(&backend1.address).await.unwrap().unwrap();
@@ -96,6 +97,7 @@ async fn test_file_shared_post_operations_between_clones() {
     // Post backend2 to store2
     let addr = store2.post(backend2.clone()).await.unwrap();
     assert_eq!(addr, Some(backend2.address.clone()));
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store1 can see backend2
     let retrieved = store1.get(&backend2.address).await.unwrap().unwrap();
@@ -128,6 +130,7 @@ async fn test_file_shared_put_operations_between_clones() {
     // Put backend via store1
     let was_new = store1.put(backend.clone()).await.unwrap();
     assert!(was_new);
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store2 can see the backend
     let retrieved = store2.get(&backend.address).await.unwrap().unwrap();
@@ -136,6 +139,7 @@ async fn test_file_shared_put_operations_between_clones() {
     // Update backend via store2
     let was_new = store2.put(updated_backend.clone()).await.unwrap();
     assert!(!was_new); // Should be false since it's an update
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store1 can see the updated backend
     let retrieved = store1.get(&updated_backend.address).await.unwrap().unwrap();
@@ -152,7 +156,9 @@ async fn test_file_shared_delete_operations_between_clones() {
 
     // Add backends via store1
     store1.post(backend1.clone()).await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     store1.post(backend2.clone()).await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store2 can see both backends
     let all_backends = store2.get_all().await.unwrap();
@@ -161,6 +167,7 @@ async fn test_file_shared_delete_operations_between_clones() {
     // Delete backend1 via store2
     let was_deleted = store2.delete(&backend1.address).await.unwrap();
     assert!(was_deleted);
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // Verify store1 can no longer see backend1
     let retrieved = store1.get(&backend1.address).await.unwrap();

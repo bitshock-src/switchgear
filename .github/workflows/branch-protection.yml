@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository }}/ci-rust:latest
-      options: -v /var/run/docker.sock:/var/run/docker.sock 
+      options: -v /var/run/docker.sock:/var/run/docker.sock
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
 
