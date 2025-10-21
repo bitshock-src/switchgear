@@ -50,9 +50,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-      - name: Run unit tests
+      - name: Compile tests
         run: |
-          SWGR_SKIP_INTEGRATION_TESTS=true cargo test
+          cargo test --no-run
 
       - name: Wait for integration tests services
         run: |
@@ -75,13 +75,10 @@ jobs:
           . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
-      - name: Run integration tests
+      - name: Run tests
         run: |
           cp testing/.env .
-          cargo test --test discovery
-          cargo test --test offer
-          cargo test --test ln
-          cargo test --test features
+          cargo test
 
       - name: Stop Docker Compose services
         if: always()
