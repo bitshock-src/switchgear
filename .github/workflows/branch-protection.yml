@@ -10,8 +10,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_HOME: /github/home/.cargo
-  CARGO_TARGET_DIR: /github/home/target
 
 jobs:
   check:
@@ -19,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository }}/ci-rust:latest
-      options: -v /var/run/docker.sock:/var/run/docker.sock --dns 127.0.0.11 --dns 8.8.8.8
+      options: -v /var/run/docker.sock:/var/run/docker.sock 
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
 
@@ -32,17 +30,11 @@ jobs:
           nohup /bin/sh -c 'docker compose up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
           cd ..
 
-      - name: Cache cargo registry and build
-        uses: actions/cache@v4
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            /github/home/.cargo/registry/index/
-            /github/home/.cargo/registry/cache/
-            /github/home/.cargo/git/db/
-            /github/home/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          shared-key: "ci-build"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt -- --check
