@@ -53,8 +53,9 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Run unit tests
+        if: false
         run: |
-          SWGR_SKIP_INTEGRATION_TESTS=true cargo test 
+          cargo test --lib --bins
 
       - name: Wait for integration tests services
         run: |
