@@ -80,8 +80,6 @@ jobs:
       - name: Run integration tests
         run: |
           cp testing/.env .
-#          cargo test --test discovery
-#          cargo test --test offer
           cargo test --test ln
           cargo test --test features
 
