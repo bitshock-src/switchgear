@@ -9,7 +9,7 @@ use crate::common::helpers::{
     verify_exit_code, verify_single_service_status,
 };
 use crate::{anyhow_log, bail_log};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::{StatusCode, Url};
@@ -30,7 +30,7 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_testing::credentials::{RegTestLnNode, RegTestLnNodeAddress, RegTestLnNodeType};
+use switchgear_testing::credentials::{RegTestLnNode, RegTestLnNodeType};
 use tokio::time::sleep as tokio_sleep;
 use uuid::Uuid;
 // =============================================================================
@@ -417,10 +417,7 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
 
     let address = DiscoveryBackendAddress::PublicKey(*node.public_key());
 
-    let url = match node.address() {
-        RegTestLnNodeAddress::Inet(a) => Url::parse(format!("https://{a}").as_str())?,
-        RegTestLnNodeAddress::Path(_) => bail!("socket address not supported"),
-    };
+    let url = Url::parse(&format!("https://{}", node.address()))?;
 
     let implementation = match &node {
         RegTestLnNode::Cln(cln) => {
@@ -689,10 +686,7 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
 
     let address = DiscoveryBackendAddress::PublicKey(*node.public_key());
 
-    let url = match node.address() {
-        RegTestLnNodeAddress::Inet(a) => Url::parse(format!("https://{a}").as_str())?,
-        RegTestLnNodeAddress::Path(_) => bail!("socket address not supported"),
-    };
+    let url = Url::parse(&format!("https://{}", node.address()))?;
 
     let implementation = match &node {
         RegTestLnNode::Cln(cln) => {

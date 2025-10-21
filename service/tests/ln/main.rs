@@ -1,4 +1,3 @@
-use anyhow::bail;
 use switchgear_service::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
     DiscoveryBackendSparse,
@@ -9,7 +8,7 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_testing::credentials::{LnCredentials, RegTestLnNode, RegTestLnNodeAddress};
+use switchgear_testing::credentials::{LnCredentials, RegTestLnNode};
 use url::Url;
 
 #[path = "../common/mod.rs"]
@@ -36,10 +35,7 @@ pub fn try_create_cln_backend(
         .next()
         .ok_or_else(|| anyhow::anyhow!("no cln nodes available"))?;
 
-    let url = match cln_node.address {
-        RegTestLnNodeAddress::Inet(addr) => Url::parse(&format!("https://{addr}"))?,
-        RegTestLnNodeAddress::Path(_) => bail!("socket path not supported"),
-    };
+    let url = Url::parse(&format!("https://{}", cln_node.address))?;
 
     let address = DiscoveryBackendAddress::PublicKey(cln_node.public_key);
 
@@ -87,10 +83,7 @@ pub fn try_create_lnd_backend(
 
     let address = DiscoveryBackendAddress::PublicKey(lnd_node.public_key);
 
-    let url = match lnd_node.address {
-        RegTestLnNodeAddress::Inet(addr) => Url::parse(&format!("https://{addr}"))?,
-        RegTestLnNodeAddress::Path(_) => bail!("socket path not supported"),
-    };
+    let url = Url::parse(&format!("https://{}", lnd_node.address))?;
 
     let implementation =
         DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {

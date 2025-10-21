@@ -1,18 +1,16 @@
-use crate::services::IntegrationTestServices;
+use crate::services::{IntegrationTestServices, LightningIntegrationTestServices};
 use anyhow::Context;
 use flate2::read::GzDecoder;
 use secp256k1::PublicKey;
 use std::fs;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
 use tar::Archive;
 use tempfile::TempDir;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClnRegTestLnNode {
     pub public_key: PublicKey,
-    pub address: RegTestLnNodeAddress,
+    pub address: String,
     pub ca_cert_path: PathBuf,
     pub client_cert_path: PathBuf,
     pub client_key_path: PathBuf,
@@ -22,15 +20,9 @@ pub struct ClnRegTestLnNode {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct LndRegTestLnNode {
     pub public_key: PublicKey,
-    pub address: RegTestLnNodeAddress,
+    pub address: String,
     pub tls_cert_path: PathBuf,
     pub macaroon_path: PathBuf,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RegTestLnNodeAddress {
-    Inet(SocketAddr),
-    Path(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -47,7 +39,7 @@ impl RegTestLnNode {
         }
     }
 
-    pub fn address(&self) -> &RegTestLnNodeAddress {
+    pub fn address(&self) -> &str {
         match self {
             RegTestLnNode::Cln(cln) => &cln.address,
             RegTestLnNode::Lnd(lnd) => &lnd.address,
@@ -69,21 +61,29 @@ pub enum RegTestLnNodeType {
 }
 
 pub struct LnCredentials {
-    credentials_dir: Option<TempDir>,
+    inner: Option<LnCredentialsInner>,
+}
+
+struct LnCredentialsInner {
+    credentials_dir: TempDir,
+    lightning: LightningIntegrationTestServices,
 }
 
 impl LnCredentials {
     pub fn create() -> anyhow::Result<Self> {
         let services = IntegrationTestServices::create()?;
-        let credentials_dir = match services.credentials() {
+        let inner = match services.lightning() {
             None => None,
-            Some(credentials_url) => {
+            Some(lightning) => {
                 let credentials_dir = TempDir::new()?;
-                Self::download_credentials(credentials_dir.path(), credentials_url)?;
-                Some(credentials_dir)
+                Self::download_credentials(credentials_dir.path(), &lightning.credentials)?;
+                Some(LnCredentialsInner {
+                    credentials_dir,
+                    lightning: lightning.clone(),
+                })
             }
         };
-        Ok(Self { credentials_dir })
+        Ok(Self { inner })
     }
 
     fn download_credentials(credentials_dir: &Path, credentials_url: &str) -> anyhow::Result<()> {
@@ -112,10 +112,13 @@ impl LnCredentials {
     }
 
     pub fn get_backends(&self) -> anyhow::Result<Vec<RegTestLnNode>> {
-        let base_path = match &self.credentials_dir {
+        let inner = match &self.inner {
             None => return Ok(vec![]),
-            Some(base_path) => base_path.path(),
+            Some(inner) => inner,
         };
+
+        let credentials = inner.credentials_dir.path().join("credentials");
+        let base_path = credentials.as_path();
 
         let entries = fs::read_dir(base_path)
             .with_context(|| format!("reading directory {}", base_path.display()))?;
@@ -160,15 +163,17 @@ impl LnCredentials {
                 format!("parsing {} public key from bytes", node_id_path.display(),)
             })?;
 
-            let address = Self::read_node_address(&path)?;
-
             let node = match node_type {
-                RegTestLnNodeType::Cln => {
-                    RegTestLnNode::Cln(Self::build_cln_node(public_key, address, &path)?)
-                }
-                RegTestLnNodeType::Lnd => {
-                    RegTestLnNode::Lnd(Self::build_lnd_node(public_key, address, &path)?)
-                }
+                RegTestLnNodeType::Cln => RegTestLnNode::Cln(Self::build_cln_node(
+                    public_key,
+                    &inner.lightning.cln,
+                    &path,
+                )?),
+                RegTestLnNodeType::Lnd => RegTestLnNode::Lnd(Self::build_lnd_node(
+                    public_key,
+                    &inner.lightning.lnd,
+                    &path,
+                )?),
             };
 
             backends.push(node);
@@ -177,27 +182,9 @@ impl LnCredentials {
         Ok(backends)
     }
 
-    fn read_node_address(node_path: &Path) -> anyhow::Result<RegTestLnNodeAddress> {
-        let address_file = node_path.join("address.txt");
-
-        let address_content = fs::read_to_string(&address_file)
-            .with_context(|| format!("reading {} address", address_file.display(),))?;
-
-        let address_str = address_content.trim();
-        let socket_addr = SocketAddr::from_str(address_str).with_context(|| {
-            format!(
-                "parsing {} address '{}'",
-                address_file.display(),
-                address_str
-            )
-        })?;
-
-        Ok(RegTestLnNodeAddress::Inet(socket_addr))
-    }
-
     fn build_cln_node(
         public_key: PublicKey,
-        address: RegTestLnNodeAddress,
+        address: &str,
         node_path: &Path,
     ) -> anyhow::Result<ClnRegTestLnNode> {
         let ca_cert_path = node_path.join("ca.pem");
@@ -221,7 +208,7 @@ impl LnCredentials {
 
         Ok(ClnRegTestLnNode {
             public_key,
-            address,
+            address: address.to_string(),
             ca_cert_path,
             client_cert_path,
             client_key_path,
@@ -231,7 +218,7 @@ impl LnCredentials {
 
     fn build_lnd_node(
         public_key: PublicKey,
-        address: RegTestLnNodeAddress,
+        address: &str,
         node_path: &Path,
     ) -> anyhow::Result<LndRegTestLnNode> {
         let tls_cert_path = node_path.join("tls.cert");
@@ -251,7 +238,7 @@ impl LnCredentials {
 
         Ok(LndRegTestLnNode {
             public_key,
-            address,
+            address: address.to_string(),
             tls_cert_path,
             macaroon_path,
         })

@@ -58,6 +58,7 @@ services:
   cln:
     image: elementsproject/lightningd:v25.09
     container_name: cln-regtest
+    hostname: "${CLN_HOSTNAME}"
     environment:
       LIGHTNINGD_NETWORK: regtest
     command: [
@@ -65,7 +66,7 @@ services:
       "--bitcoin-rpcport=18443",
       "--bitcoin-rpcuser=bitcoin",
       "--bitcoin-rpcpassword=bitcoin123",
-      "--grpc-port=9736",
+      "--grpc-port=${CLN_PORT}",
       "--grpc-host=0.0.0.0",
       "--log-level=info",
       "--bind-addr=0.0.0.0:9735",
@@ -73,7 +74,7 @@ services:
     ]
     ports:
       - "9735:9735"   # Lightning P2P port
-      - "9736:9736"   # gRPC port
+      - "${CLN_PORT}:${CLN_PORT}"   # gRPC port
     volumes:
       - lnurl-balancer_cln_data:/root/.lightning
     depends_on:
@@ -92,6 +93,7 @@ services:
   lnd:
     image: lightninglabs/lnd:v0.19.3-beta
     container_name: lnd-regtest
+    hostname: "${LND_HOSTNAME}"
     command: [
       "lnd",
       "--bitcoin.active",
@@ -102,7 +104,7 @@ services:
       "--bitcoind.rpcpass=bitcoin123",
       "--bitcoind.zmqpubrawblock=tcp://bitcoin:28332",
       "--bitcoind.zmqpubrawtx=tcp://bitcoin:28333",
-      "--rpclisten=0.0.0.0:10009",
+      "--rpclisten=0.0.0.0:${LND_PORT}",
       "--restlisten=0.0.0.0:8080",
       "--listen=0.0.0.0:9734",
       "--externalip=lnd:9734",
@@ -115,7 +117,7 @@ services:
       "--debuglevel=info"
     ]
     ports:
-      - "10009:10009"  # gRPC port
+      - "${LND_PORT}:${LND_PORT}"  # gRPC port
       - "8080:8080"    # REST port
       - "9734:9734"    # Lightning P2P port
     volumes:

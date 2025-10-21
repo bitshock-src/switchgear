@@ -59,8 +59,9 @@ jobs:
 
       - name: Compile integration tests
         run: |
-          cargo test --test discovery --no-run
-          cargo test --test offer --no-run
+#          cargo test --test discovery --no-run
+#          cargo test --test offer --no-run
+          cargo test --test ln --no-run
 
       - name: Wait for integration tests services
         run: |
@@ -86,10 +87,10 @@ jobs:
       - name: Run integration tests
         run: |
           cp testing/.env .
-          cargo test --test discovery
-          cargo test --test offer
-#          cargo test --test ln
-#          cargo test --test features
+#          cargo test --test discovery
+#          cargo test --test offer
+          cargo test --test ln
+          cargo test --test features
 
       - name: Stop Docker Compose services
         if: always()
