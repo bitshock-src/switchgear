@@ -82,6 +82,7 @@ services:
         condition: service_healthy
     networks:
       - lightning_network
+      - services
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "lightning-cli", "--regtest", "getinfo"]
@@ -127,6 +128,7 @@ services:
         condition: service_healthy
     networks:
       - lightning_network
+      - services
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "-c", "lncli --network=regtest getinfo >/dev/null 2>&1 || (echo 'password123' | lncli --network=regtest create --stdin 2>/dev/null || echo 'password123' | lncli --network=regtest unlock --stdin 2>/dev/null)"]

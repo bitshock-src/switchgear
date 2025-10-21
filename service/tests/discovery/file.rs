@@ -198,17 +198,21 @@ async fn test_file_shared_mixed_crud_operations_between_instances() {
 
     // 1. Store1 posts backend1
     store1.post(backend1.clone()).await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // 2. Store2 posts backend2
     store2.post(backend2.clone()).await.unwrap();
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // 3. Store1 puts backend3 (new)
     let was_new = store1.put(backend3.clone()).await.unwrap();
     assert!(was_new);
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // 4. Store2 updates backend2
     let was_new = store2.put(updated_backend2.clone()).await.unwrap();
     assert!(!was_new);
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // 5. Verify all changes are visible from store1
     let retrieved1 = store1.get(&backend1.address).await.unwrap().unwrap();
@@ -224,6 +228,7 @@ async fn test_file_shared_mixed_crud_operations_between_instances() {
     // 6. Store1 deletes backend1
     let was_deleted = store1.delete(&backend1.address).await.unwrap();
     assert!(was_deleted);
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
     // 7. Verify final state is consistent across both stores
     let all_from_store1 = store1.get_all().await.unwrap();
