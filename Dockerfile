@@ -1,9 +1,10 @@
 ARG BUILDPLATFORM
 
-FROM --platform=$BUILDPLATFORM bitshock/linux-musl-rust:1.90.0 AS builder
+FROM --platform=$BUILDPLATFORM bitshock/linux-musl-rust:1.91.1 AS builder
 
 WORKDIR /app
 COPY Cargo.toml ./
+COPY Cargo.lock ./
 
 COPY server/src ./server/src
 COPY server/Cargo.toml ./server/Cargo.toml
