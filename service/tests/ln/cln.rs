@@ -162,7 +162,7 @@ async fn test_cln_tonic_invoice_with_hash_description_produces_error() {
     let mut hasher = Sha256::new();
     hasher.update(random_string.as_bytes());
     let hash_bytes = hasher.finalize();
-    let hash_array: [u8; 32] = hash_bytes.as_slice().try_into().unwrap();
+    let hash_array: [u8; 32] = hash_bytes.into();
 
     let description = Bolt11InvoiceDescription::Hash(&hash_array);
     let result = client

@@ -408,7 +408,7 @@ where
 
     // Verify hash is calculated correctly
     let expected_hash = sha2::Sha256::digest(offer.metadata_json_string.as_bytes());
-    assert_eq!(offer.metadata_json_hash, expected_hash.as_slice());
+    assert_eq!(offer.metadata_json_hash, expected_hash.as_ref());
 }
 
 pub async fn test_offer_provider_offer_not_found<S>(store: S)
@@ -478,7 +478,7 @@ where
 
     // Verify hash matches manual calculation
     let manual_hash = sha2::Sha256::digest(result1.metadata_json_string.as_bytes());
-    assert_eq!(result1.metadata_json_hash, manual_hash.as_slice());
+    assert_eq!(result1.metadata_json_hash, manual_hash.as_ref());
 }
 
 pub async fn test_post_offer_with_missing_metadata<S>(store: S)
