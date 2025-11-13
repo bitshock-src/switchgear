@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-pingora"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Pingora-based load balancer implementation for Switchgear LNURL payment infrastructure"
