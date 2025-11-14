@@ -1,10 +1,12 @@
 use crate::api::balance::LnBalancer;
 use crate::api::offer::OfferProvider;
+use crate::axum::partitions::PartitionsLayer;
 use crate::lnurl::pay::handler::LnUrlPayHandlers;
 use crate::lnurl::pay::state::LnUrlPayState;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct LnUrlBalancerService;
@@ -29,6 +31,7 @@ impl LnUrlBalancerService {
                 get(LnUrlPayHandlers::invoice),
             )
             .route("/offers/{partition}/{id}", get(LnUrlPayHandlers::offer))
+            .layer(PartitionsLayer::new(Arc::new(state.partitions().clone())))
             .route("/health/full", get(LnUrlPayHandlers::health_full))
             .route("/health", get(Self::health_check_handler))
             .with_state(state)
@@ -202,6 +205,15 @@ mod tests {
         offer: OfferRecord,
         expiry: u64,
     ) -> (TestServer, MockLnBalancer) {
+        create_test_server_with_offer_and_expiry_and_balancer_and_partitions(offer, expiry, None)
+            .await
+    }
+
+    async fn create_test_server_with_offer_and_expiry_and_balancer_and_partitions(
+        offer: OfferRecord,
+        expiry: u64,
+        partitions: Option<HashSet<String>>,
+    ) -> (TestServer, MockLnBalancer) {
         let partition = offer.partition.clone();
         let offer_provider = MemoryOfferStore::default();
 
@@ -220,8 +232,9 @@ mod tests {
         offer_provider.put_offer(offer).await.unwrap();
 
         let balancer = MockLnBalancer::new();
+        let partitions = partitions.unwrap_or_else(|| HashSet::from([partition.clone()]));
         let state = LnUrlPayState::new(
-            HashSet::from([partition.clone()]),
+            partitions,
             offer_provider,
             balancer.clone(),
             expiry,
@@ -839,5 +852,85 @@ mod tests {
         let decoded_bytes: Vec<u8> = data.into_iter().collect();
         let decoded_url = String::from_utf8(decoded_bytes).unwrap();
         assert_eq!(format!("http://localhost{request_url}"), decoded_url);
+    }
+
+    #[tokio::test]
+    async fn get_offer_when_invalid_partition_then_returns_not_found() {
+        let test_offer = create_test_offer();
+        let partition = test_offer.partition.clone();
+        let offer_id = test_offer.id;
+
+        let (server, _) = create_test_server_with_offer_and_expiry_and_balancer_and_partitions(
+            test_offer,
+            3600,
+            Some(["alternate-partition".to_string()].into()),
+        )
+        .await;
+
+        let response = server.get(&format!("/offers/{partition}/{offer_id}")).await;
+
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_invoice_when_invalid_partition_then_returns_not_found() {
+        let test_offer = create_test_offer();
+        let partition = test_offer.partition.clone();
+        let offer_id = test_offer.id;
+
+        let (server, _) = create_test_server_with_offer_and_expiry_and_balancer_and_partitions(
+            test_offer,
+            3600,
+            Some(["alternate-partition".to_string()].into()),
+        )
+        .await;
+
+        let response = server
+            .get(&format!(
+                "/offers/{partition}/{offer_id}/invoice?amount=500000"
+            ))
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_bech32_when_invalid_partition_then_returns_not_found() {
+        let test_offer = create_test_offer();
+        let partition = test_offer.partition.clone();
+        let offer_id = test_offer.id;
+
+        let (server, _) = create_test_server_with_offer_and_expiry_and_balancer_and_partitions(
+            test_offer,
+            3600,
+            Some(["alternate-partition".to_string()].into()),
+        )
+        .await;
+
+        let response = server
+            .get(&format!("/offers/{partition}/{offer_id}/bech32"))
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn get_bech32_qr_when_invalid_partition_then_returns_not_found() {
+        let test_offer = create_test_offer();
+        let partition = test_offer.partition.clone();
+        let offer_id = test_offer.id;
+
+        let (server, _) = create_test_server_with_offer_and_expiry_and_balancer_and_partitions(
+            test_offer,
+            3600,
+            Some(["alternate-partition".to_string()].into()),
+        )
+        .await;
+
+        let response = server
+            .get(&format!("/offers/{partition}/{offer_id}/bech32/qr"))
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
     }
 }

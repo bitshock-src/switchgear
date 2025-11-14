@@ -33,13 +33,6 @@ impl LnUrlPayHandlers {
         O: OfferProvider + Clone,
         B: LnBalancer,
     {
-        if !state.partitions().contains(&partition) {
-            return Err(LnUrlPayServiceError::not_found(format!(
-                "offer not found: {}",
-                &id
-            )));
-        }
-
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}/invoice");
@@ -74,13 +67,6 @@ impl LnUrlPayHandlers {
         O: OfferProvider + Clone,
         B: LnBalancer,
     {
-        if !state.partitions().contains(&partition) {
-            return Err(LnUrlPayServiceError::not_found(format!(
-                "offer not found: {}",
-                &id
-            )));
-        }
-
         let comment_allowed = state.comment_allowed().unwrap_or(0);
 
         let key = match params.comment {
@@ -137,13 +123,6 @@ impl LnUrlPayHandlers {
         O: OfferProvider + Clone,
         B: LnBalancer,
     {
-        if !state.partitions().contains(&partition) {
-            return Err(LnUrlPayServiceError::not_found(format!(
-                "offer not found: {}",
-                &id
-            )));
-        }
-
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}");
@@ -174,13 +153,6 @@ impl LnUrlPayHandlers {
         O: OfferProvider + Clone,
         B: LnBalancer,
     {
-        if !state.partitions().contains(&partition) {
-            return Err(LnUrlPayServiceError::not_found(format!(
-                "offer not found: {}",
-                &id
-            )));
-        }
-
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}");

@@ -1,4 +1,4 @@
-use crate::axum::middleware::BearerTokenValidator;
+use crate::axum::auth::BearerTokenValidator;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Display;

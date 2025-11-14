@@ -1,6 +1,6 @@
 use crate::api::discovery::DiscoveryBackendStore;
 use crate::api::service::StatusCode;
-use crate::axum::middleware::BearerTokenAuthLayer;
+use crate::axum::auth::BearerTokenAuthLayer;
 use crate::discovery::auth::DiscoveryBearerTokenValidator;
 use crate::discovery::handler::DiscoveryHandlers;
 use crate::discovery::state::DiscoveryState;
