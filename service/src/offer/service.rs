@@ -1,6 +1,6 @@
 use crate::api::offer::{OfferMetadataStore, OfferStore};
 use crate::api::service::StatusCode;
-use crate::axum::middleware::BearerTokenAuthLayer;
+use crate::axum::auth::BearerTokenAuthLayer;
 use crate::offer::auth::OfferBearerTokenValidator;
 use crate::offer::handler::OfferHandlers;
 use crate::offer::state::OfferState;
