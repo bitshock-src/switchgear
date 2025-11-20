@@ -27,7 +27,7 @@ paths:
                 type: string
         '409':
           description: Backend already exists
-  /discovery:
+
     get:
       summary: Get all backends
       description: Retrieves a list of all registered Lightning node backends.
@@ -52,7 +52,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DiscoveryBackend'
+                  $ref: '#/components/schemas/DiscoveryBackendRest'
   /discovery/{addr_variant}/{addr_value}:
     get:
       summary: Get specific backend
@@ -88,7 +88,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DiscoveryBackend'
+                $ref: '#/components/schemas/DiscoveryBackendRest'
         '404':
           description: Backend not found
     put:
@@ -111,12 +111,38 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DiscoveryBackend'
+              $ref: '#/components/schemas/DiscoveryBackendSparse'
       responses:
         '201':
           description: Backend created
         '204':
           description: Backend updated
+    patch:
+      summary: Partially update backend
+      description: Updates specific fields of an existing Lightning node backend without requiring the full backend configuration.
+      parameters:
+        - name: addr_variant
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pk, url]
+        - name: addr_value
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscoveryBackendPatchSparse'
+      responses:
+        '204':
+          description: Backend updated
+        '404':
+          description: Backend not found
     delete:
       summary: Remove backend
       description: Removes a Lightning node backend from the discovery service, preventing it from receiving new traffic.
@@ -155,21 +181,12 @@ components:
     DiscoveryBackend:
       type: object
       required:
-        - location
-        - partitions
         - address
+        - partitions
         - weight
         - enabled
         - implementation
       properties:
-        location:
-          type: string
-          description: Resource location path
-          example: "url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw"
-        partitions:
-          type: array
-          items:
-            type: string
         address:
           oneOf:
             - type: object
@@ -178,6 +195,7 @@ components:
               properties:
                 publicKey:
                   type: string
+                  description: Lightning node public key
             - type: object
               required:
                 - url
@@ -185,57 +203,232 @@ components:
                 url:
                   type: string
                   format: uri
+                  description: Backend URL
+        name:
+          type: string
+          nullable: true
+          description: Optional human-readable name for the backend
+        partitions:
+          type: array
+          items:
+            type: string
+          description: Load balancing partitions
         weight:
           type: integer
           minimum: 0
+          description: Load balancing weight
         enabled:
           type: boolean
+          description: Whether the backend is enabled
+        implementation:
+          $ref: '#/components/schemas/DiscoveryBackendImplementation'
+
+    DiscoveryBackendRest:
+      type: object
+      description: Backend response with location information
+      required:
+        - location
+        - address
+        - partitions
+        - weight
+        - enabled
+        - implementation
+      properties:
+        location:
+          type: string
+          description: Resource location path
+          example: "url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw"
+        address:
+          oneOf:
+            - type: object
+              required:
+                - publicKey
+              properties:
+                publicKey:
+                  type: string
+                  description: Lightning node public key
+            - type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: Backend URL
+        name:
+          type: string
+          nullable: true
+          description: Optional human-readable name for the backend
+        partitions:
+          type: array
+          items:
+            type: string
+          description: Load balancing partitions
+        weight:
+          type: integer
+          minimum: 0
+          description: Load balancing weight
+        enabled:
+          type: boolean
+          description: Whether the backend is enabled
+        implementation:
+          $ref: '#/components/schemas/DiscoveryBackendImplementation'
+
+    DiscoveryBackendSparse:
+      type: object
+      description: Backend configuration without address (used in PUT requests where address is in path)
+      required:
+        - partitions
+        - weight
+        - enabled
+        - implementation
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Optional human-readable name for the backend
+        partitions:
+          type: array
+          items:
+            type: string
+          description: Load balancing partitions
+        weight:
+          type: integer
+          minimum: 0
+          description: Load balancing weight
+        enabled:
+          type: boolean
+          description: Whether the backend is enabled
         implementation:
           $ref: '#/components/schemas/DiscoveryBackendImplementation'
           
+    DiscoveryBackendPatchSparse:
+      type: object
+      description: Partial update payload for backend configuration without address (used in PATCH requests where address is in path). All fields are optional.
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: Optional name for the backend
+        partitions:
+          type: array
+          items:
+            type: string
+          description: Load balancing partitions
+        weight:
+          type: integer
+          minimum: 0
+          description: Load balancing weight
+        enabled:
+          type: boolean
+          description: Whether the backend is enabled
+
     DiscoveryBackendImplementation:
       oneOf:
-        - type: object
-          required:
-            - clnGrpc
-          properties:
-            clnGrpc:
-              type: object
-              required:
-                - address
-              properties:
-                address:
-                  type: string
-                  description: gRPC endpoint address
-                certificateAuthority:
-                  type: string
-                  description: Optional CA certificate
-                clientCertificate:
-                  type: string
-                  description: Optional client certificate
-                clientKey:
-                  type: string
-                  description: Optional client key
-        - type: object
-          required:
-            - lndGrpc
-          properties:
-            lndGrpc:
-              type: object
-              required:
-                - address
-                - macaroon
-              properties:
-                address:
-                  type: string
-                  description: gRPC endpoint address
-                certificateAuthority:
-                  type: string
-                  description: Optional CA certificate
-                macaroon:
-                  type: string
-                  description: Base64 encoded macaroon
-        - type: string
-          enum: [remoteHttp]
+        - $ref: '#/components/schemas/ClnGrpcImplementation'
+        - $ref: '#/components/schemas/LndGrpcImplementation'
+        - $ref: '#/components/schemas/RemoteHttpImplementation'
       discriminator:
         propertyName: type
+        mapping:
+          clnGrpc: '#/components/schemas/ClnGrpcImplementation'
+          lndGrpc: '#/components/schemas/LndGrpcImplementation'
+          remoteHttp: '#/components/schemas/RemoteHttpImplementation'
+
+    ClnGrpcImplementation:
+      type: object
+      description: Core Lightning gRPC backend implementation
+      required:
+        - type
+        - url
+        - auth
+      properties:
+        type:
+          type: string
+          enum: [clnGrpc]
+        url:
+          type: string
+          format: uri
+          description: gRPC endpoint URL
+        domain:
+          type: string
+          nullable: true
+          description: Optional SNI domain for TLS verification
+        auth:
+          $ref: '#/components/schemas/ClnGrpcClientAuth'
+
+    ClnGrpcClientAuth:
+      type: object
+      description: Authentication configuration for CLN gRPC
+      required:
+        - type
+        - caCertPath
+        - clientCertPath
+        - clientKeyPath
+      properties:
+        type:
+          type: string
+          enum: [path]
+        caCertPath:
+          type: string
+          description: Path to CA certificate file
+        clientCertPath:
+          type: string
+          description: Path to client certificate file
+        clientKeyPath:
+          type: string
+          description: Path to client key file
+
+    LndGrpcImplementation:
+      type: object
+      description: LND gRPC backend implementation
+      required:
+        - type
+        - url
+        - auth
+        - ampInvoice
+      properties:
+        type:
+          type: string
+          enum: [lndGrpc]
+        url:
+          type: string
+          format: uri
+          description: gRPC endpoint URL
+        domain:
+          type: string
+          nullable: true
+          description: Optional SNI domain for TLS verification
+        auth:
+          $ref: '#/components/schemas/LndGrpcClientAuth'
+        ampInvoice:
+          type: boolean
+          description: Whether to use AMP invoices
+
+    LndGrpcClientAuth:
+      type: object
+      description: Authentication configuration for LND gRPC
+      required:
+        - type
+        - tlsCertPath
+        - macaroonPath
+      properties:
+        type:
+          type: string
+          enum: [path]
+        tlsCertPath:
+          type: string
+          description: Path to TLS certificate file
+        macaroonPath:
+          type: string
+          description: Path to macaroon file
+
+    RemoteHttpImplementation:
+      type: object
+      description: Remote HTTP backend implementation
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [remoteHttp]

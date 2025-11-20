@@ -4,7 +4,7 @@ use crate::axum::auth::BearerTokenAuthLayer;
 use crate::discovery::auth::DiscoveryBearerTokenValidator;
 use crate::discovery::handler::DiscoveryHandlers;
 use crate::discovery::state::DiscoveryState;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 
 #[derive(Debug)]
@@ -23,6 +23,10 @@ impl DiscoveryService {
             .route(
                 "/discovery/{addr_variant}/{addr_value}",
                 put(DiscoveryHandlers::put_backend),
+            )
+            .route(
+                "/discovery/{addr_variant}/{addr_value}",
+                patch(DiscoveryHandlers::patch_backend),
             )
             .route(
                 "/discovery/{addr_variant}/{addr_value}",
@@ -47,7 +51,7 @@ impl DiscoveryService {
 mod tests {
     use crate::api::discovery::{
         DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-        DiscoveryBackendSparse,
+        DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
     };
     use crate::components::discovery::memory::MemoryDiscoveryBackendStore;
     use crate::discovery::auth::{DiscoveryAudience, DiscoveryClaims};
@@ -66,6 +70,7 @@ mod tests {
         DiscoveryBackend {
             address: DiscoveryBackendAddress::Url(format!("https://{address}").parse().unwrap()),
             backend: DiscoveryBackendSparse {
+                name: None,
                 partitions: [partition.to_string()].into(),
                 weight: 100,
                 enabled: true,
@@ -285,6 +290,74 @@ mod tests {
             .await;
         let updated: DiscoveryBackend = get_response.json();
         assert_eq!(updated.backend.weight, 200);
+    }
+
+    #[tokio::test]
+    async fn patch_backend_then_no_content() {
+        let server = setup_test_server().await;
+        let mut backend = create_test_backend("default", "192.168.1.1:8080");
+
+        // Create initial backend
+        let response = server
+            .server
+            .post("/discovery")
+            .authorization_bearer(server.authorization.clone())
+            .json(&backend)
+            .await;
+
+        let location = response.header("location");
+        let location = location.to_str().unwrap();
+
+        let patch = DiscoveryBackendPatchSparse {
+            name: None,
+            partitions: None,
+            weight: Some(200),
+            enabled: None,
+        };
+        // Update with PATCH
+        backend.backend.weight = 200;
+        let response = server
+            .server
+            .patch(&format!("/discovery/{location}"))
+            .authorization_bearer(server.authorization.clone())
+            .json(&patch)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::NO_CONTENT);
+
+        // Verify the update
+        let get_response = server
+            .server
+            .get(&format!("/discovery/{location}"))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        let updated: DiscoveryBackend = get_response.json();
+        assert_eq!(updated.backend.weight, 200);
+    }
+
+    #[tokio::test]
+    async fn patch_missing_backend_then_not_found() {
+        let server = setup_test_server().await;
+        let mut backend = create_test_backend("default", "192.168.1.1:8080");
+
+        let location = backend.address.encoded();
+
+        let patch = DiscoveryBackendPatchSparse {
+            name: None,
+            partitions: None,
+            weight: Some(200),
+            enabled: None,
+        };
+        // Update with PATCH
+        backend.backend.weight = 200;
+        let response = server
+            .server
+            .patch(&format!("/discovery/{location}"))
+            .authorization_bearer(server.authorization.clone())
+            .json(&patch)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

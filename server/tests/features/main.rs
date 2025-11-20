@@ -5,10 +5,13 @@ pub const FEATURE_TEST_CONFIG_PATH: &str = "tests/features/feature-test-config.t
 
 mod backend_create_delete;
 mod backend_enable_disable;
+mod cli_token;
+mod discovery_manage;
 mod http_remote_stores;
 mod invalid_configuration_rejection;
 mod lnurl_pay_invoice_generation;
 mod lnurl_pay_multi_backend_invoice_generation;
+mod offer_manage;
 mod server_lifecycle_with_graceful_shutdown;
 mod server_persistence;
 mod service_enablement;

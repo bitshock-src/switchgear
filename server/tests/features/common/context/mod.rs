@@ -1,4 +1,5 @@
 pub mod certs;
+pub mod cli;
 pub mod global;
 pub mod pay;
 pub mod server;

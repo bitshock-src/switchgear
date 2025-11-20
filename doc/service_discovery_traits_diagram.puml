@@ -1,8 +1,6 @@
 @startuml
 title Discovery Components Trait Dependencies
 
-class FileDiscoveryBackendStore
-
 class MemoryDiscoveryBackendStore
 
 class DbDiscoveryBackendStore
@@ -20,7 +18,6 @@ package "lnurl-balancer-service::api::discovery" <<Rectangle>> {
 }
 
 ' Implementations
-FileDiscoveryBackendStore ..|> DiscoveryBackendStore : implements
 MemoryDiscoveryBackendStore ..|> DiscoveryBackendStore : implements
 DbDiscoveryBackendStore ..|> DiscoveryBackendStore : implements
 HttpDiscoveryBackendStore ..|> DiscoveryBackendStore : implements

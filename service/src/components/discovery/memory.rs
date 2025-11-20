@@ -1,4 +1,6 @@
-use crate::api::discovery::{DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendStore};
+use crate::api::discovery::{
+    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
+};
 use crate::components::discovery::error::DiscoveryBackendStoreError;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -61,6 +63,27 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         let key = backend.address.clone();
         let was_new = store.insert(key, backend).is_none();
         Ok(was_new)
+    }
+
+    async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
+        let mut store = self.store.lock().await;
+        let entry = match store.get_mut(&backend.address) {
+            None => return Ok(false),
+            Some(entry) => entry,
+        };
+        if let Some(weight) = backend.backend.weight {
+            entry.backend.weight = weight;
+        }
+        if let Some(enabled) = backend.backend.enabled {
+            entry.backend.enabled = enabled;
+        }
+        if let Some(partitions) = backend.backend.partitions {
+            entry.backend.partitions = partitions;
+        }
+        if let Some(name) = backend.backend.name {
+            entry.backend.name = name;
+        }
+        Ok(true)
     }
 
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {

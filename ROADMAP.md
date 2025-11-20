@@ -6,21 +6,25 @@ Roadmap entries are chronological. Chronology is determined by priority and engi
 
 Goal: move Switchgear from ALPHA status to RELEASE status.
 
-#### Eclair Lightning Node Backend
+#### ~~Backend Names~~ DONE
 
-Implement Backend Lightning Node client for Eclair.
+~~Lightning Node backends need a friendly name so admins can easily identify them.~~
 
-#### Backend Names
+#### Rate Limiting for LnUrl Endpoints
 
-Lightning Node backends need a friendly name so admins can easily identify them.
+Mitigate overload and certain DOS attacks with rate limiting:
 
-#### Paging for `/discovery` and `/offer` GET Endpoints
+* max rate limit for each endpoint
+* per-session (ip-based) rate limit per endpoint
+* configurable individual max and session limits for each endpoint
+
+#### Paging for Offer GET Endpoint
 
 GET endpoints for Discovery and Offer Services that return a list need paging. For REST: `?page={page}` query parameter. The CLI will need a --page parameter.
 
-#### PATCH Method for Discovery
+#### ~~PATCH Method for Discovery~~ DONE
 
-Add a PATCH method to Discovery, so Lightning Node backends can be rapidly enabled or weight-adjusted without pushing an entire copy of the definition back to the service. Add an --enable and --weight to the CLI.
+~~Add a PATCH method to Discovery, so Lightning Node backends can be rapidly enabled or weight-adjusted without pushing an entire copy of the definition back to the service. Add an --enable and --weight to the CLI.~~
 
 #### Separate Files for Server Logs
 
@@ -30,9 +34,9 @@ Each service log needs its own log file, rather combining into the main log. Thi
 
 The health and enablement status of all attached Lightning Nodes must be made available to admins. The node status endpoint will drive a CLI status command as well.
 
-#### GitHub CI Pipeline
+#### ~~GitHub CI Pipeline~~ DONE
 
-Test automation must be fully integrated with GitHub before releases can be cut with confidence.
+~~Test automation must be fully integrated with GitHub before releases can be cut with confidence.~~
 
 #### OpenTelemetry Runtime Metrics
 

@@ -568,20 +568,6 @@ store:
     type: "memory"
 ```
 
-### Discovery File Storage
-
-The Discovery store supports an additional file-based storage option:
-
-```yaml
-store:
-  discover:
-    type: "file"
-    # Directory path where backend JSON files will be stored
-    storage-dir: "/data/discovery_backends"
-```
-
-This stores each backend configuration as a separate JSON file in the specified directory.
-
 ### Configuration Examples
 
 #### Using Same Database for Both Stores
@@ -605,10 +591,9 @@ store:
 
 ```yaml
 store:
-  # File-based storage for Discovery
+  # Memory storage for Discovery
   discover:
-    type: "file"
-    storage-dir: "/var/lib/switchgear/discovery"
+    type: "memory"
   
   # Database storage for Offers
   offer:
@@ -714,6 +699,7 @@ curl -X POST http://localhost:3001/discovery \
     "address": {
       "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
+    "name": "CLN Node 1",
     "weight": 100,
     "enabled": true,
     "implementation": {
@@ -738,6 +724,7 @@ curl -X POST http://localhost:3001/discovery \
     "address": {
       "url": "https://lnd-node.example.com"
     },
+    "name": "LND Node 1",
     "weight": 50,
     "enabled": true,
     "implementation": {
@@ -857,6 +844,15 @@ swgr discovery post --input cln-backend.json
 # Update an existing backend
 swgr discovery put pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
 
+# Patch an existing backend
+swgr discovery patch pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input backend-patch.json
+
+# Enable an existing backend
+swgr discovery enable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+
+# Disable an existing backend
+swgr discovery disable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+
 # Delete a backend
 swgr discovery delete pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 ```
@@ -872,6 +868,7 @@ Example CLN backend configuration:
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },
+  "name": "CLN Node 1",
   "weight": 1,
   "enabled": true,
   "implementation": {
@@ -895,6 +892,7 @@ Example LND backend configuration:
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },
+  "name": "LND Node 1",
   "weight": 1,
   "enabled": true,
   "implementation": {

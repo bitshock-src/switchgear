@@ -15,7 +15,6 @@ use switchgear_service::api::discovery::DiscoveryBackend;
 use switchgear_service::api::discovery::DiscoveryBackendStore;
 use switchgear_service::api::service::ServiceErrorSource;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
-use switchgear_service::components::discovery::file::FileDiscoveryBackendStore;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::discovery::memory::MemoryDiscoveryBackendStore;
 use switchgear_service::components::pool::LnClientPool;
@@ -158,22 +157,6 @@ impl PingoraBackendProvider for HttpDiscoveryBackendStore {
     }
 }
 
-#[async_trait]
-impl PingoraBackendProvider for FileDiscoveryBackendStore {
-    type Error = PingoraLnError;
-
-    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all().await.map_err(|e| {
-            PingoraLnError::from_discovery_backend_store_err(
-                ServiceErrorSource::Internal,
-                "getting all discovery backends",
-                e,
-            )
-        })?;
-        Ok(backends)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::discovery::DefaultPingoraLnDiscovery;
@@ -281,6 +264,7 @@ mod tests {
                 Url::parse(&format!("https://{address}")).unwrap(),
             ),
             backend: DiscoveryBackendSparse {
+                name: None,
                 partitions: [partition.to_string()].into(),
                 weight,
                 enabled,

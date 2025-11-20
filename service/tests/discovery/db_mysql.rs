@@ -70,3 +70,21 @@ async fn test_mysql_put_existing_backend_updates_and_returns_false() {
     };
     discovery::test_put_existing_backend_updates_and_returns_false(store).await;
 }
+
+#[tokio::test]
+async fn test_mysql_test_patch_backend() {
+    let (store, _guard) = match create_mysql_store().await {
+        None => return,
+        Some(v) => v,
+    };
+    discovery::test_patch_backend(store).await;
+}
+
+#[tokio::test]
+async fn test_mysql_test_patch_missing_backend() {
+    let (store, _guard) = match create_mysql_store().await {
+        None => return,
+        Some(v) => v,
+    };
+    discovery::test_patch_missing_backend(store).await;
+}

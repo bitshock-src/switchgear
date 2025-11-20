@@ -1,5 +1,6 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendRest, DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendRest,
+    DiscoveryBackendSparse, DiscoveryBackendStore,
 };
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
@@ -103,6 +104,29 @@ impl DiscoveryHandlers {
             Ok(JsonCrudResponse::created())
         } else {
             Ok(JsonCrudResponse::no_content())
+        }
+    }
+
+    pub async fn patch_backend<S>(
+        State(state): State<DiscoveryState<S>>,
+        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
+        Json(backend): Json<DiscoveryBackendPatchSparse>,
+    ) -> Result<JsonCrudResponse<()>, CrudError>
+    where
+        S: DiscoveryBackendStore,
+    {
+        let backend = DiscoveryBackendPatch { address, backend };
+
+        let patched = state
+            .store()
+            .patch(backend.clone())
+            .await
+            .map_err(|e| crate::crud_error_from_service!(e))?;
+
+        if patched {
+            Ok(JsonCrudResponse::no_content())
+        } else {
+            Err(CrudError::not_found())
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendPatch, DiscoveryBackendSparse, DiscoveryBackendStore,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -27,6 +27,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub address: String,
     pub address_type: String,
+    pub name: Option<String>,
     pub weight: i32,
     pub enabled: bool,
     pub implementation: Json,
@@ -113,6 +114,7 @@ impl DbDiscoveryBackendStore {
         Ok(DiscoveryBackend {
             address,
             backend: DiscoveryBackendSparse {
+                name: model.name,
                 partitions: model.partitions.0,
                 weight: model.weight as usize,
                 enabled: model.enabled,
@@ -219,6 +221,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
             address: Set(address_str.clone()),
             address_type: Set(address_type.to_string()),
+            name: Set(backend.backend.name),
             weight: Set(backend.backend.weight as i32),
             enabled: Set(backend.backend.enabled),
             implementation: Set(implementation_json),
@@ -266,6 +269,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
             address: Set(address_str.clone()),
             address_type: Set(address_type.to_string()),
+            name: Set(backend.backend.name),
             weight: Set(backend.backend.weight as i32),
             enabled: Set(backend.backend.enabled),
             implementation: Set(implementation_json),
@@ -276,7 +280,12 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         Entity::insert(active_model)
             .on_conflict(
                 OnConflict::columns([Column::Address])
-                    .update_columns([Column::Weight, Column::Enabled, Column::Implementation])
+                    .update_columns([
+                        Column::Name,
+                        Column::Weight,
+                        Column::Enabled,
+                        Column::Implementation,
+                    ])
                     .value(Column::UpdatedAt, Expr::val(future_timestamp))
                     .to_owned(),
             )
@@ -316,6 +325,40 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         // Compare timestamps to determine if it was insert (true) or update (false)
         Ok(result.0 == result.1)
+    }
+
+    async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
+        let address_str = backend.address.to_string();
+
+        let mut update = Entity::update_many().filter(Column::Address.eq(&address_str));
+
+        if let Some(name) = backend.backend.name {
+            update = update.col_expr(Column::Name, Expr::value(name));
+        }
+        if let Some(partitions) = backend.backend.partitions {
+            update = update.col_expr(
+                Column::Partitions,
+                Expr::value(DiscoveryBackendPartitions(partitions)),
+            );
+        }
+        if let Some(weight) = backend.backend.weight {
+            update = update.col_expr(Column::Weight, Expr::value(weight as i32));
+        }
+        if let Some(enabled) = backend.backend.enabled {
+            update = update.col_expr(Column::Enabled, Expr::value(enabled));
+        }
+
+        update = update.col_expr(Column::UpdatedAt, Expr::value(Utc::now()));
+
+        let result = update.exec(&self.db).await.map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                format!("patching backend for address {address_str}"),
+                e,
+            )
+        })?;
+
+        Ok(result.rows_affected > 0)
     }
 
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
