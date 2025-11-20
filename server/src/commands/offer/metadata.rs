@@ -1,12 +1,11 @@
 use crate::commands::offer::{create_offer_client, OfferManagementClientConfig};
 use crate::commands::{cli_read_to_string, cli_write_all};
-use anyhow::Context;
+use anyhow::{bail, Context};
 use clap::Parser;
-use log::{info, warn};
+use log::info;
 use std::path::{Path, PathBuf};
 use switchgear_service::api::offer::{
-    OfferMetadata, OfferMetadataIdentifier, OfferMetadataRest, OfferMetadataSparse,
-    OfferMetadataStore,
+    OfferMetadata, OfferMetadataRest, OfferMetadataSparse, OfferMetadataStore,
 };
 use uuid::Uuid;
 
@@ -15,6 +14,12 @@ pub enum OfferMetadataManagementCommands {
     /// Generate offer metadata JSON
     #[command(name = "new")]
     New {
+        /// Partition name
+        #[arg(short, long)]
+        partition: String,
+        /// Metadata text description
+        #[arg(short, long)]
+        text: String,
         /// Optional output path, defaults to stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -70,17 +75,15 @@ pub enum OfferMetadataManagementCommands {
     },
 }
 
-pub fn new_metadata(output: Option<&Path>) -> anyhow::Result<()> {
+pub fn new_metadata(partition: &str, text: &str, output: Option<&Path>) -> anyhow::Result<()> {
     let metadata: OfferMetadata = OfferMetadata {
-        id: "88deff7e-ca45-4144-8fca-286a5a18fb1a".parse()?,
-        partition: "default".to_string(),
+        id: Uuid::new_v4(),
+        partition: partition.to_string(),
         metadata: OfferMetadataSparse {
-            text: "mandatory offer text".to_string(),
-            long_text: Some("optional long offer text".to_string()),
+            text: text.to_string(),
+            long_text: None,
             image: None,
-            identifier: Some(OfferMetadataIdentifier::Email(
-                "optional@email.com".parse()?,
-            )),
+            identifier: None,
         },
     };
 
@@ -93,7 +96,7 @@ pub fn new_metadata(output: Option<&Path>) -> anyhow::Result<()> {
     })?;
 
     info!("Modify this JSON file to create unique offer metadata");
-    info!("Load it into the Offer Service with: swgr offer metadata post -i <file-path>");
+    info!("Load it into the Offer Service. See: swgr offer metadata post --help");
     Ok(())
 }
 
@@ -120,7 +123,7 @@ pub async fn get_metadata(
                 )
             })?;
         } else {
-            warn!("Metadata {id} not found");
+            bail!("Metadata {id} not found");
         }
     } else {
         let metadata = client.get_all_metadata(partition).await?;
@@ -166,7 +169,7 @@ pub async fn post_metadata(
     if let Some(created) = client.post_metadata(metadata.clone()).await? {
         info!("Created: {created}");
     } else {
-        warn!("Conflict. Metadata already exists at: {}", metadata.id);
+        bail!("Conflict. Metadata already exists at: {}", metadata.id);
     }
     Ok(())
 }
@@ -214,7 +217,7 @@ pub async fn delete_metadata(
     if client.delete_metadata(partition, id).await? {
         info!("Deleted: {id}");
     } else {
-        warn!("Not Found: {id}");
+        bail!("Not Found: {id}");
     }
     Ok(())
 }

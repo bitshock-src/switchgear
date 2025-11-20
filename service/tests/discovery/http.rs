@@ -56,6 +56,20 @@ async fn test_http_put_existing_backend_updates_and_returns_false() {
 }
 
 #[tokio::test]
+async fn test_http_test_patch_backend() {
+    let (store, service) = create_http_store().await;
+    discovery::test_patch_backend(store).await;
+    service.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_http_test_patch_missing_backend() {
+    let (store, service) = create_http_store().await;
+    discovery::test_patch_missing_backend(store).await;
+    service.shutdown().await;
+}
+
+#[tokio::test]
 async fn test_http_health() {
     let (store, service) = create_http_store().await;
     store.health().await.unwrap();

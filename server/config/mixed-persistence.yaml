@@ -43,5 +43,5 @@ store:
     database-url: "${OFFER_STORE_DATABASE_URL:-sqlite:///data/offer_store.db?mode=rwc}"
     max-connections: 5
   discover:
-    type: "file"
-    storage-dir: "${DISCOVERY_STORE_FILE_STORAGE_PATH:-/data/discovery_backends}"
+    type: "memory"
+    

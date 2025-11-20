@@ -26,7 +26,6 @@ macro_rules! delegate_to_discovery_store_variants {
             Self::Database(inner) => inner.$method($($arg),*),
             Self::Memory(inner) => inner.$method($($arg),*),
             Self::Http(inner) => inner.$method($($arg),*),
-            Self::File(inner) => inner.$method($($arg),*),
         }
     };
 }

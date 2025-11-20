@@ -25,8 +25,16 @@ paths:
             Location:
               schema:
                 type: string
+                description: Location path (partition/id)
+        '400':
+          description: Bad request (e.g., metadata_id not found)
         '409':
           description: Offer already exists
+          headers:
+            Location:
+              schema:
+                type: string
+                description: Location of existing offer
   /offers/{partition}:
     get:
       summary: Get all offers in partition
@@ -58,7 +66,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/OfferRecord'
+                  $ref: '#/components/schemas/OfferRecordRest'
   /offers/{partition}/{id}:
     get:
       summary: Get specific offer
@@ -94,7 +102,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OfferRecord'
+                $ref: '#/components/schemas/OfferRecordRest'
         '404':
           description: Offer not found
     put:
@@ -117,12 +125,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/OfferRecord'
+              $ref: '#/components/schemas/OfferRecordSparse'
       responses:
         '201':
           description: Offer created
         '204':
           description: Offer updated
+        '400':
+          description: Bad request (e.g., metadata_id not found)
     delete:
       summary: Remove offer
       description: Permanently removes a payment offer from the system.
@@ -160,8 +170,14 @@ paths:
             Location:
               schema:
                 type: string
+                description: Location path (partition/id)
         '409':
           description: Metadata already exists
+          headers:
+            Location:
+              schema:
+                type: string
+                description: Location of existing metadata
   /metadata/{partition}:
     get:
       summary: Get all metadata in partition
@@ -193,7 +209,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/OfferMetadata'
+                  $ref: '#/components/schemas/OfferMetadataRest'
   /metadata/{partition}/{id}:
     get:
       summary: Get specific metadata
@@ -229,7 +245,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OfferMetadata'
+                $ref: '#/components/schemas/OfferMetadataRest'
         '404':
           description: Metadata not found
     put:
@@ -252,7 +268,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/OfferMetadata'
+              $ref: '#/components/schemas/OfferMetadataSparse'
       responses:
         '201':
           description: Metadata created
@@ -276,6 +292,8 @@ paths:
       responses:
         '204':
           description: Metadata removed
+        '400':
+          description: Bad request (e.g., metadata is referenced by offers)
         '404':
           description: Metadata not found
   /health:
@@ -295,6 +313,49 @@ components:
   schemas:
     OfferRecord:
       type: object
+      description: Offer request for POST endpoint
+      required:
+        - partition
+        - id
+        - maxSendable
+        - minSendable
+        - metadataId
+        - timestamp
+      properties:
+        partition:
+          type: string
+          description: Partition name
+        id:
+          type: string
+          format: uuid
+          description: Unique offer identifier
+        maxSendable:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Maximum sendable amount in millisatoshis
+        minSendable:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Minimum sendable amount in millisatoshis
+        metadataId:
+          type: string
+          format: uuid
+          description: Reference to offer metadata
+        timestamp:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        expires:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiration timestamp
+
+    OfferRecordRest:
+      type: object
+      description: Offer response with location information
       required:
         - location
         - partition
@@ -310,26 +371,98 @@ components:
           example: "default/123e4567-e89b-12d3-a456-426614174000"
         partition:
           type: string
+          description: Partition name
         id:
           type: string
           format: uuid
+          description: Unique offer identifier
         maxSendable:
           type: integer
+          format: int64
           minimum: 0
+          description: Maximum sendable amount in millisatoshis
         minSendable:
           type: integer
+          format: int64
           minimum: 0
+          description: Minimum sendable amount in millisatoshis
         metadataId:
           type: string
           format: uuid
+          description: Reference to offer metadata
         timestamp:
           type: string
           format: date-time
+          description: Creation timestamp
         expires:
           type: string
           format: date-time
+          nullable: true
+          description: Optional expiration timestamp
+
+    OfferRecordSparse:
+      type: object
+      description: Offer configuration without partition/id (used in PUT requests where partition/id are in path)
+      required:
+        - maxSendable
+        - minSendable
+        - metadataId
+        - timestamp
+      properties:
+        maxSendable:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Maximum sendable amount in millisatoshis
+        minSendable:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Minimum sendable amount in millisatoshis
+        metadataId:
+          type: string
+          format: uuid
+          description: Reference to offer metadata
+        timestamp:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        expires:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional expiration timestamp
+
     OfferMetadata:
       type: object
+      description: Metadata request for POST endpoint
+      required:
+        - id
+        - partition
+        - text
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique metadata identifier
+        partition:
+          type: string
+          description: Partition name
+        text:
+          type: string
+          description: Short text description
+        longText:
+          type: string
+          nullable: true
+          description: Optional long text description
+        image:
+          $ref: '#/components/schemas/OfferMetadataImage'
+        identifier:
+          $ref: '#/components/schemas/OfferMetadataIdentifier'
+
+    OfferMetadataRest:
+      type: object
+      description: Metadata response with location information
       required:
         - location
         - id
@@ -343,12 +476,35 @@ components:
         id:
           type: string
           format: uuid
+          description: Unique metadata identifier
         partition:
           type: string
+          description: Partition name
         text:
           type: string
+          description: Short text description
         longText:
           type: string
+          nullable: true
+          description: Optional long text description
+        image:
+          $ref: '#/components/schemas/OfferMetadataImage'
+        identifier:
+          $ref: '#/components/schemas/OfferMetadataIdentifier'
+
+    OfferMetadataSparse:
+      type: object
+      description: Metadata configuration without id/partition (used in PUT requests where id/partition are in path)
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: Short text description
+        longText:
+          type: string
+          nullable: true
+          description: Optional long text description
         image:
           $ref: '#/components/schemas/OfferMetadataImage'
         identifier:
@@ -356,17 +512,64 @@ components:
     
     OfferMetadataImage:
       oneOf:
-        - type: string
+        - $ref: '#/components/schemas/PngImage'
+        - $ref: '#/components/schemas/JpegImage'
+      discriminator:
+        propertyName: type
+        mapping:
+          png: '#/components/schemas/PngImage'
+          jpeg: '#/components/schemas/JpegImage'
+
+    PngImage:
+      type: object
+      description: PNG image with base64 encoded data
+      required:
+        - png
+      properties:
+        png:
+          type: string
+          format: byte
           description: Base64 encoded PNG image data
-          enum: [png]
-        - type: string
+
+    JpegImage:
+      type: object
+      description: JPEG image with base64 encoded data
+      required:
+        - jpeg
+      properties:
+        jpeg:
+          type: string
+          format: byte
           description: Base64 encoded JPEG image data
-          enum: [jpeg]
+
     OfferMetadataIdentifier:
       oneOf:
-        - type: string
-          description: Text identifier (email format)
-          enum: [text]
-        - type: string
-          description: Email identifier
-          enum: [email]
+        - $ref: '#/components/schemas/TextIdentifier'
+        - $ref: '#/components/schemas/EmailIdentifier'
+      discriminator:
+        propertyName: type
+        mapping:
+          text: '#/components/schemas/TextIdentifier'
+          email: '#/components/schemas/EmailIdentifier'
+
+    TextIdentifier:
+      type: object
+      description: Text identifier (email address format)
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          format: email
+          description: Email address used as text identifier
+
+    EmailIdentifier:
+      type: object
+      description: Email identifier
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email address

@@ -4,22 +4,6 @@ Feature: Server resumes state after restart
   I want to restart the LNURL server and have it remember offers and backends
   So that the server can continue to serve offers and invoices to payees after restarts
 
-  # This feature tests that the server properly persists backend registrations and offers
-  # across different storage combinations and can resume operations after restart without data loss.
-  # 
-  # Supported data stores:
-  # Backend stores: file, sqlite (future: redis, postgres, etc.)
-  # Offer stores: sqlite (future: postgres, mongodb, etc.)
-  # 
-  # Adding new data stores:
-  # 1. Add new store type to the commented examples below
-  # 2. Update step_functions.rs to handle the new store type in:
-  #    - Configuration generation
-  #    - Storage file deletion
-  # 3. Uncomment the relevant examples
-  # 
-  # The test validates persistence, recovery, and selective data cleanup scenarios.
-
   Background:
     Given the payee has a CLN lightning node available
     And the server is not already running
@@ -77,7 +61,6 @@ Feature: Server resumes state after restart
 
     Examples: Current storage combinations
       | backend_store | offer_store |
-      | file          | sqlite      |
       | sqlite        | sqlite      |
       
 
@@ -113,6 +96,5 @@ Feature: Server resumes state after restart
 
     Examples: Current storage combinations
       | backend_store | offer_store |
-      | file          | sqlite      |
       | sqlite        | sqlite      |
       

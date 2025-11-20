@@ -18,6 +18,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
                     )
                     .col(string(DiscoveryBackend::Address).not_null())
                     .col(string(DiscoveryBackend::AddressType).not_null())
+                    .col(string_null(DiscoveryBackend::Name))
                     .col(integer(DiscoveryBackend::Weight).not_null())
                     .col(boolean(DiscoveryBackend::Enabled).not_null())
                     .col(json(DiscoveryBackend::Implementation).not_null())
@@ -42,6 +43,7 @@ enum DiscoveryBackend {
     Partitions,
     Address,
     AddressType,
+    Name,
     Weight,
     Enabled,
     Implementation,

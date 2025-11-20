@@ -410,10 +410,6 @@ impl ServerContext {
                 ),
             )
             .env(
-                "DISCOVERY_STORE_FILE_STORAGE_PATH",
-                self.discovery_store_dir.join("discovery.json"),
-            )
-            .env(
                 "OFFER_STORE_DATABASE_URL",
                 format!(
                     "sqlite://{}?mode=rwc",

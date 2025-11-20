@@ -31,3 +31,15 @@ async fn test_memory_put_existing_backend_updates_and_returns_false() {
     let store = MemoryDiscoveryBackendStore::default();
     discovery::test_put_existing_backend_updates_and_returns_false(store).await;
 }
+
+#[tokio::test]
+async fn test_memory_test_patch_backend() {
+    let store = MemoryDiscoveryBackendStore::default();
+    discovery::test_patch_backend(store).await;
+}
+
+#[tokio::test]
+async fn test_memory_test_patch_missing_backend() {
+    let store = MemoryDiscoveryBackendStore::default();
+    discovery::test_patch_missing_backend(store).await;
+}

@@ -1,7 +1,7 @@
 use crate::commands::{cli_read_to_string, cli_write_all};
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context};
 use clap::{Parser, ValueEnum};
-use log::{info, warn};
+use log::info;
 use reqwest::{Certificate, Url};
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,8 @@ use std::time::Duration;
 use std::{env, fs};
 use switchgear_service::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendRest, DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendRest,
+    DiscoveryBackendSparse, DiscoveryBackendStore,
 };
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::pool::cln::grpc::config::{
@@ -27,16 +28,26 @@ pub enum DiscoveryBackendManagementCommands {
     New {
         /// Lighting Node type
         node_type: LnNodeCommandType,
+
+        /// Lighting Node public key
+        public_key: String,
+
+        /// Partition binding name
+        #[arg(short, long)]
+        partition: String,
+
+        /// Optional backend name
+        #[arg(short, long)]
+        name: Option<String>,
+
         /// Optional output path, defaults to stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
 
-    /// List all backends for partition
+    /// List all backends
     #[command(name = "ls")]
     List {
-        /// Partition name
-        partition: String,
         #[clap(flatten)]
         client: DiscoveryBackendManagementClientConfig,
     },
@@ -44,7 +55,7 @@ pub enum DiscoveryBackendManagementCommands {
     /// Get a backend
     #[command(name = "get")]
     Get {
-        /// Optional backend location address, default returns all backends for partition
+        /// Optional backend location address, default returns all backends
         address: Option<String>,
         /// Optional output path, defaults to stdout
         #[arg(short, long)]
@@ -63,7 +74,7 @@ pub enum DiscoveryBackendManagementCommands {
         client: DiscoveryBackendManagementClientConfig,
     },
 
-    /// Update a backend
+    /// Update or create a backend
     #[command(name = "put")]
     Put {
         /// Backend location address
@@ -71,6 +82,36 @@ pub enum DiscoveryBackendManagementCommands {
         /// Optional backend JSON source path, defaults to stdin
         #[arg(short, long)]
         input: Option<PathBuf>,
+        #[clap(flatten)]
+        client: DiscoveryBackendManagementClientConfig,
+    },
+
+    /// Patch an existing backend
+    #[command(name = "patch")]
+    Patch {
+        /// Backend location address
+        address: String,
+        /// Optional backend patch JSON source path, defaults to stdin
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+        #[clap(flatten)]
+        client: DiscoveryBackendManagementClientConfig,
+    },
+
+    /// Enable an existing backend
+    #[command(name = "enable")]
+    Enable {
+        /// Backend location address
+        address: String,
+        #[clap(flatten)]
+        client: DiscoveryBackendManagementClientConfig,
+    },
+
+    /// Disable an existing backend
+    #[command(name = "disable")]
+    Disable {
+        /// Backend location address
+        address: String,
         #[clap(flatten)]
         client: DiscoveryBackendManagementClientConfig,
     },
@@ -115,7 +156,13 @@ impl Display for LnNodeCommandType {
     }
 }
 
-pub fn new_backend(ln_node_type: LnNodeCommandType, output: Option<&Path>) -> anyhow::Result<()> {
+pub fn new_backend(
+    ln_node_type: LnNodeCommandType,
+    public_key: &str,
+    name: Option<&str>,
+    partition: &str,
+    output: Option<&Path>,
+) -> anyhow::Result<()> {
     let implementation = match ln_node_type {
         LnNodeCommandType::ClnGrpc => {
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
@@ -141,13 +188,12 @@ pub fn new_backend(ln_node_type: LnNodeCommandType, output: Option<&Path>) -> an
         }
     };
     let backend = DiscoveryBackend {
-        address: DiscoveryBackendAddress::PublicKey(
-            "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798".parse()?,
-        ),
+        address: DiscoveryBackendAddress::PublicKey(public_key.parse()?),
         backend: DiscoveryBackendSparse {
-            partitions: ["default".to_string()].into(),
+            name: name.map(String::from),
+            partitions: [partition.to_string()].into(),
             weight: 1,
-            enabled: true,
+            enabled: false,
             implementation,
         },
     };
@@ -160,21 +206,28 @@ pub fn new_backend(ln_node_type: LnNodeCommandType, output: Option<&Path>) -> an
     })?;
 
     info!("Modify this JSON file to match the {ln_node_type} node configuration");
-    info!("Load it into the Discovery Service with: swgr discovery post -i <file-path>");
-    info!("If store.discover.type: \"file\" is in the yaml config, copy it into the JSON file set at store.discover.storage-dir");
+    info!("Load it into the Discovery Service. See: swgr discovery post --help");
     Ok(())
 }
 
 pub async fn list_backends(
-    partition: &str,
     client_configuration: &DiscoveryBackendManagementClientConfig,
 ) -> anyhow::Result<()> {
     let client = create_backend_client(client_configuration)?;
     let backends = client.get_all().await?;
-    info!("/{partition} backends");
+    println!("# Discovery Backends");
     for backend in backends {
-        info!(
-            "{} enabled: {} weight: {}",
+        println!(
+            r#"
+## Address: {}
+
+* name: {}
+* location: {}
+* enabled: {}
+* weight: {}
+"#,
+            backend.address,
+            backend.backend.name.unwrap_or_else(|| "[null]".to_string()),
             backend.address.encoded(),
             backend.backend.enabled,
             backend.backend.weight
@@ -207,7 +260,7 @@ pub async fn get_backend(
                 )
             })?;
         } else {
-            warn!("Backend {address} not found");
+            bail!("Backend {address} not found");
         }
     } else {
         let backends = client.get_all().await?;
@@ -250,13 +303,11 @@ pub async fn post_backend(
             backend_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
         )
     })?;
-    if let Some(created) = client.post(backend.clone()).await? {
-        info!("Created: {}", created.encoded());
+    let address_encoded = backend.address.encoded();
+    if let Some(created) = client.post(backend).await? {
+        info!("Backend created: {}", created.encoded());
     } else {
-        warn!(
-            "Conflict. A backend already exists at: {}",
-            backend.address.encoded()
-        );
+        bail!("Conflict. A backend already exists at: {address_encoded}",);
     }
     Ok(())
 }
@@ -284,11 +335,75 @@ pub async fn put_backend(
             backend_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
         )
     })?;
+    let address_encoded = address.encoded();
     let backend = DiscoveryBackend { address, backend };
-    if client.put(backend.clone()).await? {
-        info!("Created: {}", backend.address.encoded());
+    if client.put(backend).await? {
+        info!("Backend created: {address_encoded}");
     } else {
-        info!("Updated: {}", backend.address.encoded());
+        info!("Backend updated: {address_encoded}");
+    }
+    Ok(())
+}
+
+pub async fn patch_backend(
+    address: &str,
+    backend_path: Option<&Path>,
+    client_configuration: &DiscoveryBackendManagementClientConfig,
+) -> anyhow::Result<()> {
+    let client = create_backend_client(client_configuration)?;
+
+    let address = DiscoveryBackendAddress::from_str(address)
+        .with_context(|| format!("reading address: {address}"))?;
+
+    let mut backend = String::new();
+    cli_read_to_string(backend_path, &mut backend).with_context(|| {
+        format!(
+            "reading backend: {}",
+            backend_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
+        )
+    })?;
+    let backend: DiscoveryBackendPatchSparse =
+        serde_json::from_str(&backend).with_context(|| {
+            format!(
+                "parsing backend patch from: {}",
+                backend_path
+                    .map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
+            )
+        })?;
+    let address_encoded = address.encoded();
+    let backend = DiscoveryBackendPatch { address, backend };
+    if client.patch(backend).await? {
+        info!("Backend patched: {address_encoded}");
+    } else {
+        bail!("Backend not found: {address_encoded}");
+    }
+    Ok(())
+}
+
+pub async fn enable_backend(
+    address: &str,
+    enable: bool,
+    client_configuration: &DiscoveryBackendManagementClientConfig,
+) -> anyhow::Result<()> {
+    let client = create_backend_client(client_configuration)?;
+
+    let address = DiscoveryBackendAddress::from_str(address)
+        .with_context(|| format!("reading address: {address}"))?;
+
+    let address_encoded = address.encoded();
+    let backend = DiscoveryBackendPatch {
+        address,
+        backend: DiscoveryBackendPatchSparse {
+            name: None,
+            partitions: None,
+            weight: None,
+            enabled: Some(enable),
+        },
+    };
+    if client.patch(backend).await? {
+        info!("Backend patched: {address_encoded}: enabled:{enable}");
+    } else {
+        bail!("Backend not found: {address_encoded}");
     }
     Ok(())
 }
@@ -301,9 +416,9 @@ pub async fn delete_backend(
     let address = DiscoveryBackendAddress::from_str(address)
         .with_context(|| format!("reading address: {address}"))?;
     if client.delete(&address).await? {
-        info!("Deleted: {}", address.encoded());
+        info!("Backend deleted: {}", address.encoded());
     } else {
-        warn!("Not Found: {}", address.encoded());
+        bail!("Backend not found: {}", address.encoded());
     }
     Ok(())
 }

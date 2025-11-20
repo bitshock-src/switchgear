@@ -31,6 +31,8 @@ pub trait DiscoveryBackendStore {
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error>;
 
+    async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error>;
+
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error>;
 }
 
@@ -74,10 +76,33 @@ impl Display for DiscoveryBackendAddress {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveryBackendSparse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub partitions: BTreeSet<String>,
     pub weight: usize,
     pub enabled: bool,
     pub implementation: DiscoveryBackendImplementation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryBackendPatch {
+    pub address: DiscoveryBackendAddress,
+    #[serde(flatten)]
+    pub backend: DiscoveryBackendPatchSparse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryBackendPatchSparse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partitions: Option<BTreeSet<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
 }
 
 impl DiscoveryBackendAddress {
@@ -169,6 +194,7 @@ mod test {
         let key = key.public_key(&Secp256k1::new());
 
         let backend = DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
@@ -178,6 +204,7 @@ mod test {
         let backend1 = DiscoveryBackend { address, backend };
 
         let backend = DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
@@ -207,6 +234,7 @@ mod test {
         let key = key.public_key(&Secp256k1::new());
 
         let backend = DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,
@@ -216,6 +244,7 @@ mod test {
         let backend1 = DiscoveryBackend { address, backend };
 
         let backend = DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 0,
             enabled: true,

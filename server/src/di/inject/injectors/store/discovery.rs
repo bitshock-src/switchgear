@@ -8,7 +8,6 @@ use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Duration;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
-use switchgear_service::components::discovery::file::FileDiscoveryBackendStore;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::discovery::memory::MemoryDiscoveryBackendStore;
 
@@ -92,9 +91,6 @@ impl DiscoveryStoreInjector {
                     )
                     .with_context(|| "creating http client for discovery store")?,
                 )
-            }
-            DiscoveryStoreConfig::File { storage_dir } => {
-                DiscoveryBackendStoreDelegate::File(FileDiscoveryBackendStore::new(storage_dir))
             }
         };
 

@@ -113,10 +113,6 @@ pub enum DiscoveryStoreConfig {
         trusted_roots: Vec<PathBuf>,
         authorization: PathBuf,
     },
-    #[serde(rename_all = "kebab-case")]
-    File {
-        storage_dir: String,
-    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

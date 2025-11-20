@@ -30,7 +30,7 @@ struct CliArgs {
 
 #[derive(Subcommand, Debug)]
 enum RootCommands {
-    /// Run the lnurl load balancer service
+    /// Run Switchgear services
     Service {
         /// Path to the YAML configuration file.
         #[clap(short, long, value_parser)]
@@ -122,8 +122,12 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 } => commands::offer::token::verify(&public, token.as_deref(), output.as_deref()),
             },
             OfferCommands::Offer(offer) => match offer {
-                OfferRecordManagementCommands::New { output } => {
-                    commands::offer::record::new_offer(output.as_deref())
+                OfferRecordManagementCommands::New {
+                    partition,
+                    metadata_id,
+                    output,
+                } => {
+                    commands::offer::record::new_offer(&partition, &metadata_id, output.as_deref())
                 }
                 OfferRecordManagementCommands::Get {
                     partition,
@@ -163,9 +167,11 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 } => commands::offer::record::delete_offer(&partition, id.as_ref(), &client).await,
             },
             OfferCommands::Metadata(metadata) => match metadata {
-                OfferMetadataManagementCommands::New { output } => {
-                    commands::offer::metadata::new_metadata(output.as_deref())
-                }
+                OfferMetadataManagementCommands::New {
+                    partition,
+                    text,
+                    output,
+                } => commands::offer::metadata::new_metadata(&partition, &text, output.as_deref()),
                 OfferMetadataManagementCommands::Get {
                     partition,
                     id,
@@ -235,11 +241,21 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 }
             },
             DiscoveryCommands::Backend(service) => match service {
-                DiscoveryBackendManagementCommands::New { node_type, output } => {
-                    commands::discovery::backend::new_backend(node_type, output.as_deref())
-                }
-                DiscoveryBackendManagementCommands::List { partition, client } => {
-                    commands::discovery::backend::list_backends(&partition, &client).await
+                DiscoveryBackendManagementCommands::New {
+                    node_type,
+                    public_key,
+                    partition,
+                    name,
+                    output,
+                } => commands::discovery::backend::new_backend(
+                    node_type,
+                    &public_key,
+                    name.as_deref(),
+                    &partition,
+                    output.as_deref(),
+                ),
+                DiscoveryBackendManagementCommands::List { client } => {
+                    commands::discovery::backend::list_backends(&client).await
                 }
                 DiscoveryBackendManagementCommands::Get {
                     address,
@@ -263,6 +279,20 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 } => {
                     commands::discovery::backend::put_backend(&address, input.as_deref(), &client)
                         .await
+                }
+                DiscoveryBackendManagementCommands::Patch {
+                    address,
+                    input,
+                    client,
+                } => {
+                    commands::discovery::backend::patch_backend(&address, input.as_deref(), &client)
+                        .await
+                }
+                DiscoveryBackendManagementCommands::Enable { address, client } => {
+                    commands::discovery::backend::enable_backend(&address, true, &client).await
+                }
+                DiscoveryBackendManagementCommands::Disable { address, client } => {
+                    commands::discovery::backend::enable_backend(&address, false, &client).await
                 }
                 DiscoveryBackendManagementCommands::Delete { address, client } => {
                     commands::discovery::backend::delete_backend(&address, &client).await

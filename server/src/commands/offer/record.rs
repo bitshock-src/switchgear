@@ -1,9 +1,9 @@
 use crate::commands::offer::{create_offer_client, OfferManagementClientConfig};
 use crate::commands::{cli_read_to_string, cli_write_all};
-use anyhow::Context;
+use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use clap::Parser;
-use log::{info, warn};
+use log::info;
 use std::path::{Path, PathBuf};
 use switchgear_service::api::offer::{OfferRecord, OfferRecordRest, OfferRecordSparse, OfferStore};
 use uuid::Uuid;
@@ -13,6 +13,12 @@ pub enum OfferRecordManagementCommands {
     /// Generate offer JSON
     #[command(name = "new")]
     New {
+        /// Partition name
+        #[arg(short, long)]
+        partition: String,
+        /// Offer Metadata UUID
+        #[arg(short, long)]
+        metadata_id: Uuid,
         /// Optional output path, defaults to stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -68,17 +74,19 @@ pub enum OfferRecordManagementCommands {
     },
 }
 
-pub fn new_offer(output: Option<&Path>) -> anyhow::Result<()> {
+pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> anyhow::Result<()> {
     let offer = OfferRecord {
-        partition: "default".to_string(),
-        id: "6a38ebdd-83ef-4b94-b843-3b18cd90a833".parse()?,
+        partition: partition.to_string(),
+        id: Uuid::new_v4(),
         offer: OfferRecordSparse {
-            max_sendable: 1_000_000,
-            min_sendable: 1_000_000,
-            metadata_id: "88deff7e-ca45-4144-8fca-286a5a18fb1a".parse()?,
+            max_sendable: 0,
+            min_sendable: 0,
+            metadata_id: *metadata_id,
             #[allow(clippy::expect_used)]
-            timestamp: DateTime::<Utc>::from_timestamp(0, 0).expect("unix epoch"),
-            expires: None,
+            timestamp: DateTime::<Utc>::from_timestamp_secs(0).expect("unix epoch"),
+            expires: Some(
+                DateTime::<Utc>::from_timestamp_secs(86_400).expect("unix epoch + 24 hours"),
+            ),
         },
     };
 
@@ -91,7 +99,7 @@ pub fn new_offer(output: Option<&Path>) -> anyhow::Result<()> {
     })?;
 
     info!("Modify this JSON file to create a unique offer");
-    info!("Load it into the Offer Service with: swgr offer post -i <file-path>");
+    info!("Load it into the Offer Service. See: swgr offer post --help");
 
     Ok(())
 }
@@ -119,7 +127,7 @@ pub async fn get_offer(
                 )
             })?;
         } else {
-            warn!("Offer {id} not found");
+            bail!("Offer {id} not found");
         }
     } else {
         let offers = client.get_offers(partition).await?;
@@ -163,9 +171,9 @@ pub async fn post_offer(
         )
     })?;
     if let Some(created) = client.post_offer(offer.clone()).await? {
-        info!("Created: {created}");
+        info!("Offer created: {created}");
     } else {
-        warn!("Conflict. Offer already exists at: {}", offer.id);
+        bail!("Conflict. Offer already exists at: {}", offer.id);
     }
     Ok(())
 }
@@ -197,9 +205,9 @@ pub async fn put_offer(
         offer,
     };
     if client.put_offer(offer.clone()).await? {
-        info!("Created: {}", offer.id);
+        info!("Offer created: {}", offer.id);
     } else {
-        info!("Updated: {}", offer.id);
+        info!("Offer updated: {}", offer.id);
     }
     Ok(())
 }
@@ -211,9 +219,9 @@ pub async fn delete_offer(
 ) -> anyhow::Result<()> {
     let client = create_offer_client(client_configuration)?;
     if client.delete_offer(partition, id).await? {
-        info!("Deleted: {id}");
+        info!("Offer deleted: {id}");
     } else {
-        warn!("Not Found: {id}");
+        bail!("Offer not Found: {id}");
     }
     Ok(())
 }

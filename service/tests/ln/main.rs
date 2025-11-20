@@ -53,6 +53,7 @@ pub fn try_create_cln_backend(
     let backend = DiscoveryBackend {
         address,
         backend: DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 1,
             implementation,
@@ -99,6 +100,7 @@ pub fn try_create_lnd_backend(
     let backend = DiscoveryBackend {
         address: address.clone(),
         backend: DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 1,
             implementation,

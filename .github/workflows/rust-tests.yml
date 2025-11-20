@@ -3,11 +3,7 @@ name: Rust Format, Clippy and Tests
 on:
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'ci/Dockerfile'
   push:
-    paths-ignore:
-      - 'ci/Dockerfile'
   workflow_dispatch:
 
 env:
@@ -15,16 +11,27 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  build-image:
+    uses: ./.github/workflows/ci-build-image-docker-build.yml
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+
   check:
+    needs: build-image
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/${{ github.repository }}/ci-rust:latest
+      image: ${{ needs.build-image.outputs.image-tag }}
       options: -v /var/run/docker.sock:/var/run/docker.sock
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check formatting
+        run: cargo fmt -- --check
 
       - name: Start Docker Compose services
         run: |
@@ -34,9 +41,6 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt -- --check
 
       - name: Run clippy
         run: cargo clippy -- -D warnings

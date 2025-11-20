@@ -40,7 +40,7 @@ Switchgear is in **ALPHA** status:
 * Integration tests are complete
 * APIs may change without warning
 
-See [ROADMAP.md](https://raw.githubusercontent.com/bitshock-src/switchgear/main/ROADMAP.md) for the Switchgear release roadmap.
+See [ROADMAP.md](./ROADMAP.md) for the Switchgear release roadmap.
 
 ## Why Bitcoin Lightning Payments Fail
 
@@ -171,7 +171,7 @@ docker run bitshock/switchgear {cli-options}
 
 All service configuration is controlled by a yaml file passed to the server at startup.
 
-See [server/config](https://raw.githubusercontent.com/bitshock-src/switchgear/main/server/config) directory for more configuration examples.
+See [server/config](./server/config) directory for more configuration examples.
 
 Each service has a root entry the configuration file:
 
@@ -302,7 +302,7 @@ Switchgear partitions have predictable URLs. Use partitions and a global Applica
 
 ## LNURL Service
 
-The OpenAPI LNURL Service specification: [doc/lnurl-service-openapi.yaml](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/lnurl-service-openapi.yaml).
+The OpenAPI LNURL Service specification: [doc/lnurl-service-openapi.yaml](./doc/lnurl-service-openapi.yaml).
 
 The LNURL Service is public facing, and implements the [LNURL LUD-06 specification.](https://github.com/lnurl/luds/blob/luds/06.md)
 
@@ -341,7 +341,7 @@ The QR image is in PNG format.
 
 ### LNURL Service Configuration
 
-See [server/config](https://raw.githubusercontent.com/bitshock-src/switchgear/main/server/config) directory for more configuration examples.
+See [server/config](./server/config) directory for more configuration examples.
 
 ```yaml
 lnurl-service:
@@ -426,7 +426,7 @@ Consistent uses the optional LNURL `comment` query parameter as a hash key, whic
 
 ## Discovery Service
 
-The OpenAPI Discovery Service specification: [doc/discovery-service-openapi.yaml](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/discovery-service-openapi.yaml).
+The OpenAPI Discovery Service specification: [doc/discovery-service-openapi.yaml](./doc/discovery-service-openapi.yaml).
 
 The Discovery Service is an administrative service used to manage connections to individual Lightning Nodes.
 
@@ -436,7 +436,7 @@ See the [Manage Lightning Node Backends with Discovery Service](#manage-lightnin
 
 ### Discovery Service Configuration
 
-See [server/config](https://raw.githubusercontent.com/bitshock-src/switchgear/main/server/config) directory for more configuration examples.
+See [server/config](./server/config) directory for more configuration examples.
 
 ```yaml
 discovery-service:
@@ -472,7 +472,7 @@ swgr discovery token mint --key discovery-private.pem --output discovery.token
 
 ## Offer Service
 
-The OpenAPI Offer Service specification: [doc/offer-service-openapi.yaml](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/offer-service-openapi.yaml).
+The OpenAPI Offer Service specification: [doc/offer-service-openapi.yaml](./doc/offer-service-openapi.yaml).
 
 The Offer Service is an administrative service used to manage Offers, which are used to generate LNURLs.
 
@@ -482,7 +482,7 @@ See the [Manage LNURLs with Offer Service](#manage-lnurls-with-offer-service) se
 
 ### Offer Service Configuration
 
-See [server/config](https://raw.githubusercontent.com/bitshock-src/switchgear/main/server/config) directory for more configuration examples.
+See [server/config](./server/config) directory for more configuration examples.
 
 ```yaml
 offer-service:
@@ -568,20 +568,6 @@ store:
     type: "memory"
 ```
 
-### Discovery File Storage
-
-The Discovery store supports an additional file-based storage option:
-
-```yaml
-store:
-  discover:
-    type: "file"
-    # Directory path where backend JSON files will be stored
-    storage-dir: "/data/discovery_backends"
-```
-
-This stores each backend configuration as a separate JSON file in the specified directory.
-
 ### Configuration Examples
 
 #### Using Same Database for Both Stores
@@ -605,10 +591,9 @@ store:
 
 ```yaml
 store:
-  # File-based storage for Discovery
+  # Memory storage for Discovery
   discover:
-    type: "file"
-    storage-dir: "/var/lib/switchgear/discovery"
+    type: "memory"
   
   # Database storage for Offers
   offer:
@@ -714,6 +699,7 @@ curl -X POST http://localhost:3001/discovery \
     "address": {
       "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
     },
+    "name": "CLN Node 1",
     "weight": 100,
     "enabled": true,
     "implementation": {
@@ -738,6 +724,7 @@ curl -X POST http://localhost:3001/discovery \
     "address": {
       "url": "https://lnd-node.example.com"
     },
+    "name": "LND Node 1",
     "weight": 50,
     "enabled": true,
     "implementation": {
@@ -857,13 +844,22 @@ swgr discovery post --input cln-backend.json
 # Update an existing backend
 swgr discovery put pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
 
+# Patch an existing backend
+swgr discovery patch pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input backend-patch.json
+
+# Enable an existing backend
+swgr discovery enable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+
+# Disable an existing backend
+swgr discovery disable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+
 # Delete a backend
 swgr discovery delete pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 ```
 
 ### Discovery Data Model
 
-Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/discovery-service-openapi.yaml).
+Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](./doc/discovery-service-openapi.yaml).
 
 Example CLN backend configuration:
 ```json
@@ -872,6 +868,7 @@ Example CLN backend configuration:
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },
+  "name": "CLN Node 1",
   "weight": 1,
   "enabled": true,
   "implementation": {
@@ -895,6 +892,7 @@ Example LND backend configuration:
   "address": {
     "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
   },
+  "name": "LND Node 1",
   "weight": 1,
   "enabled": true,
   "implementation": {
@@ -1144,7 +1142,7 @@ swgr offer metadata delete default 88deff7e-ca45-4144-8fca-286a5a18fb1a
 
 ### Offer Data Model
 
-Offer OpenAPI schema: [doc/offer-service-openapi.yaml](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/offer-service-openapi.yaml).
+Offer OpenAPI schema: [doc/offer-service-openapi.yaml](./doc/offer-service-openapi.yaml).
 
 Example offer configuration:
 ```json
@@ -1191,21 +1189,21 @@ Metadata identifiers can be:
 
 ### Service
 
-The [switchgear-service](https://raw.githubusercontent.com/bitshock-src/switchgear/main/service) crate defines all services and their trait dependencies. See the `api` module for trait definitions and data models: [service/src/api](https://raw.githubusercontent.com/bitshock-src/switchgear/main/service/src/api)
+The [switchgear-service](./service) crate defines all services and their trait dependencies. See the `api` module for trait definitions and data models: [service/src/api](./service/src/api)
 
 ![image](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/service_traits_component_diagram-Service_Layer_Trait_Relationships.png)
 
 
 ### Pingora
 
-`PingoraLnBalancer` is the default `LnBalancer` implementation. The [switchgear-pingora](https://raw.githubusercontent.com/bitshock-src/switchgear/main/pingora) crate holds the complete implementation, plus trait definitions it uses for itself.
+`PingoraLnBalancer` is the default `LnBalancer` implementation. The [switchgear-pingora](./pingora) crate holds the complete implementation, plus trait definitions it uses for itself.
 
 ![image](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/pingora_traits_component_diagram-PingoraLnBalancer_Trait_Dependencies.png)
 
 
 ### Components
 
-The `components` module in [switchgear-service](https://raw.githubusercontent.com/bitshock-src/switchgear/main/service/src/components) is a collection self-defined traits and implementations useful for implementing a complete `LnBalancer`. The module also holds different implementations of `DiscoveryBackendStore`, `OfferStore` and `OfferMetadataStore`.
+The `components` module in [switchgear-service](./service/src/components) is a collection self-defined traits and implementations useful for implementing a complete `LnBalancer`. The module also holds different implementations of `DiscoveryBackendStore`, `OfferStore` and `OfferMetadataStore`.
 
 #### Service Components 
 

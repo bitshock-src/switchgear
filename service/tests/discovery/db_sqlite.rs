@@ -50,3 +50,17 @@ async fn test_sqlite_put_existing_backend_updates_and_returns_false() {
     let store = create_sqlite_store(t.path()).await;
     discovery::test_put_existing_backend_updates_and_returns_false(store).await;
 }
+
+#[tokio::test]
+async fn test_sqlite_test_patch_backend() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    discovery::test_patch_backend(store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_test_patch_missing_backend() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    discovery::test_patch_missing_backend(store).await;
+}

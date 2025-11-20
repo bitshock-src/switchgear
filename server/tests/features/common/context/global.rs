@@ -265,6 +265,28 @@ impl GlobalContext {
         Ok(self.get_active_server()?.stdout_buffer())
     }
 
+    pub fn get_pki_root_certificate_path(&self) -> &Path {
+        &self.pki_root_certificate_path
+    }
+
+    pub fn get_active_discovery_service_profile(&self) -> anyhow::Result<ServiceProfile> {
+        self.get_active_server()?
+            .get_service_profile(Service::Discovery)
+    }
+
+    pub fn get_active_discovery_authorization(&self) -> anyhow::Result<&Path> {
+        Ok(self.get_active_server()?.discovery_authorization())
+    }
+
+    pub fn get_active_offer_service_profile(&self) -> anyhow::Result<ServiceProfile> {
+        self.get_active_server()?
+            .get_service_profile(Service::Offer)
+    }
+
+    pub fn get_active_offer_authorization(&self) -> anyhow::Result<&Path> {
+        Ok(self.get_active_server()?.offer_authorization())
+    }
+
     pub fn wait_active_exit_code(&mut self) -> anyhow::Result<i32> {
         self.get_active_server_mut()?.wait_exit_code()
     }

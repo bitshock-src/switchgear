@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 use switchgear_service::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore,
 };
 use url::Url;
 
@@ -9,6 +10,7 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     let new_backend1 = DiscoveryBackend {
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8080").unwrap()),
         backend: DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
@@ -19,6 +21,7 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     let new_backend2 = DiscoveryBackend {
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8081").unwrap()),
         backend: DiscoveryBackendSparse {
+            name: Some("new_backend2".to_string()),
             partitions: ["default".to_string()].into(),
             weight: 200,
             enabled: true,
@@ -29,6 +32,7 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     let modified_backend2 = DiscoveryBackend {
         address: DiscoveryBackendAddress::Url(Url::parse("https://192.168.1.1:8081").unwrap()),
         backend: DiscoveryBackendSparse {
+            name: Some("new_backend2_modified".to_string()),
             partitions: ["default".to_string()].into(),
             weight: 10,
             enabled: false,
@@ -174,4 +178,83 @@ where
         .unwrap()
         .unwrap();
     assert_eq!(backend, modified_backend2);
+}
+
+pub async fn test_patch_backend<S>(store: S)
+where
+    S: DiscoveryBackendStore,
+    S::Error: std::fmt::Debug,
+{
+    let (new_backend1, new_backend2, modified_backend2) = gen_backends();
+
+    // Initial puts return true (created)
+    assert!(store.put(new_backend1.clone()).await.unwrap());
+    assert!(store.put(new_backend2.clone()).await.unwrap());
+
+    // Verify initial state
+    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    assert_eq!(backend, new_backend1);
+
+    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
+    assert_eq!(backend, new_backend2);
+
+    let all_backends = store.get_all().await.unwrap();
+    assert_eq!(all_backends.len(), 2);
+    let backend_addresses: HashSet<_> = all_backends.iter().map(|b| &b.address).collect();
+    assert!(backend_addresses.contains(&new_backend1.address));
+    assert!(backend_addresses.contains(&new_backend2.address));
+
+    // Patch backend2
+    let backend_patch = DiscoveryBackendPatch {
+        address: modified_backend2.address.clone(),
+        backend: DiscoveryBackendPatchSparse {
+            name: Some(modified_backend2.backend.name.clone()),
+            partitions: None,
+            weight: Some(modified_backend2.backend.weight),
+            enabled: Some(modified_backend2.backend.enabled),
+        },
+    };
+    let patched = store.patch(backend_patch).await.unwrap();
+    assert!(patched);
+
+    // Verify update
+    let backend = store
+        .get(&modified_backend2.address)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(backend, modified_backend2);
+}
+
+pub async fn test_patch_missing_backend<S>(store: S)
+where
+    S: DiscoveryBackendStore,
+    S::Error: std::fmt::Debug,
+{
+    let (new_backend1, _, modified_backend2) = gen_backends();
+
+    // Initial puts return true (created)
+    assert!(store.put(new_backend1.clone()).await.unwrap());
+
+    // Verify initial state
+    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    assert_eq!(backend, new_backend1);
+
+    let all_backends = store.get_all().await.unwrap();
+    assert_eq!(all_backends.len(), 1);
+    let backend_addresses: HashSet<_> = all_backends.iter().map(|b| &b.address).collect();
+    assert!(backend_addresses.contains(&new_backend1.address));
+
+    // Patch backend2
+    let backend_patch = DiscoveryBackendPatch {
+        address: modified_backend2.address.clone(),
+        backend: DiscoveryBackendPatchSparse {
+            name: Some(modified_backend2.backend.name.clone()),
+            partitions: None,
+            weight: Some(modified_backend2.backend.weight),
+            enabled: Some(modified_backend2.backend.enabled),
+        },
+    };
+    let patched = store.patch(backend_patch).await.unwrap();
+    assert!(!patched);
 }

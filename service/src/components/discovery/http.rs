@@ -1,5 +1,6 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendStore, HttpDiscoveryBackendClient,
+    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
+    HttpDiscoveryBackendClient,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -226,6 +227,40 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                 ServiceErrorSource::Upstream,
                 format!(
                     "updating discovery backend at address {}",
+                    backend.address.encoded()
+                ),
+                status.as_u16(),
+            )),
+        }
+    }
+
+    async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
+        let url = self.discovery_address_url(&backend.address);
+
+        let response = self
+            .client
+            .patch(url)
+            .json(&backend.backend)
+            .send()
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::http_error(
+                    ServiceErrorSource::Upstream,
+                    format!(
+                        "updating discovery backend at address {}",
+                        backend.address.encoded()
+                    ),
+                    e,
+                )
+            })?;
+
+        match response.status() {
+            StatusCode::NO_CONTENT => Ok(true),
+            StatusCode::NOT_FOUND => Ok(false),
+            status => Err(DiscoveryBackendStoreError::http_status_error(
+                ServiceErrorSource::Upstream,
+                format!(
+                    "patching discovery backend at address {}",
                     backend.address.encoded()
                 ),
                 status.as_u16(),

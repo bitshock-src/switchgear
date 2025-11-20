@@ -1,3 +1,4 @@
+use crate::common::context::cli::CliContext;
 use crate::common::context::global::GlobalContext;
 use crate::common::context::pay::OfferRequest;
 use crate::common::context::{Protocol, Service};
@@ -18,7 +19,8 @@ use std::time::{Duration, SystemTime};
 use std::vec;
 use switchgear_service::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore,
 };
 use switchgear_service::api::offer::{
     OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
@@ -447,6 +449,7 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
     let backend = DiscoveryBackend {
         address,
         backend: DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
@@ -716,6 +719,7 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
     let backend = DiscoveryBackend {
         address,
         backend: DiscoveryBackendSparse {
+            name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
             implementation,
@@ -1008,19 +1012,20 @@ async fn enable_disable_backend(
     // Parse the location to get the RawSocketAddress
     let address = DiscoveryBackendAddress::from_str(location)?;
 
-    // GET the current backend
-    let mut backend = client
-        .get(&address)
-        .await?
-        .ok_or_else(|| anyhow_log!("Backend at location {} not found", location))?;
+    let patch = DiscoveryBackendPatch {
+        address: address.clone(),
+        backend: DiscoveryBackendPatchSparse {
+            name: None,
+            partitions: None,
+            weight: None,
+            enabled: Some(enabled),
+        },
+    };
 
-    // Modify the enabled field
-    backend.backend.enabled = enabled;
-
-    // PUT the modified backend
-    let is_created = client.put(backend.clone()).await?;
-    if is_created {
-        bail_log!("PUT should update existing backend, not create new one");
+    // PATCH the backend
+    let patched = client.patch(patch).await?;
+    if !patched {
+        bail_log!("PATCH {address} failed");
     }
 
     Ok(())
@@ -1887,4 +1892,2726 @@ pub async fn step_and_server_2_logs_should_contain_health_check_requests_for_lnu
         let error_msg = "❌ Server 2 lnurl health check logs missing";
         bail_log!(error_msg)
     }
+}
+
+// =============================================================================
+// CLI SERVICE TOKEN STEP FUNCTIONS - For CLI service token commands
+// =============================================================================
+
+/// Step: "Given the swgr CLI is available"
+/// Verifies that the swgr CLI is available
+pub async fn step_given_the_swgr_cli_is_available(ctx: &mut CliContext) -> Result<()> {
+    let args = { vec!["--help"] };
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    let exit_code = ctx.exit_code();
+    if exit_code != 0 {
+        let stderr = ctx.stderr_buffer().join("\n");
+        let stdout = ctx.stdout_buffer().join("\n");
+        bail_log!(
+            "Expected exit code 0, got {}. Stderr: {}. Stdout: {}",
+            exit_code,
+            stderr,
+            stdout
+        );
+    }
+    ctx.reset();
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token key with public and private key output paths"
+/// Runs the key generation command for the specified service
+pub async fn step_when_i_run_swgr_service_token_key(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (public_key_path, private_key_path) = {
+        (
+            ctx.public_key_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+        )
+    };
+
+    let args = {
+        vec![
+            service,
+            "token",
+            "key",
+            "--public",
+            &public_key_path,
+            "--private",
+            &private_key_path,
+        ]
+    };
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the command should succeed"
+/// Verifies that the command exited with code 0
+pub async fn step_then_the_command_should_succeed(ctx: &mut CliContext) -> Result<()> {
+    let exit_code = ctx.exit_code();
+    if exit_code != 0 {
+        let stderr = ctx.stderr_buffer().join("\n");
+        let stdout = ctx.stdout_buffer().join("\n");
+        bail_log!(
+            "Expected exit code 0, got {}. Stderr: {}. Stdout: {}",
+            exit_code,
+            stderr,
+            stdout
+        );
+    }
+    Ok(())
+}
+
+/// Step: "And the public key file should exist"
+/// Verifies that the public key file was created
+pub async fn step_then_the_public_key_file_should_exist(ctx: &mut CliContext) -> Result<()> {
+    if !ctx.public_key_path.exists() {
+        bail_log!(
+            "Public key file does not exist: {}",
+            ctx.public_key_path.display()
+        );
+    }
+    // Verify it contains PEM content
+    let content = std::fs::read_to_string(&ctx.public_key_path)?;
+    if !content.contains("-----BEGIN PUBLIC KEY-----") {
+        bail_log!("Public key file does not contain valid PEM content");
+    }
+    Ok(())
+}
+
+/// Step: "And the private key file should exist"
+/// Verifies that the private key file was created
+pub async fn step_then_the_private_key_file_should_exist(ctx: &mut CliContext) -> Result<()> {
+    if !ctx.private_key_path.exists() {
+        bail_log!(
+            "Private key file does not exist: {}",
+            ctx.private_key_path.display()
+        );
+    }
+    // Verify it contains PEM content
+    let content = std::fs::read_to_string(&ctx.private_key_path)?;
+    if !content.contains("-----BEGIN PRIVATE KEY-----") {
+        bail_log!("Private key file does not contain valid PEM content");
+    }
+    Ok(())
+}
+
+/// Step: "Given a valid ECDSA private key exists"
+/// Generates a key pair for use in subsequent tests
+pub async fn step_given_a_valid_ecdsa_private_key_exists(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (public_key_path, private_key_path) = {
+        (
+            ctx.public_key_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+        )
+    };
+
+    let args = vec![
+        service,
+        "token",
+        "key",
+        "--public",
+        &public_key_path,
+        "--private",
+        &private_key_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+
+    if ctx.exit_code() != 0 {
+        bail_log!("Failed to generate key pair");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token mint with key path and expiration"
+/// Runs the mint command with an existing key
+pub async fn step_when_i_run_swgr_service_token_mint(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let private_key_path = { ctx.private_key_path.to_str().unwrap().to_string() };
+
+    let args = vec![
+        service,
+        "token",
+        "mint",
+        "--key",
+        &private_key_path,
+        "--expires",
+        "3600",
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then a valid token should be output to stdout"
+/// Verifies that a token was written to stdout
+pub async fn step_then_a_valid_token_should_be_output_to_stdout(
+    ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = ctx.stdout_buffer();
+    if stdout.is_empty() {
+        bail_log!("No token output to stdout");
+    }
+
+    let token = stdout.join("");
+    if token.trim().is_empty() {
+        bail_log!("Token output is empty");
+    }
+
+    // Store token for verification tests
+    ctx.token_stdin = Some(token.trim().to_string());
+
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token mint with key path, expiration, and output path"
+/// Runs the mint command with output file
+pub async fn step_when_i_run_swgr_service_token_mint_with_output(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (token_path, private_key_path) = {
+        (
+            ctx.token_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+        )
+    };
+
+    let args = vec![
+        service,
+        "token",
+        "mint",
+        "--key",
+        &private_key_path,
+        "--expires",
+        "3600",
+        "--output",
+        &token_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "And the token file should exist"
+/// Verifies that the token file was created
+pub async fn step_then_the_token_file_should_exist(ctx: &mut CliContext) -> Result<()> {
+    if !ctx.token_path.exists() {
+        bail_log!("Token file does not exist: {}", ctx.token_path.display());
+    }
+
+    let content = std::fs::read_to_string(&ctx.token_path)?;
+    if content.trim().is_empty() {
+        bail_log!("Token file is empty");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token mint-all with public path, private path, and expiration"
+/// Runs the mint-all command
+pub async fn step_when_i_run_swgr_service_token_mint_all(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (public_key_path, private_key_path) = {
+        (
+            ctx.public_key_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+        )
+    };
+    let args = vec![
+        service,
+        "token",
+        "mint-all",
+        "--public",
+        &public_key_path,
+        "--private",
+        &private_key_path,
+        "--expires",
+        "3600",
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token mint-all with public path, private path, expiration, and output path"
+/// Runs the mint-all command with output file
+pub async fn step_when_i_run_swgr_service_token_mint_all_with_output(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (public_key_path, private_key_path, token_path) = {
+        (
+            ctx.public_key_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+            ctx.token_path.to_str().unwrap().to_string(),
+        )
+    };
+    let args = vec![
+        service,
+        "token",
+        "mint-all",
+        "--public",
+        &public_key_path,
+        "--private",
+        &private_key_path,
+        "--expires",
+        "3600",
+        "--output",
+        &token_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Given a valid ECDSA public key exists"
+/// Ensures a public key is available (generates if needed)
+pub async fn step_given_a_valid_ecdsa_public_key_exists(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    if !ctx.public_key_path.exists() {
+        step_given_a_valid_ecdsa_private_key_exists(ctx, service).await?;
+    }
+    Ok(())
+}
+
+/// Step: "And a valid <service> token exists"
+/// Generates a token for verification tests
+pub async fn step_given_a_valid_service_token_exists(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    // Mint a token
+    let private_key_path = { ctx.private_key_path.to_str().unwrap().to_string() };
+    let args = vec![
+        service,
+        "token",
+        "mint",
+        "--key",
+        &private_key_path,
+        "--expires",
+        "3600",
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+
+    if ctx.exit_code() != 0 {
+        bail_log!("Failed to mint token");
+    }
+
+    let stdout = ctx.stdout_buffer();
+    ctx.token_stdin = Some(stdout.join("").trim().to_string());
+
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token verify with public key path and token via stdin"
+/// Runs the verify command with stdin input
+pub async fn step_when_i_run_swgr_service_token_verify_with_stdin(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let public_key_path = { ctx.public_key_path.to_str().unwrap().to_string() };
+    // Write token to a temp file to simulate stdin
+    let token_stdin_path = ctx.temp_dir.path().join("token_stdin.txt");
+    if let Some(token) = &ctx.token_stdin {
+        std::fs::write(&token_stdin_path, token)?;
+    } else {
+        bail_log!("No token available for stdin");
+    }
+
+    let args = vec![
+        service,
+        "token",
+        "verify",
+        "--public",
+        &public_key_path,
+        "--token",
+        token_stdin_path.to_str().unwrap(),
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the verification output should be valid"
+/// Verifies that the token verification succeeded
+pub async fn step_then_the_verification_output_should_be_valid(ctx: &mut CliContext) -> Result<()> {
+    let stdout = ctx.stdout_buffer().join("\n");
+
+    // Verification should output the token claims or confirmation
+    if stdout.trim().is_empty() {
+        bail_log!("Verification output is empty");
+    }
+
+    Ok(())
+}
+
+/// Step: "And a valid <service> token file exists"
+/// Creates a token file for verification tests
+pub async fn step_given_a_valid_service_token_file_exists(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    // Mint a token to file
+    let (token_path, private_key_path) = {
+        (
+            ctx.token_path.to_str().unwrap().to_string(),
+            ctx.private_key_path.to_str().unwrap().to_string(),
+        )
+    };
+    let args = vec![
+        service,
+        "token",
+        "mint",
+        "--key",
+        &private_key_path,
+        "--expires",
+        "3600",
+        "--output",
+        &token_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+
+    if ctx.exit_code() != 0 {
+        bail_log!("Failed to mint token to file");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr <service> token verify with public key path and token file path"
+/// Runs the verify command with file input
+pub async fn step_when_i_run_swgr_service_token_verify_with_file(
+    ctx: &mut CliContext,
+    service: &str,
+) -> Result<()> {
+    let (public_key_path, token_path) = {
+        (
+            ctx.public_key_path.to_str().unwrap().to_string(),
+            ctx.token_path.to_str().unwrap().to_string(),
+        )
+    };
+    let args = vec![
+        service,
+        "token",
+        "verify",
+        "--public",
+        &public_key_path,
+        "--token",
+        &token_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "And an invalid <service> token exists"
+/// Creates an invalid token for negative testing
+pub async fn step_given_an_invalid_service_token_exists(
+    ctx: &mut CliContext,
+    _service: &str,
+) -> Result<()> {
+    ctx.token_stdin = Some("invalid.token.data".to_string());
+    Ok(())
+}
+
+/// Step: "Then the command should fail"
+/// Verifies that the command exited with a non-zero code
+pub async fn step_then_the_command_should_fail(ctx: &mut CliContext) -> Result<()> {
+    let exit_code = ctx.exit_code();
+    if exit_code == 0 {
+        bail_log!("Expected non-zero exit code, got 0");
+    }
+    Ok(())
+}
+
+/// Step: "And an error message should be shown"
+/// Verifies that an error message was output
+pub async fn step_then_an_error_message_should_be_shown(ctx: &mut CliContext) -> Result<()> {
+    let stderr = ctx.stderr_buffer().join("\n");
+
+    if stderr.trim().is_empty() {
+        // Some errors might be in stdout
+        let stdout = ctx.stdout_buffer().join("\n");
+        if stdout.trim().is_empty() {
+            bail_log!("No error message in stderr or stdout");
+        }
+    }
+
+    Ok(())
+}
+
+/// Step: "And a conflict message should be shown"
+/// Verifies that a "conflict" error message was output
+pub async fn step_then_a_conflict_message_should_be_shown(ctx: &mut CliContext) -> Result<()> {
+    let stderr = ctx.stderr_buffer().join("\n");
+
+    if !stderr.to_lowercase().contains("conflict") {
+        bail_log!("Expected 'conflict' message in output. stderr: {}", stderr,);
+    }
+
+    Ok(())
+}
+
+/// Step: "And a user error message should be shown"
+/// Verifies that a user error message (not a system error) was output
+/// Checks for specific user error patterns: "invalid input" or "bad request"
+pub async fn step_then_a_user_error_message_should_be_shown(ctx: &mut CliContext) -> Result<()> {
+    let stderr = ctx.stderr_buffer().join("\n");
+    let stderr_lower = stderr.to_lowercase();
+
+    // Check for user error patterns
+    if !stderr_lower.contains("invalid input") && !stderr_lower.contains("bad request") {
+        bail_log!(
+            "Expected user error message ('invalid input' or 'bad request') but got: {}",
+            stderr
+        );
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// CLI DISCOVERY MANAGE STEP FUNCTIONS - For CLI discovery management commands
+// =============================================================================
+
+/// Step: "When I run swgr discovery new for <node_type>"
+/// Runs the discovery new command
+pub async fn step_when_i_run_swgr_discovery_new(
+    ctx: &mut CliContext,
+    node_type: &str,
+) -> Result<()> {
+    // Use a test public key
+    let test_public_key = "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let args = vec![
+        "discovery",
+        "new",
+        "--partition",
+        "default",
+        node_type,
+        test_public_key,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then valid backend JSON should be output to stdout"
+/// Verifies that valid backend JSON was output and matches expected values
+pub async fn step_then_valid_backend_json_should_be_output_to_stdout(
+    ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = ctx.stdout_buffer();
+    if stdout.is_empty() {
+        bail_log!("No output to stdout");
+    }
+
+    let json_str = stdout.join("\n");
+    if json_str.trim().is_empty() {
+        bail_log!("JSON output is empty");
+    }
+
+    // Parse as DiscoveryBackend
+    let _: DiscoveryBackend = match serde_json::from_str(&json_str) {
+        Ok(backend) => backend,
+        Err(e) => {
+            bail_log!("Failed to parse backend JSON: {}. Output: {}", e, json_str);
+        }
+    };
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery new for <node_type> with output path"
+/// Runs the discovery new command with output file
+pub async fn step_when_i_run_swgr_discovery_new_with_output(
+    ctx: &mut CliContext,
+    node_type: &str,
+) -> Result<()> {
+    // Use a test public key
+    let test_public_key = "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let backend_json_path = ctx.backend_json_path.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "new",
+        "--partition",
+        "default",
+        node_type,
+        test_public_key,
+        "--output",
+        &backend_json_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "And the backend JSON file should exist"
+/// Verifies that the backend JSON file was created with valid content matching expected values
+pub async fn step_then_the_backend_json_file_should_exist(
+    ctx: &mut CliContext,
+    expected_backend: &DiscoveryBackend,
+) -> Result<()> {
+    if !ctx.backend_json_path.exists() {
+        bail_log!(
+            "Backend JSON file does not exist: {}",
+            ctx.backend_json_path.display()
+        );
+    }
+
+    let content = std::fs::read_to_string(&ctx.backend_json_path)?;
+    if content.trim().is_empty() {
+        bail_log!("Backend JSON file is empty");
+    }
+
+    // Parse as DiscoveryBackend
+    let backend: DiscoveryBackend = match serde_json::from_str(&content) {
+        Ok(backend) => backend,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse backend JSON from file: {}. Content: {}",
+                e,
+                content
+            );
+        }
+    };
+
+    // Verify expected values match
+    if backend.address.encoded() != expected_backend.address.encoded() {
+        bail_log!(
+            "Backend address mismatch. Expected: {}, Got: {}",
+            expected_backend.address.encoded(),
+            backend.address.encoded()
+        );
+    }
+
+    if backend.backend.weight != expected_backend.backend.weight {
+        bail_log!(
+            "Backend weight mismatch. Expected: {}, Got: {}",
+            expected_backend.backend.weight,
+            backend.backend.weight
+        );
+    }
+
+    if backend.backend.enabled != expected_backend.backend.enabled {
+        bail_log!(
+            "Backend enabled mismatch. Expected: {}, Got: {}",
+            expected_backend.backend.enabled,
+            backend.backend.enabled
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "Given a valid backend JSON exists"
+/// Creates a valid backend JSON file using discovery new
+pub async fn step_given_a_valid_backend_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Generate backend JSON
+    let test_public_key = "02aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let backend_json_path = cli_ctx.backend_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "discovery",
+        "new",
+        "--partition",
+        "default",
+        "--name",
+        "demo",
+        "lnd-grpc",
+        test_public_key,
+        "--output",
+        &backend_json_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to generate backend JSON");
+    }
+
+    cli_ctx.reset();
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery post with backend JSON"
+/// Runs the discovery post command
+pub async fn step_when_i_run_swgr_discovery_post(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+    let backend_json_path = cli_ctx.backend_json_path.to_str().unwrap().to_string();
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "post",
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+        "--input",
+        &backend_json_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+pub async fn extract_backend_address(cli_ctx: &CliContext) -> Result<String> {
+    // Load the backend JSON to extract the address and partition
+    let content = std::fs::read_to_string(&cli_ctx.backend_json_path)?;
+    let backend: DiscoveryBackend = serde_json::from_str(&content)?;
+
+    // Use the encoded() method to get the properly formatted address string
+    let address = backend.address.encoded();
+
+    Ok(address)
+}
+
+/// Extract backend information from the CLI context's backend JSON
+pub async fn extract_backend(cli_ctx: &CliContext) -> Result<DiscoveryBackend> {
+    // Load the backend JSON
+    let content = std::fs::read_to_string(&cli_ctx.backend_json_path)?;
+    let backend: DiscoveryBackend = serde_json::from_str(&content)?;
+
+    Ok(backend)
+}
+
+/// Extract offer information from stdout
+pub async fn extract_offer_from_stdout(cli_ctx: &CliContext) -> Result<OfferRecord> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+    let offer: OfferRecord = serde_json::from_str(&stdout)?;
+    Ok(offer)
+}
+
+/// Extract metadata information from stdout
+pub async fn extract_metadata_from_stdout(cli_ctx: &CliContext) -> Result<OfferMetadata> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+    let metadata: OfferMetadata = serde_json::from_str(&stdout)?;
+    Ok(metadata)
+}
+
+/// Extract offer information from file
+pub async fn extract_offer(cli_ctx: &CliContext) -> Result<OfferRecord> {
+    // Load the offer JSON
+    let content = std::fs::read_to_string(&cli_ctx.offer_json_path)?;
+    let offer: OfferRecord = serde_json::from_str(&content)?;
+
+    Ok(offer)
+}
+
+/// Extract metadata information from file
+pub async fn extract_metadata(cli_ctx: &CliContext) -> Result<OfferMetadata> {
+    // Load the metadata JSON
+    let content = std::fs::read_to_string(&cli_ctx.metadata_json_path)?;
+    let metadata: OfferMetadata = serde_json::from_str(&content)?;
+
+    Ok(metadata)
+}
+
+/// Step: "When I run swgr discovery ls for partition"
+/// Runs the discovery ls command
+pub async fn step_when_i_run_swgr_discovery_ls(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "ls",
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then backend list should be output"
+/// Verifies that backend list was output
+pub async fn step_then_backend_list_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_backends: &[DiscoveryBackend],
+) -> Result<()> {
+    let stdout = cli_ctx
+        .stdout_buffer()
+        .join(" ")
+        .lines()
+        .collect::<Vec<&str>>()
+        .join(" ");
+
+    if !stdout.starts_with("# Discovery Backends") {
+        bail_log!("Backend list missing header. stderr: {}", stdout);
+    }
+
+    for expected in expected_backends {
+        let entry = format!(
+            "## Address: {}  * name: {} * location: {} * enabled: {} * weight: {}",
+            expected.address,
+            expected.backend.name.as_deref().unwrap_or("[null]"),
+            expected.address.encoded(),
+            expected.backend.enabled,
+            expected.backend.weight
+        );
+
+        if !stdout.contains(&entry) {
+            bail_log!("Expected backend {expected:?} not found in output");
+        }
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery get for backend address"
+/// Runs the discovery get command
+pub async fn step_when_i_run_swgr_discovery_get(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "get",
+        backend_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery get"
+/// Runs the discovery get command without address to get all backends
+pub async fn step_when_i_run_swgr_discovery_get_all(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "get",
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then backend details should be output"
+/// Verifies that backend details were output and match expected values
+pub async fn step_then_backend_details_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_backend: &DiscoveryBackend,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("Backend details output is empty");
+    }
+
+    // Parse as DiscoveryBackend
+    let backend: DiscoveryBackend = match serde_json::from_str(&stdout) {
+        Ok(backend) => backend,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse backend details JSON: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify expected values match
+    if backend.address.encoded() != expected_backend.address.encoded() {
+        bail_log!(
+            "Backend address mismatch. Expected: {}, Got: {}",
+            expected_backend.address.encoded(),
+            backend.address.encoded()
+        );
+    }
+
+    if backend.backend.weight != expected_backend.backend.weight {
+        bail_log!(
+            "Backend weight mismatch. Expected: {}, Got: {}",
+            expected_backend.backend.weight,
+            backend.backend.weight
+        );
+    }
+
+    if backend.backend.enabled != expected_backend.backend.enabled {
+        bail_log!(
+            "Backend enabled mismatch. Expected: {}, Got: {}",
+            expected_backend.backend.enabled,
+            backend.backend.enabled
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "Then all backends should be output"
+/// Verifies that all backends were output (as a JSON array) and contains the expected backend
+pub async fn step_then_all_backends_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_backend: &DiscoveryBackend,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("All backends output is empty");
+    }
+
+    // Parse as JSON array of DiscoveryBackend
+    let backends: Vec<DiscoveryBackend> = match serde_json::from_str(&stdout) {
+        Ok(backends) => backends,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse backends JSON array: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify the expected backend is in the array
+    let found = backends.iter().any(|backend| {
+        backend.address.encoded() == expected_backend.address.encoded()
+            && backend.backend.weight == expected_backend.backend.weight
+            && backend.backend.enabled == expected_backend.backend.enabled
+    });
+
+    if !found {
+        bail_log!(
+            "Expected backend with address {} not found in output. Got {} backends",
+            expected_backend.address.encoded(),
+            backends.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "And updated backend JSON exists"
+/// Creates an updated backend JSON for put operation
+pub async fn step_and_updated_backend_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Read the existing backend JSON and modify it slightly
+    let content = std::fs::read_to_string(&cli_ctx.backend_json_path)?;
+    let mut backend: DiscoveryBackend = serde_json::from_str(&content)?;
+
+    // Update the weight field to verify the update worked
+    backend.backend.weight = 999;
+
+    // Add a name to verify it was updated
+    backend.backend.name = Some("updated-backend".to_string());
+
+    // Write back to file
+    std::fs::write(
+        &cli_ctx.backend_json_path,
+        serde_json::to_string_pretty(&backend)?,
+    )?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery put with backend address and JSON"
+/// Runs the discovery put command
+pub async fn step_when_i_run_swgr_discovery_put(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+    let backend_json_path = cli_ctx.backend_json_path.to_str().unwrap().to_string();
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "put",
+        backend_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+        "--input",
+        &backend_json_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery delete for backend address"
+/// Runs the discovery delete command
+pub async fn step_when_i_run_swgr_discovery_delete(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "delete",
+        backend_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the backend should contain the updated data"
+/// Verifies that the backend was updated with new data
+pub async fn step_then_the_backend_should_contain_the_updated_data(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains the updated weight (999) and name (updated-backend)
+    if !stdout.contains("999") || !stdout.contains("updated-backend") {
+        bail_log!("Backend does not contain updated data (weight: 999, name: updated-backend)");
+    }
+
+    Ok(())
+}
+
+/// Step: "Then the backend should not be found"
+/// Verifies that the backend was deleted and returns not found
+pub async fn step_then_the_backend_should_not_be_found(cli_ctx: &mut CliContext) -> Result<()> {
+    let stderr = cli_ctx.stderr_buffer().join("\n");
+
+    // Check if stderr contains "not found"
+    if !stderr.to_lowercase().contains("not found") {
+        bail_log!("Backend was found when it should not exist");
+    }
+
+    Ok(())
+}
+
+/// Step: "And backend patch JSON exists"
+/// Creates a patch JSON for testing partial backend updates
+pub async fn step_and_backend_patch_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Create a patch that modifies the weight field
+    let patch = DiscoveryBackendPatchSparse {
+        name: None,
+        partitions: None,
+        weight: Some(777),
+        enabled: None,
+    };
+
+    // Write the patch JSON to file
+    std::fs::write(
+        &cli_ctx.backend_json_path,
+        serde_json::to_string_pretty(&patch)?,
+    )?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery patch with backend address and patch JSON"
+/// Runs the discovery patch command
+pub async fn step_when_i_run_swgr_discovery_patch(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+    let backend_json_path = cli_ctx.backend_json_path.to_str().unwrap().to_string();
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "patch",
+        backend_address,
+        "--input",
+        &backend_json_path,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the backend should contain the patched data"
+/// Verifies that the backend was patched with new data
+pub async fn step_then_the_backend_should_contain_the_patched_data(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains the patched weight (777)
+    if !stdout.contains("777") {
+        bail_log!("Backend does not contain patched data (weight: 777)");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery enable for backend address"
+/// Runs the discovery enable command
+pub async fn step_when_i_run_swgr_discovery_enable(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "enable",
+        backend_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery disable for backend address"
+/// Runs the discovery disable command
+pub async fn step_when_i_run_swgr_discovery_disable(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    backend_address: &str,
+) -> Result<()> {
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    // Get the trusted roots path
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    // Get the authorization path
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "disable",
+        backend_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the backend should be enabled"
+/// Verifies that the backend is enabled
+pub async fn step_then_the_backend_should_be_enabled(cli_ctx: &mut CliContext) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains "enabled": true
+    if !stdout.contains("\"enabled\": true") && !stdout.contains("\"enabled\":true") {
+        bail_log!("Backend is not enabled");
+    }
+
+    Ok(())
+}
+
+/// Step: "Then the backend should be disabled"
+/// Verifies that the backend is disabled
+pub async fn step_then_the_backend_should_be_disabled(cli_ctx: &mut CliContext) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains "enabled": false
+    if !stdout.contains("\"enabled\": false") && !stdout.contains("\"enabled\":false") {
+        bail_log!("Backend is not disabled");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery get for non-existent backend address"
+/// Runs the discovery get command for a non-existent backend
+pub async fn step_when_i_run_swgr_discovery_get_for_non_existent_backend(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_address =
+        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "get",
+        non_existent_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery patch for non-existent backend address"
+/// Runs the discovery patch command for a non-existent backend
+pub async fn step_when_i_run_swgr_discovery_patch_for_non_existent_backend(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_address =
+        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    let patch_json_path = cli_ctx.backend_json_path.to_str().unwrap().to_string();
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "patch",
+        non_existent_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+        "--input",
+        &patch_json_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery enable for non-existent backend address"
+/// Runs the discovery enable command for a non-existent backend
+pub async fn step_when_i_run_swgr_discovery_enable_for_non_existent_backend(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_address =
+        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "enable",
+        non_existent_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery disable for non-existent backend address"
+/// Runs the discovery disable command for a non-existent backend
+pub async fn step_when_i_run_swgr_discovery_disable_for_non_existent_backend(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_address =
+        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "disable",
+        non_existent_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr discovery delete for non-existent backend address"
+/// Runs the discovery delete command for a non-existent backend
+pub async fn step_when_i_run_swgr_discovery_delete_for_non_existent_backend(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_address =
+        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    let discovery_profile = ctx.get_active_discovery_service_profile()?;
+    let base_url = format!(
+        "{}://{}:{}",
+        discovery_profile.protocol,
+        discovery_profile.domain,
+        discovery_profile.address.port()
+    );
+
+    let trusted_roots = ctx.get_pki_root_certificate_path();
+    let trusted_roots_str = trusted_roots.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_discovery_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "discovery",
+        "delete",
+        non_existent_address,
+        "--base-url",
+        &base_url,
+        "--trusted-roots",
+        &trusted_roots_str,
+        "--authorization-path",
+        &authorization_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+// =============================================================================
+// CLI OFFER MANAGE STEP FUNCTIONS - For CLI offer management commands
+// =============================================================================
+
+/// Helper function to extract offer ID from offer JSON
+pub async fn extract_offer_id(cli_ctx: &CliContext) -> Result<Uuid> {
+    let content = std::fs::read_to_string(&cli_ctx.offer_json_path)?;
+    let offer: OfferRecord = serde_json::from_str(&content)?;
+    Ok(offer.id)
+}
+
+/// Helper function to extract metadata ID from metadata JSON
+pub async fn extract_metadata_id(cli_ctx: &CliContext) -> Result<Uuid> {
+    let content = std::fs::read_to_string(&cli_ctx.metadata_json_path)?;
+    let metadata: OfferMetadata = serde_json::from_str(&content)?;
+    Ok(metadata.id)
+}
+
+/// Step: "When I run swgr offer new"
+/// Runs the offer new command
+pub async fn step_when_i_run_swgr_offer_new(cli_ctx: &mut CliContext) -> Result<()> {
+    // Generate a metadata ID for the command
+    let metadata_id = Uuid::new_v4();
+    let metadata_id_str = metadata_id.to_string();
+    let args = vec![
+        "offer",
+        "new",
+        "--partition",
+        "default",
+        "--metadata-id",
+        &metadata_id_str,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then valid offer JSON should be output to stdout"
+/// Verifies that valid offer JSON was output
+pub async fn step_then_valid_offer_json_should_be_output_to_stdout(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Try to parse as OfferRecord
+    let _: OfferRecord = serde_json::from_str(&stdout)
+        .with_context(|| format!("Failed to parse offer JSON from stdout: {}", stdout))?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer new with output path"
+/// Runs the offer new command with output file
+pub async fn step_when_i_run_swgr_offer_new_with_output(cli_ctx: &mut CliContext) -> Result<()> {
+    // Generate a metadata ID for the command
+    let metadata_id = Uuid::new_v4();
+    let metadata_id_str = metadata_id.to_string();
+    let output_path = cli_ctx.offer_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "new",
+        "--partition",
+        "default",
+        "--metadata-id",
+        &metadata_id_str,
+        "--output",
+        &output_path,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer JSON file should exist"
+/// Verifies that the offer JSON file was created
+pub async fn step_then_the_offer_json_file_should_exist(cli_ctx: &mut CliContext) -> Result<()> {
+    if !cli_ctx.offer_json_path.exists() {
+        bail_log!(
+            "Offer JSON file does not exist: {}",
+            cli_ctx.offer_json_path.display()
+        );
+    }
+
+    // Verify it contains valid JSON
+    let content = std::fs::read_to_string(&cli_ctx.offer_json_path)?;
+    let _offer: OfferRecord = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse offer JSON from file: {}", content))?;
+
+    Ok(())
+}
+
+/// Step: "Given a valid offer JSON exists"
+/// Creates a valid offer JSON file for testing
+/// Note: Creates the metadata first, then creates an offer that references it
+pub async fn step_given_a_valid_offer_json_exists(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Step 1: Create metadata JSON with unique ID
+    let metadata_output = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "metadata",
+        "new",
+        "--partition",
+        "default",
+        "--text",
+        "test-metadata",
+        "--output",
+        &metadata_output,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to generate offer metadata JSON");
+    }
+
+    let content = std::fs::read_to_string(&cli_ctx.metadata_json_path)?;
+    let metadata: OfferMetadata = serde_json::from_str(&content)?;
+
+    cli_ctx.reset();
+
+    // Step 2: Post the metadata to the server
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "post",
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+        "--input",
+        &metadata_output,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to post offer metadata");
+    }
+
+    cli_ctx.reset();
+
+    // Step 3: Create offer JSON with unique ID that references the metadata
+    let metadata_id_str = metadata.id.to_string();
+    let offer_output = cli_ctx.offer_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "new",
+        "--partition",
+        "default",
+        "--metadata-id",
+        &metadata_id_str,
+        "--output",
+        &offer_output,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to generate offer JSON");
+    }
+
+    cli_ctx.reset();
+    Ok(())
+}
+
+/// Step: "When I run swgr offer post with offer JSON"
+/// Runs the offer post command
+pub async fn step_when_i_run_swgr_offer_post(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let input_path = cli_ctx.offer_json_path.to_str().unwrap().to_string();
+
+    let args = vec![
+        "offer",
+        "post",
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+        "--input",
+        &input_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer get for offer ID"
+/// Runs the offer get command
+pub async fn step_when_i_run_swgr_offer_get(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    offer_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = offer_id.to_string();
+
+    let args = vec![
+        "offer",
+        "get",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer get"
+/// Runs the offer get command without ID to get all offers
+pub async fn step_when_i_run_swgr_offer_get_all(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "offer",
+        "get",
+        "default",
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then offer details should be output"
+/// Verifies that offer details were output and match expected values
+pub async fn step_then_offer_details_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_offer: &OfferRecord,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("No offer details in stdout");
+    }
+
+    // Parse as OfferRecord
+    let offer: OfferRecord = match serde_json::from_str(&stdout) {
+        Ok(offer) => offer,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse offer details JSON: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify expected values match
+    if offer.id != expected_offer.id {
+        bail_log!(
+            "Offer ID mismatch. Expected: {}, Got: {}",
+            expected_offer.id,
+            offer.id
+        );
+    }
+
+    if offer.partition != expected_offer.partition {
+        bail_log!(
+            "Offer partition mismatch. Expected: {}, Got: {}",
+            expected_offer.partition,
+            offer.partition
+        );
+    }
+
+    if offer.offer.max_sendable != expected_offer.offer.max_sendable {
+        bail_log!(
+            "Offer max_sendable mismatch. Expected: {}, Got: {}",
+            expected_offer.offer.max_sendable,
+            offer.offer.max_sendable
+        );
+    }
+
+    if offer.offer.min_sendable != expected_offer.offer.min_sendable {
+        bail_log!(
+            "Offer min_sendable mismatch. Expected: {}, Got: {}",
+            expected_offer.offer.min_sendable,
+            offer.offer.min_sendable
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "And all offers should be output"
+/// Verifies that all offers were output (as a JSON array) and contains the expected offer
+pub async fn step_then_all_offers_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_offer_id: &Uuid,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("All offers output is empty");
+    }
+
+    // Parse as JSON array of OfferRecord
+    let offers: Vec<OfferRecord> = match serde_json::from_str(&stdout) {
+        Ok(offers) => offers,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse offers JSON array: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify the expected offer is in the array
+    let found = offers.iter().any(|offer| offer.id == *expected_offer_id);
+
+    if !found {
+        bail_log!(
+            "Expected offer with ID {} not found in output. Got {} offers",
+            expected_offer_id,
+            offers.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "And updated offer JSON exists"
+/// Creates an updated offer JSON file
+pub async fn step_and_updated_offer_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Read the existing offer JSON
+    let content = std::fs::read_to_string(&cli_ctx.offer_json_path)?;
+    let mut offer: OfferRecord = serde_json::from_str(&content)?;
+
+    // Modify some fields to create an updated version
+    offer.offer.max_sendable = 5_000_000;
+    offer.offer.min_sendable = 2_000_000;
+
+    // Write the updated JSON back
+    let updated_json = serde_json::to_string_pretty(&offer)?;
+    std::fs::write(&cli_ctx.offer_json_path, updated_json)?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer put with offer ID and JSON"
+/// Runs the offer put command
+pub async fn step_when_i_run_swgr_offer_put(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    offer_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let input_path = cli_ctx.offer_json_path.to_str().unwrap().to_string();
+
+    let id = offer_id.to_string();
+
+    let args = vec![
+        "offer",
+        "put",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+        "--input",
+        &input_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer should contain the updated data"
+/// Verifies that the offer was updated
+pub async fn step_then_the_offer_should_contain_the_updated_data(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains the updated values
+    if !stdout.contains("5000000") || !stdout.contains("2000000") {
+        bail_log!(
+            "Offer does not contain updated data (max_sendable: 5000000, min_sendable: 2000000)"
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer delete for offer ID"
+/// Runs the offer delete command
+pub async fn step_when_i_run_swgr_offer_delete(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    offer_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = offer_id.to_string();
+
+    let args = vec![
+        "offer",
+        "delete",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer should not be found"
+/// Verifies that the offer was deleted
+pub async fn step_then_the_offer_should_not_be_found(cli_ctx: &mut CliContext) -> Result<()> {
+    let stderr = cli_ctx.stderr_buffer().join("\n");
+
+    // Check if stderr contains "not found"
+    if !stderr.to_lowercase().contains("not found") {
+        bail_log!("Offer was found when it should not exist");
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// CLI OFFER METADATA MANAGE STEP FUNCTIONS - For CLI offer metadata management
+// =============================================================================
+
+/// Step: "When I run swgr offer metadata new"
+/// Runs the offer metadata new command
+pub async fn step_when_i_run_swgr_offer_metadata_new(cli_ctx: &mut CliContext) -> Result<()> {
+    let args = vec![
+        "offer",
+        "metadata",
+        "new",
+        "--partition",
+        "default",
+        "--text",
+        "test-metadata",
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then valid offer metadata JSON should be output to stdout"
+/// Verifies that valid offer metadata JSON was output
+pub async fn step_then_valid_offer_metadata_json_should_be_output_to_stdout(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Try to parse as OfferMetadata
+    let _: OfferMetadata = serde_json::from_str(&stdout).with_context(|| {
+        format!(
+            "Failed to parse offer metadata JSON from stdout: {}",
+            stdout
+        )
+    })?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata new with output path"
+/// Runs the offer metadata new command with output file
+pub async fn step_when_i_run_swgr_offer_metadata_new_with_output(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let output_path = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "metadata",
+        "new",
+        "--partition",
+        "default",
+        "--text",
+        "test-metadata",
+        "--output",
+        &output_path,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer metadata JSON file should exist"
+/// Verifies that the offer metadata JSON file was created
+pub async fn step_then_the_offer_metadata_json_file_should_exist(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    if !cli_ctx.metadata_json_path.exists() {
+        bail_log!(
+            "Offer metadata JSON file does not exist: {}",
+            cli_ctx.metadata_json_path.display()
+        );
+    }
+
+    // Verify it contains valid JSON
+    let content = std::fs::read_to_string(&cli_ctx.metadata_json_path)?;
+    let _metadata: OfferMetadata = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse offer metadata JSON from file: {}", content))?;
+
+    Ok(())
+}
+
+/// Step: "Given a valid offer metadata JSON exists"
+/// Creates a valid offer metadata JSON file for testing with unique ID
+pub async fn step_given_a_valid_offer_metadata_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Run swgr offer metadata new to generate a valid metadata JSON
+    let output_path = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "metadata",
+        "new",
+        "--partition",
+        "default",
+        "--text",
+        "test-metadata",
+        "--output",
+        &output_path,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to generate offer metadata JSON");
+    }
+
+    cli_ctx.reset();
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata post with metadata JSON"
+/// Runs the offer metadata post command
+pub async fn step_when_i_run_swgr_offer_metadata_post(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let input_path = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "post",
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+        "--input",
+        &input_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata get for metadata ID"
+/// Runs the offer metadata get command
+pub async fn step_when_i_run_swgr_offer_metadata_get(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    metadata_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = metadata_id.to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "get",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata get"
+/// Runs the offer metadata get command without ID to get all metadata
+pub async fn step_when_i_run_swgr_offer_metadata_get_all(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "get",
+        "default",
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then offer metadata details should be output"
+/// Verifies that offer metadata details were output and match expected values
+pub async fn step_then_offer_metadata_details_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_metadata: &OfferMetadata,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("No offer metadata details in stdout");
+    }
+
+    // Parse as OfferMetadata
+    let metadata: OfferMetadata = match serde_json::from_str(&stdout) {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse offer metadata details JSON: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify expected values match
+    if metadata.id != expected_metadata.id {
+        bail_log!(
+            "Metadata ID mismatch. Expected: {}, Got: {}",
+            expected_metadata.id,
+            metadata.id
+        );
+    }
+
+    if metadata.metadata.text != expected_metadata.metadata.text {
+        bail_log!(
+            "Metadata text mismatch. Expected: {}, Got: {}",
+            expected_metadata.metadata.text,
+            metadata.metadata.text
+        );
+    }
+
+    if metadata.metadata.long_text != expected_metadata.metadata.long_text {
+        bail_log!(
+            "Metadata long_text mismatch. Expected: {:?}, Got: {:?}",
+            expected_metadata.metadata.long_text,
+            metadata.metadata.long_text
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "And all offer metadata should be output"
+/// Verifies that all offer metadata were output (as a JSON array) and contains the expected metadata
+pub async fn step_then_all_offer_metadata_should_be_output(
+    cli_ctx: &mut CliContext,
+    expected_metadata_id: &Uuid,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    if stdout.trim().is_empty() {
+        bail_log!("All offer metadata output is empty");
+    }
+
+    // Parse as JSON array of OfferMetadata
+    let metadata_list: Vec<OfferMetadata> = match serde_json::from_str(&stdout) {
+        Ok(metadata) => metadata,
+        Err(e) => {
+            bail_log!(
+                "Failed to parse offer metadata JSON array: {}. Output: {}",
+                e,
+                stdout
+            );
+        }
+    };
+
+    // Verify the expected metadata is in the array
+    let found = metadata_list
+        .iter()
+        .any(|metadata| metadata.id == *expected_metadata_id);
+
+    if !found {
+        bail_log!(
+            "Expected offer metadata with ID {} not found in output. Got {} metadata entries",
+            expected_metadata_id,
+            metadata_list.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// Step: "And updated offer metadata JSON exists"
+/// Creates an updated offer metadata JSON file
+pub async fn step_and_updated_offer_metadata_json_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Read the existing metadata JSON
+    let content = std::fs::read_to_string(&cli_ctx.metadata_json_path)?;
+    let mut metadata: OfferMetadata = serde_json::from_str(&content)?;
+
+    // Modify some fields to create an updated version
+    metadata.metadata.text = "updated metadata text".to_string();
+    metadata.metadata.long_text = Some("updated long text".to_string());
+
+    // Write the updated JSON back
+    let updated_json = serde_json::to_string_pretty(&metadata)?;
+    std::fs::write(&cli_ctx.metadata_json_path, updated_json)?;
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata put with metadata ID and JSON"
+/// Runs the offer metadata put command
+pub async fn step_when_i_run_swgr_offer_metadata_put(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    metadata_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let input_path = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
+
+    let id = metadata_id.to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "put",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+        "--input",
+        &input_path,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer metadata should contain the updated data"
+/// Verifies that the offer metadata was updated
+pub async fn step_then_the_offer_metadata_should_contain_the_updated_data(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stdout = cli_ctx.stdout_buffer().join("\n");
+
+    // Check if the output contains the updated values
+    if !stdout.contains("updated metadata text") || !stdout.contains("updated long text") {
+        bail_log!("Offer metadata does not contain updated data");
+    }
+
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata delete for metadata ID"
+/// Runs the offer metadata delete command
+pub async fn step_when_i_run_swgr_offer_metadata_delete(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+    metadata_id: &Uuid,
+) -> Result<()> {
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = metadata_id.to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "delete",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "Then the offer metadata should not be found"
+/// Verifies that the offer metadata was deleted
+pub async fn step_then_the_offer_metadata_should_not_be_found(
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let stderr = cli_ctx.stderr_buffer().join("\n");
+
+    // Check if stderr contains "not found"
+    if !stderr.to_lowercase().contains("not found") {
+        bail_log!("Offer metadata was found when it should not exist");
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// CLI OFFER ERROR SCENARIO STEP FUNCTIONS
+// =============================================================================
+
+/// Helper function to extract metadata ID from offer JSON
+pub async fn extract_metadata_id_from_offer(cli_ctx: &CliContext) -> Result<Uuid> {
+    let content = std::fs::read_to_string(&cli_ctx.offer_json_path)?;
+    let offer: OfferRecord = serde_json::from_str(&content)?;
+    Ok(offer.offer.metadata_id)
+}
+
+/// Step: "Given an offer JSON with non-existent metadata ID exists"
+/// Creates an offer JSON file with a random metadata ID that doesn't exist in the server
+pub async fn step_given_an_offer_json_with_non_existent_metadata_id_exists(
+    _ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    // Generate unique UUIDs
+    let metadata_id = Uuid::new_v4(); // This metadata ID will never be posted
+
+    // Create offer JSON with unique ID that references non-existent metadata
+    let metadata_id_str = metadata_id.to_string();
+    let offer_output = cli_ctx.offer_json_path.to_str().unwrap().to_string();
+    let args = vec![
+        "offer",
+        "new",
+        "--partition",
+        "default",
+        "--metadata-id",
+        &metadata_id_str,
+        "--output",
+        &offer_output,
+    ];
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+
+    if cli_ctx.exit_code() != 0 {
+        bail_log!("Failed to generate offer JSON");
+    }
+
+    cli_ctx.reset();
+    Ok(())
+}
+
+/// Step: "When I run swgr offer get for non-existent offer ID"
+/// Runs the offer get command for a non-existent offer
+pub async fn step_when_i_run_swgr_offer_get_for_non_existent_offer(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_id = Uuid::new_v4();
+
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = non_existent_id.to_string();
+
+    let args = vec![
+        "offer",
+        "get",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer delete for non-existent offer ID"
+/// Runs the offer delete command for a non-existent offer
+pub async fn step_when_i_run_swgr_offer_delete_for_non_existent_offer(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_id = Uuid::new_v4();
+
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = non_existent_id.to_string();
+
+    let args = vec![
+        "offer",
+        "delete",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata get for non-existent metadata ID"
+/// Runs the offer metadata get command for a non-existent metadata
+pub async fn step_when_i_run_swgr_offer_metadata_get_for_non_existent_metadata(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_id = Uuid::new_v4();
+
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = non_existent_id.to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "get",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+/// Step: "When I run swgr offer metadata delete for non-existent metadata ID"
+/// Runs the offer metadata delete command for a non-existent metadata
+pub async fn step_when_i_run_swgr_offer_metadata_delete_for_non_existent_metadata(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    let non_existent_id = Uuid::new_v4();
+
+    let service_profile = ctx.get_active_offer_service_profile()?;
+    let protocol = service_profile.protocol;
+    let domain = service_profile.domain;
+    let port = service_profile.address.port();
+    let base_url = format!("{}://{}:{}", protocol, domain, port);
+
+    let ca_bundle = ctx.get_pki_root_certificate_path();
+    let ca_bundle_str = ca_bundle.to_str().unwrap().to_string();
+
+    let authorization = ctx.get_active_offer_authorization()?;
+    let authorization_str = authorization.to_str().unwrap().to_string();
+
+    let id = non_existent_id.to_string();
+
+    let args = vec![
+        "offer",
+        "metadata",
+        "delete",
+        "default",
+        &id,
+        "--base-url",
+        &base_url,
+        "--authorization-path",
+        &authorization_str,
+        "--trusted-roots",
+        &ca_bundle_str,
+    ];
+
+    let empty_env: Vec<(&str, &str)> = vec![];
+    cli_ctx.command(empty_env, args)?;
+    Ok(())
 }

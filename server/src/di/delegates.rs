@@ -12,7 +12,7 @@ use switchgear_pingora::error::PingoraLnError;
 use switchgear_pingora::PingoraBackendProvider;
 use switchgear_service::api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendStore,
+    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
 };
 use switchgear_service::api::offer::Offer;
 use switchgear_service::api::offer::{OfferMetadataStore, OfferProvider, OfferStore};
@@ -21,7 +21,6 @@ use switchgear_service::components::backoff::{
 };
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
 use switchgear_service::components::discovery::error::DiscoveryBackendStoreError;
-use switchgear_service::components::discovery::file::FileDiscoveryBackendStore;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::discovery::memory::MemoryDiscoveryBackendStore;
 use switchgear_service::components::offer::db::DbOfferStore;
@@ -106,32 +105,32 @@ impl OfferStore for OfferStoreDelegate {
         &self,
         partition: &str,
         id: &Uuid,
-    ) -> anyhow::Result<Option<switchgear_service::api::offer::OfferRecord>, Self::Error> {
+    ) -> Result<Option<switchgear_service::api::offer::OfferRecord>, Self::Error> {
         delegate_to_offer_store_variants!(self, get_offer, partition, id).await
     }
 
     async fn get_offers(
         &self,
         partition: &str,
-    ) -> anyhow::Result<Vec<switchgear_service::api::offer::OfferRecord>, Self::Error> {
+    ) -> Result<Vec<switchgear_service::api::offer::OfferRecord>, Self::Error> {
         delegate_to_offer_store_variants!(self, get_offers, partition).await
     }
 
     async fn post_offer(
         &self,
         offer: switchgear_service::api::offer::OfferRecord,
-    ) -> anyhow::Result<Option<Uuid>, Self::Error> {
+    ) -> Result<Option<Uuid>, Self::Error> {
         delegate_to_offer_store_variants!(self, post_offer, offer).await
     }
 
     async fn put_offer(
         &self,
         offer: switchgear_service::api::offer::OfferRecord,
-    ) -> anyhow::Result<bool, Self::Error> {
+    ) -> Result<bool, Self::Error> {
         delegate_to_offer_store_variants!(self, put_offer, offer).await
     }
 
-    async fn delete_offer(&self, partition: &str, id: &Uuid) -> anyhow::Result<bool, Self::Error> {
+    async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         delegate_to_offer_store_variants!(self, delete_offer, partition, id).await
     }
 }
@@ -144,36 +143,32 @@ impl OfferMetadataStore for OfferStoreDelegate {
         &self,
         partition: &str,
         id: &Uuid,
-    ) -> anyhow::Result<Option<switchgear_service::api::offer::OfferMetadata>, Self::Error> {
+    ) -> Result<Option<switchgear_service::api::offer::OfferMetadata>, Self::Error> {
         delegate_to_offer_store_variants!(self, get_metadata, partition, id).await
     }
 
     async fn get_all_metadata(
         &self,
         partition: &str,
-    ) -> anyhow::Result<Vec<switchgear_service::api::offer::OfferMetadata>, Self::Error> {
+    ) -> Result<Vec<switchgear_service::api::offer::OfferMetadata>, Self::Error> {
         delegate_to_offer_store_variants!(self, get_all_metadata, partition).await
     }
 
     async fn post_metadata(
         &self,
         metadata: switchgear_service::api::offer::OfferMetadata,
-    ) -> anyhow::Result<Option<Uuid>, Self::Error> {
+    ) -> Result<Option<Uuid>, Self::Error> {
         delegate_to_offer_store_variants!(self, post_metadata, metadata).await
     }
 
     async fn put_metadata(
         &self,
         metadata: switchgear_service::api::offer::OfferMetadata,
-    ) -> anyhow::Result<bool, Self::Error> {
+    ) -> Result<bool, Self::Error> {
         delegate_to_offer_store_variants!(self, put_metadata, metadata).await
     }
 
-    async fn delete_metadata(
-        &self,
-        partition: &str,
-        id: &Uuid,
-    ) -> anyhow::Result<bool, Self::Error> {
+    async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         delegate_to_offer_store_variants!(self, delete_metadata, partition, id).await
     }
 }
@@ -187,7 +182,7 @@ impl OfferProvider for OfferStoreDelegate {
         hostname: &str,
         partition: &str,
         id: &Uuid,
-    ) -> anyhow::Result<Option<switchgear_service::api::offer::Offer>, Self::Error> {
+    ) -> Result<Option<Offer>, Self::Error> {
         delegate_to_offer_store_variants!(self, offer, hostname, partition, id).await
     }
 }
@@ -199,7 +194,6 @@ pub enum DiscoveryBackendStoreDelegate {
     Database(DbDiscoveryBackendStore),
     Memory(MemoryDiscoveryBackendStore),
     Http(HttpDiscoveryBackendStore),
-    File(FileDiscoveryBackendStore),
 }
 
 #[async_trait]
@@ -209,23 +203,30 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
     async fn get(
         &self,
         addr: &DiscoveryBackendAddress,
-    ) -> anyhow::Result<Option<DiscoveryBackend>, Self::Error> {
+    ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         delegate_to_discovery_store_variants!(self, get, addr).await
     }
 
-    async fn get_all(&self) -> anyhow::Result<Vec<DiscoveryBackend>, Self::Error> {
+    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
         delegate_to_discovery_store_variants!(self, get_all).await
     }
 
     async fn post(
         &self,
         backend: DiscoveryBackend,
-    ) -> anyhow::Result<Option<DiscoveryBackendAddress>, Self::Error> {
+    ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
         delegate_to_discovery_store_variants!(self, post, backend).await
     }
 
-    async fn put(&self, backend: DiscoveryBackend) -> anyhow::Result<bool, Self::Error> {
+    async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         delegate_to_discovery_store_variants!(self, put, backend).await
+    }
+
+    async fn patch(
+        &self,
+        backend: DiscoveryBackendPatch,
+    ) -> std::result::Result<bool, Self::Error> {
+        delegate_to_discovery_store_variants!(self, patch, backend).await
     }
 
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {

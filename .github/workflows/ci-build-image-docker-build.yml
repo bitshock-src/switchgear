@@ -1,11 +1,12 @@
 name: Build and Push CI Docker Build Image
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'ci/Dockerfile'
   workflow_dispatch:
+  workflow_call:
+    outputs:
+      image-tag:
+        description: 'The Docker image tag to use'
+        value: ${{ jobs.build-and-push.outputs.image-tag }}
 
 env:
   REGISTRY: ghcr.io
@@ -17,10 +18,26 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      image-tag: ${{ steps.determine-tag.outputs.image-tag }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Calculate Dockerfile SHA256
+        id: dockerfile-sha
+        run: |
+          DOCKERFILE_SHA=$(git hash-object ci/Dockerfile)
+          echo "sha=${DOCKERFILE_SHA}" >> $GITHUB_OUTPUT
+          echo "Dockerfile SHA: ${DOCKERFILE_SHA}"
+
+      - name: Determine image tag
+        id: determine-tag
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.dockerfile-sha.outputs.sha }}"
+          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
+          echo "Image tag: ${IMAGE_TAG}"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -29,17 +46,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check if image exists
+        id: check-image
+        run: |
+          if docker manifest inspect ${{ steps.determine-tag.outputs.image-tag }} > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract metadata
+        if: steps.check-image.outputs.exists == 'false'
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=sha,prefix={{branch}}-
+            type=raw,value=${{ steps.dockerfile-sha.outputs.sha }}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=1.90.0
 
       - name: Build and push Docker image
+        if: steps.check-image.outputs.exists == 'false'
         uses: docker/build-push-action@v5
         with:
           context: ./ci
