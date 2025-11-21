@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-service"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Service layer and API implementations for Switchgear LNURL load balancer"
