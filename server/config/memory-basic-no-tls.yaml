@@ -27,6 +27,7 @@ discovery-service:
 offer-service:
   auth-authority: "${OFFER_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/offer-auth-authority.pem}"
   address: "${OFFER_SERVICE_ADDRESS:-127.0.0.1:8082}"
+  max-page-size: 100
 
 store:
   offer:

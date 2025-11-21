@@ -44,16 +44,35 @@ Feature: Offer CLI management
     And offer details should be output
 
   @offer-get-all
-  Scenario: Get all offers
+  Scenario Outline: Get all offers with parameters
     Given the lnurl server is ready to start
     When I start the lnurl server with the configuration
     Then the server should start successfully
     Given a valid offer JSON exists
-    When I run "swgr offer post" with offer JSON
+    When I run "swgr offer post" 10 times with offer JSON
     Then the command should succeed
-    When I run "swgr offer get"
+    When I run "swgr offer get" with parameters "<parameters>"
     Then the command should succeed
     And all offers should be output
+
+    Examples:
+      | parameters           |
+      |                      |
+      | --start 1            |
+      | --count 5            |
+      | --start 1 --count 1  |
+
+  @offer-get-all-bounds-error
+  Scenario: Get all offers with count exceeding limit
+    Given the lnurl server is ready to start
+    When I start the lnurl server with the configuration
+    Then the server should start successfully
+    Given a valid offer JSON exists
+    When I run "swgr offer post" 10 times with offer JSON
+    Then the command should succeed
+    When I run "swgr offer get --count 101"
+    Then the command should fail
+    And a user error message should be shown
 
   @offer-put
   Scenario: Update an offer
@@ -118,16 +137,35 @@ Feature: Offer CLI management
     And offer metadata details should be output
 
   @offer-metadata-get-all
-  Scenario: Get all offer metadata
+  Scenario Outline: Get all offer metadata with parameters
     Given the lnurl server is ready to start
     When I start the lnurl server with the configuration
     Then the server should start successfully
     Given a valid offer metadata JSON exists
-    When I run "swgr offer metadata post" with metadata JSON
+    When I run "swgr offer metadata post" 10 times with metadata JSON
     Then the command should succeed
-    When I run "swgr offer metadata get"
+    When I run "swgr offer metadata get" with parameters "<parameters>"
     Then the command should succeed
     And all offer metadata should be output
+
+    Examples:
+      | parameters           |
+      |                      |
+      | --start 1            |
+      | --count 5            |
+      | --start 1 --count 1  |
+
+  @offer-metadata-get-all-bounds-error
+  Scenario: Get all offer metadata with count exceeding limit
+    Given the lnurl server is ready to start
+    When I start the lnurl server with the configuration
+    Then the server should start successfully
+    Given a valid offer metadata JSON exists
+    When I run "swgr offer metadata post" 10 times with metadata JSON
+    Then the command should succeed
+    When I run "swgr offer metadata get --count 101"
+    Then the command should fail
+    And a user error message should be shown
 
   @offer-metadata-put
   Scenario: Update offer metadata

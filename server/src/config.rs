@@ -46,6 +46,7 @@ pub struct OfferServiceConfig {
     pub address: SocketAddr,
     pub auth_authority: PathBuf,
     pub tls: Option<TlsConfig>,
+    pub max_page_size: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

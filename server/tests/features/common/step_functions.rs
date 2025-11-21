@@ -2381,15 +2381,15 @@ pub async fn step_then_a_conflict_message_should_be_shown(ctx: &mut CliContext) 
 
 /// Step: "And a user error message should be shown"
 /// Verifies that a user error message (not a system error) was output
-/// Checks for specific user error patterns: "invalid input" or "bad request"
+/// Checks for specific user error patterns:  "invalid input"
 pub async fn step_then_a_user_error_message_should_be_shown(ctx: &mut CliContext) -> Result<()> {
     let stderr = ctx.stderr_buffer().join("\n");
     let stderr_lower = stderr.to_lowercase();
 
     // Check for user error patterns
-    if !stderr_lower.contains("invalid input") && !stderr_lower.contains("bad request") {
+    if !stderr_lower.contains("invalid input") {
         bail_log!(
-            "Expected user error message ('invalid input' or 'bad request') but got: {}",
+            "Expected user error message ('invalid input') but got: {}",
             stderr
         );
     }
@@ -3691,11 +3691,13 @@ pub async fn step_when_i_run_swgr_offer_get(
     Ok(())
 }
 
-/// Step: "When I run swgr offer get"
-/// Runs the offer get command without ID to get all offers
+/// Step: "When I run swgr offer get" or "When I run swgr offer get with parameters"
+/// Runs the offer get command without ID to get all offers, with optional parameters
 pub async fn step_when_i_run_swgr_offer_get_all(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
+    start: Option<usize>,
+    count: Option<usize>,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -3709,7 +3711,7 @@ pub async fn step_when_i_run_swgr_offer_get_all(
     let authorization = ctx.get_active_offer_authorization()?;
     let authorization_str = authorization.to_str().unwrap().to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "get",
         "default",
@@ -3720,6 +3722,22 @@ pub async fn step_when_i_run_swgr_offer_get_all(
         "--trusted-roots",
         &ca_bundle_str,
     ];
+
+    // Add start parameter if provided
+    let start_str;
+    if let Some(s) = start {
+        args.push("--start");
+        start_str = s.to_string();
+        args.push(&start_str);
+    }
+
+    // Add count parameter if provided
+    let count_str;
+    if let Some(c) = count {
+        args.push("--count");
+        count_str = c.to_string();
+        args.push(&count_str);
+    }
 
     let empty_env: Vec<(&str, &str)> = vec![];
     cli_ctx.command(empty_env, args)?;
@@ -3790,7 +3808,7 @@ pub async fn step_then_offer_details_should_be_output(
 /// Verifies that all offers were output (as a JSON array) and contains the expected offer
 pub async fn step_then_all_offers_should_be_output(
     cli_ctx: &mut CliContext,
-    expected_offer_id: &Uuid,
+    expected_offers: &[OfferRecord],
 ) -> Result<()> {
     let stdout = cli_ctx.stdout_buffer().join("\n");
 
@@ -3810,16 +3828,7 @@ pub async fn step_then_all_offers_should_be_output(
         }
     };
 
-    // Verify the expected offer is in the array
-    let found = offers.iter().any(|offer| offer.id == *expected_offer_id);
-
-    if !found {
-        bail_log!(
-            "Expected offer with ID {} not found in output. Got {} offers",
-            expected_offer_id,
-            offers.len()
-        );
-    }
+    assert_eq!(expected_offers, offers.as_slice());
 
     Ok(())
 }
@@ -4152,6 +4161,8 @@ pub async fn step_when_i_run_swgr_offer_metadata_get(
 pub async fn step_when_i_run_swgr_offer_metadata_get_all(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
+    start: Option<usize>,
+    count: Option<usize>,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -4165,7 +4176,7 @@ pub async fn step_when_i_run_swgr_offer_metadata_get_all(
     let authorization = ctx.get_active_offer_authorization()?;
     let authorization_str = authorization.to_str().unwrap().to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "metadata",
         "get",
@@ -4177,6 +4188,22 @@ pub async fn step_when_i_run_swgr_offer_metadata_get_all(
         "--trusted-roots",
         &ca_bundle_str,
     ];
+
+    // Add start parameter if provided
+    let start_str;
+    if let Some(s) = start {
+        args.push("--start");
+        start_str = s.to_string();
+        args.push(&start_str);
+    }
+
+    // Add count parameter if provided
+    let count_str;
+    if let Some(c) = count {
+        args.push("--count");
+        count_str = c.to_string();
+        args.push(&count_str);
+    }
 
     let empty_env: Vec<(&str, &str)> = vec![];
     cli_ctx.command(empty_env, args)?;
@@ -4236,41 +4263,30 @@ pub async fn step_then_offer_metadata_details_should_be_output(
 }
 
 /// Step: "And all offer metadata should be output"
-/// Verifies that all offer metadata were output (as a JSON array) and contains the expected metadata
+/// Verifies that all offer metadata were output (as a JSON array) and matches the expected metadata
 pub async fn step_then_all_offer_metadata_should_be_output(
     cli_ctx: &mut CliContext,
-    expected_metadata_id: &Uuid,
+    expected_metadata: &[OfferMetadata],
 ) -> Result<()> {
     let stdout = cli_ctx.stdout_buffer().join("\n");
 
     if stdout.trim().is_empty() {
-        bail_log!("All offer metadata output is empty");
+        bail_log!("All offers output is empty");
     }
 
-    // Parse as JSON array of OfferMetadata
-    let metadata_list: Vec<OfferMetadata> = match serde_json::from_str(&stdout) {
+    // Parse as JSON array of OfferRecord
+    let metadata: Vec<OfferMetadata> = match serde_json::from_str(&stdout) {
         Ok(metadata) => metadata,
         Err(e) => {
             bail_log!(
-                "Failed to parse offer metadata JSON array: {}. Output: {}",
+                "Failed to parse metadata JSON array: {}. Output: {}",
                 e,
                 stdout
             );
         }
     };
 
-    // Verify the expected metadata is in the array
-    let found = metadata_list
-        .iter()
-        .any(|metadata| metadata.id == *expected_metadata_id);
-
-    if !found {
-        bail_log!(
-            "Expected offer metadata with ID {} not found in output. Got {} metadata entries",
-            expected_metadata_id,
-            metadata_list.len()
-        );
-    }
+    assert_eq!(expected_metadata, metadata.as_slice());
 
     Ok(())
 }

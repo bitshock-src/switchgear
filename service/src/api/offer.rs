@@ -15,7 +15,12 @@ pub trait OfferStore {
         id: &Uuid,
     ) -> Result<Option<OfferRecord>, Self::Error>;
 
-    async fn get_offers(&self, partition: &str) -> Result<Vec<OfferRecord>, Self::Error>;
+    async fn get_offers(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferRecord>, Self::Error>;
 
     async fn post_offer(&self, offer: OfferRecord) -> Result<Option<Uuid>, Self::Error>;
 
@@ -34,7 +39,12 @@ pub trait OfferMetadataStore {
         id: &Uuid,
     ) -> Result<Option<OfferMetadata>, Self::Error>;
 
-    async fn get_all_metadata(&self, partition: &str) -> Result<Vec<OfferMetadata>, Self::Error>;
+    async fn get_all_metadata(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferMetadata>, Self::Error>;
 
     async fn post_metadata(&self, offer: OfferMetadata) -> Result<Option<Uuid>, Self::Error>;
 

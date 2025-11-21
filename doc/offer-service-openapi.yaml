@@ -45,6 +45,20 @@ paths:
           required: true
           schema:
             type: string
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Offset for pagination (starting index)
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of offers to return (page size)
       responses:
         '200':
           description: List of offers
@@ -188,6 +202,20 @@ paths:
           required: true
           schema:
             type: string
+        - name: start
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Offset for pagination (starting index)
+        - name: count
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of metadata entries to return (page size)
       responses:
         '200':
           description: List of metadata

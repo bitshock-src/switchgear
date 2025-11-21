@@ -499,6 +499,9 @@ offer-service:
     cert-path: "/etc/ssl/certs/offer-cert.pem"
     # Path to TLS private key file
     key-path: "/etc/ssl/certs/offer-key.pem"
+
+  # max page size for get all queries
+  max-page-size: 100
 ```
 
 #### Authentication Setup

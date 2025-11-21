@@ -36,7 +36,8 @@ offer-service:
   tls:
     cert-path: "${OFFER_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/offer-cert.pem}"
     key-path: "${OFFER_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/offer-key.pem}"
-    
+  max-page-size: 100
+
 store:
   offer:
     type: "database"

@@ -115,6 +115,27 @@ impl HttpOfferStore {
     fn metadata_partition_id_url(&self, partition: &str, id: &Uuid) -> String {
         format!("{}/{}", self.metadata_partition_url(partition), id)
     }
+
+    fn general_error(status: StatusCode, context: &str) -> OfferStoreError {
+        if status.is_success() {
+            return OfferStoreError::internal_error(
+                ServiceErrorSource::Upstream,
+                context.to_string(),
+                format!("unexpected http status {status}"),
+            );
+        }
+        if status.is_client_error() {
+            return OfferStoreError::invalid_input_error(
+                context.to_string(),
+                format!("invalid input, http status: {status}"),
+            );
+        }
+        OfferStoreError::http_status_error(
+            ServiceErrorSource::Upstream,
+            context.to_string(),
+            status.as_u16(),
+        )
+    }
 }
 
 #[async_trait]
@@ -127,12 +148,8 @@ impl OfferStore for HttpOfferStore {
         id: &Uuid,
     ) -> Result<Option<OfferRecord>, Self::Error> {
         let url = self.offers_partition_id_url(partition, id);
-        let response = self.client.get(url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("retrieving offer {id}"),
-                e,
-            )
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            OfferStoreError::http_error(ServiceErrorSource::Upstream, format!("get offer {url}"), e)
         })?;
 
         match response.status() {
@@ -140,25 +157,31 @@ impl OfferStore for HttpOfferStore {
                 let offer = response.json::<OfferRecord>().await.map_err(|e| {
                     OfferStoreError::deserialization_error(
                         ServiceErrorSource::Upstream,
-                        format!("reading offer {id}"),
+                        format!("parsing offer {id}"),
                         e,
                     )
                 })?;
                 Ok(Some(offer))
             }
             StatusCode::NOT_FOUND => Ok(None),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("retrieving offer {id}"),
-                status.as_u16(),
-            )),
+            status => Err(Self::general_error(status, &format!("get offer {url}"))),
         }
     }
 
-    async fn get_offers(&self, partition: &str) -> Result<Vec<OfferRecord>, Self::Error> {
+    async fn get_offers(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferRecord>, Self::Error> {
         let url = self.offers_partition_url(partition);
-        let response = self.client.get(url).send().await.map_err(|e| {
-            OfferStoreError::http_error(ServiceErrorSource::Upstream, "listing all offers", e)
+        let url = format!("{url}?start={start}&count={count}");
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            OfferStoreError::http_error(
+                ServiceErrorSource::Upstream,
+                format!("get all offers {url}"),
+                e,
+            )
         })?;
 
         match response.status() {
@@ -166,16 +189,15 @@ impl OfferStore for HttpOfferStore {
                 let offer_records = response.json::<Vec<OfferRecord>>().await.map_err(|e| {
                     OfferStoreError::deserialization_error(
                         ServiceErrorSource::Upstream,
-                        "parsing offers list",
+                        format!("parsing all offers for {url}"),
                         e,
                     )
                 })?;
                 Ok(offer_records)
             }
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                "listing all offers",
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("get all offers {url}"),
             )),
         }
     }
@@ -190,22 +212,17 @@ impl OfferStore for HttpOfferStore {
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("creating offer {}", offer.id),
+                    format!("post offer: {}, url: {}", offer.id, &self.offer_url),
                     e,
                 )
             })?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(offer.id)),
-            StatusCode::CONFLICT => Ok(None), // Already exists
-            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
-                format!("post offer {offer:?}"),
-                format!("invalid input for offer {}", offer.id),
-            )),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("creating offer {}", offer.id),
-                status.as_u16(),
+            StatusCode::CONFLICT => Ok(None),
+            status => Err(Self::general_error(
+                status,
+                &format!("post offer: {}, url: {}", offer.id, &self.offer_url),
             )),
         }
     }
@@ -214,39 +231,31 @@ impl OfferStore for HttpOfferStore {
         let url = self.offers_partition_id_url(&offer.partition, &offer.id);
         let response = self
             .client
-            .put(url)
+            .put(&url)
             .json(&offer)
             .send()
             .await
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("updating offer {}", offer.id),
+                    format!("put offer {url}"),
                     e,
                 )
             })?;
 
         match response.status() {
-            StatusCode::CREATED => Ok(true),     // New resource created
-            StatusCode::NO_CONTENT => Ok(false), // Existing resource updated
-            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
-                format!("put offer {offer:?}"),
-                format!("invalid input for offer {}", offer.id),
-            )),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("updating offer {}", offer.id),
-                status.as_u16(),
-            )),
+            StatusCode::CREATED => Ok(true),
+            StatusCode::NO_CONTENT => Ok(false),
+            status => Err(Self::general_error(status, &format!("put offer {url}"))),
         }
     }
 
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.offers_partition_id_url(partition, id);
-        let response = self.client.delete(url).send().await.map_err(|e| {
+        let response = self.client.delete(&url).send().await.map_err(|e| {
             OfferStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                format!("removing offer {id}"),
+                format!("delete offer {url}"),
                 e,
             )
         })?;
@@ -254,11 +263,7 @@ impl OfferStore for HttpOfferStore {
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("removing offer {id}"),
-                status.as_u16(),
-            )),
+            status => Err(Self::general_error(status, &format!("delete offer {url}"))),
         }
     }
 }
@@ -273,10 +278,10 @@ impl OfferMetadataStore for HttpOfferStore {
         id: &Uuid,
     ) -> Result<Option<OfferMetadata>, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
-        let response = self.client.get(url).send().await.map_err(|e| {
+        let response = self.client.get(&url).send().await.map_err(|e| {
             OfferStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                format!("retrieving offer metadata {id}"),
+                format!("get offer metadata {url}"),
                 e,
             )
         })?;
@@ -286,27 +291,32 @@ impl OfferMetadataStore for HttpOfferStore {
                 let metadata = response.json::<OfferMetadata>().await.map_err(|e| {
                     OfferStoreError::deserialization_error(
                         ServiceErrorSource::Upstream,
-                        format!("reading offer metadata {id}"),
+                        format!("parse offer metadata {url}"),
                         e,
                     )
                 })?;
                 Ok(Some(metadata))
             }
             StatusCode::NOT_FOUND => Ok(None),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("retrieving offer metadata {id}"),
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("get offer metadata {url}"),
             )),
         }
     }
 
-    async fn get_all_metadata(&self, partition: &str) -> Result<Vec<OfferMetadata>, Self::Error> {
+    async fn get_all_metadata(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferMetadata>, Self::Error> {
         let url = self.metadata_partition_url(partition);
-        let response = self.client.get(url).send().await.map_err(|e| {
+        let url = format!("{url}?start={start}&count={count}");
+        let response = self.client.get(&url).send().await.map_err(|e| {
             OfferStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                "listing all offer metadata",
+                format!("get all metadata {url}"),
                 e,
             )
         })?;
@@ -316,16 +326,15 @@ impl OfferMetadataStore for HttpOfferStore {
                 let metadata_all = response.json::<Vec<OfferMetadata>>().await.map_err(|e| {
                     OfferStoreError::deserialization_error(
                         ServiceErrorSource::Upstream,
-                        "parsing offer metadata list",
+                        format!("parse all metadata {url}"),
                         e,
                     )
                 })?;
                 Ok(metadata_all)
             }
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                "listing all offer metadata",
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("get all metadata {url}"),
             )),
         }
     }
@@ -340,18 +349,23 @@ impl OfferMetadataStore for HttpOfferStore {
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("creating offer metadata {}", metadata.id),
+                    format!(
+                        "post offer metadata {}, url: {}",
+                        metadata.id, &self.metadata_url
+                    ),
                     e,
                 )
             })?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(metadata.id)),
-            StatusCode::CONFLICT => Ok(None), // Already exists
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("creating offer metadata {}", metadata.id),
-                status.as_u16(),
+            StatusCode::CONFLICT => Ok(None),
+            status => Err(Self::general_error(
+                status,
+                &format!(
+                    "post offer metadata {}, url: {}",
+                    metadata.id, &self.metadata_url
+                ),
             )),
         }
     }
@@ -360,35 +374,34 @@ impl OfferMetadataStore for HttpOfferStore {
         let url = self.metadata_partition_id_url(&metadata.partition, &metadata.id);
         let response = self
             .client
-            .put(url)
+            .put(&url)
             .json(&metadata)
             .send()
             .await
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("updating offer metadata {}", metadata.id),
+                    format!("put offer metadata {url}"),
                     e,
                 )
             })?;
 
         match response.status() {
-            StatusCode::CREATED => Ok(true),     // New resource created
-            StatusCode::NO_CONTENT => Ok(false), // Existing resource updated
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("updating offer metadata {}", metadata.id),
-                status.as_u16(),
+            StatusCode::CREATED => Ok(true),
+            StatusCode::NO_CONTENT => Ok(false),
+            status => Err(Self::general_error(
+                status,
+                &format!("put offer metadata {url}"),
             )),
         }
     }
 
     async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
-        let response = self.client.delete(url).send().await.map_err(|e| {
+        let response = self.client.delete(&url).send().await.map_err(|e| {
             OfferStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                format!("removing offer metadata {id}"),
+                format!("delete offer metadata {url}"),
                 e,
             )
         })?;
@@ -396,14 +409,9 @@ impl OfferMetadataStore for HttpOfferStore {
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
-            StatusCode::BAD_REQUEST => Err(OfferStoreError::invalid_input_error(
-                format!("delete metadata {partition}/{id}"),
-                "bad request".to_string(),
-            )),
-            status => Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("removing offer metadata {id}"),
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("delete offer metadata {url}"),
             )),
         }
     }

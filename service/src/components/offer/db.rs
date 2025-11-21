@@ -9,7 +9,8 @@ use crate::components::offer::error::OfferStoreError;
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set,
+    ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set,
 };
 use sha2::{Digest, Sha256};
 use switchgear_migration::OnConflict;
@@ -95,9 +96,18 @@ impl OfferStore for DbOfferStore {
         }
     }
 
-    async fn get_offers(&self, partition: &str) -> Result<Vec<OfferRecord>, Self::Error> {
+    async fn get_offers(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferRecord>, Self::Error> {
         let models = OfferRecordTable::find()
             .filter(offer_record_table::Column::Partition.eq(partition))
+            .order_by_asc(offer_record_table::Column::CreatedAt)
+            .order_by_asc(offer_record_table::Column::Id)
+            .offset(start as u64)
+            .limit(count as u64)
             .all(&self.db)
             .await
             .map_err(|e| {
@@ -344,9 +354,18 @@ impl OfferMetadataStore for DbOfferStore {
         }
     }
 
-    async fn get_all_metadata(&self, partition: &str) -> Result<Vec<OfferMetadata>, Self::Error> {
+    async fn get_all_metadata(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferMetadata>, Self::Error> {
         let models = OfferMetadataTable::find()
             .filter(offer_metadata_table::Column::Partition.eq(partition))
+            .order_by_asc(offer_metadata_table::Column::CreatedAt)
+            .order_by_asc(offer_metadata_table::Column::Id)
+            .offset(start as u64)
+            .limit(count as u64)
             .all(&self.db)
             .await
             .map_err(|e| {

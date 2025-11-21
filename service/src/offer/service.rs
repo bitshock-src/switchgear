@@ -59,7 +59,7 @@ impl OfferService {
 mod tests {
     use crate::api::offer::{
         OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
-        OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
+        OfferMetadataStore, OfferRecord, OfferRecordRest, OfferRecordSparse, OfferStore,
     };
     use crate::components::offer::memory::MemoryOfferStore;
     use crate::offer::service::OfferService;
@@ -75,10 +75,6 @@ mod tests {
     use rand::thread_rng;
     use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
-
-    fn create_test_offer() -> OfferRecord {
-        create_test_offer_with_metadata_id(Uuid::new_v4())
-    }
 
     fn create_test_offer_with_metadata_id(metadata_id: Uuid) -> OfferRecord {
         OfferRecord {
@@ -109,7 +105,10 @@ mod tests {
         }
     }
 
-    async fn create_test_server_with_offer(offer: OfferRecord) -> TestServerWithAuthorization {
+    async fn create_test_server_with_offer(
+        offers: Vec<OfferRecord>,
+        metadata: Vec<OfferMetadata>,
+    ) -> TestServerWithAuthorization {
         let mut rng = thread_rng();
         let private_key = SigningKey::random(&mut rng);
         let public_key = *private_key.verifying_key();
@@ -136,19 +135,16 @@ mod tests {
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
         let store = MemoryOfferStore::default();
-        let metadata = OfferMetadata {
-            id: offer.offer.metadata_id,
-            partition: offer.partition.clone(),
-            metadata: OfferMetadataSparse {
-                text: "Test offer".to_string(),
-                long_text: Some("This is a test offer description".to_string()),
-                image: None,
-                identifier: None,
-            },
-        };
-        store.put_metadata(metadata).await.unwrap();
-        store.put_offer(offer).await.unwrap();
-        let state = OfferState::new(store.clone(), store, decoding_key);
+
+        for m in metadata {
+            store.put_metadata(m).await.unwrap();
+        }
+
+        for o in offers {
+            store.put_offer(o).await.unwrap();
+        }
+
+        let state = OfferState::new(store.clone(), store, decoding_key, 100);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -187,7 +183,7 @@ mod tests {
 
         let store = MemoryOfferStore::default();
         store.put_metadata(metadata).await.unwrap();
-        let state = OfferState::new(store.clone(), store, decoding_key);
+        let state = OfferState::new(store.clone(), store, decoding_key, 100);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -223,7 +219,7 @@ mod tests {
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
         let store = MemoryOfferStore::default();
-        let state = OfferState::new(store.clone(), store, decoding_key);
+        let state = OfferState::new(store.clone(), store, decoding_key, 100);
 
         let app = OfferService::router(state);
         TestServerWithAuthorization {
@@ -251,9 +247,10 @@ mod tests {
 
     #[tokio::test]
     async fn delete_offer_when_exists_then_removes_and_second_delete_not_found() {
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let test_offer = create_test_offer_with_metadata_id(test_metadata.id);
         let offer_id = test_offer.id;
-        let server = create_test_server_with_offer(test_offer).await;
+        let server = create_test_server_with_offer(vec![test_offer], vec![test_metadata]).await;
         let response = server
             .server
             .delete(&format!("/offers/default/{offer_id}"))
@@ -286,9 +283,12 @@ mod tests {
 
     #[tokio::test]
     async fn get_offer_when_exists_then_returns_resource() {
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let test_offer = create_test_offer_with_metadata_id(test_metadata.id);
         let offer_id = test_offer.id;
-        let server = create_test_server_with_offer(test_offer.clone()).await;
+
+        let server =
+            create_test_server_with_offer(vec![test_offer.clone()], vec![test_metadata]).await;
         let response = server
             .server
             .get(&format!("/offers/default/{offer_id}"))
@@ -345,17 +345,65 @@ mod tests {
 
     #[tokio::test]
     async fn get_offers_when_exists_then_returns_list() {
-        let test_offer = create_test_offer();
-        let server = create_test_server_with_offer(test_offer).await;
+        let test_metadata = create_test_metadata();
+        let metadata_id = test_metadata.id;
+
+        let mut expected_offers = Vec::new();
+        for i in 0..10 {
+            let mut offer = create_test_offer_with_metadata_id(metadata_id);
+            offer.id = Uuid::from_u128(i as u128);
+            expected_offers.push(offer);
+        }
+
+        let server =
+            create_test_server_with_offer(expected_offers.clone(), vec![test_metadata]).await;
+
         let response = server
             .server
             .get("/offers/default")
             .authorization_bearer(server.authorization.clone())
             .await;
-
         assert_eq!(response.status_code(), StatusCode::OK);
-        let offers: Vec<OfferRecord> = response.json();
-        assert_eq!(offers.len(), 1);
+        let all_offers: Vec<OfferRecordRest> = response.json();
+        let all_offers: Vec<OfferRecord> = all_offers.into_iter().map(|r| r.offer).collect();
+        assert_eq!(all_offers.as_slice(), expected_offers.as_slice());
+
+        let response = server
+            .server
+            .get("/offers/default?start=1")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let next_nine: Vec<OfferRecordRest> = response.json();
+        let next_nine: Vec<OfferRecord> = next_nine.into_iter().map(|r| r.offer).collect();
+        assert_eq!(next_nine.as_slice(), &expected_offers[1..]);
+
+        let response = server
+            .server
+            .get("/offers/default?count=1")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let first: Vec<OfferRecordRest> = response.json();
+        let first: Vec<OfferRecord> = first.into_iter().map(|r| r.offer).collect();
+        assert_eq!(first.as_slice(), &expected_offers[0..1]);
+
+        let response = server
+            .server
+            .get("/offers/default?start=3&count=4")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let middle_offers: Vec<OfferRecordRest> = response.json();
+        let middle_offers: Vec<OfferRecord> = middle_offers.into_iter().map(|r| r.offer).collect();
+        assert_eq!(middle_offers.as_slice(), &expected_offers[3..7]);
+
+        let response = server
+            .server
+            .get("/offers/default?count=101")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -417,9 +465,11 @@ mod tests {
 
     #[tokio::test]
     async fn put_offer_when_exists_then_updates_no_content() {
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let test_offer = create_test_offer_with_metadata_id(test_metadata.id);
         let offer_id = test_offer.id;
-        let server = create_test_server_with_offer(test_offer.clone()).await;
+        let server =
+            create_test_server_with_offer(vec![test_offer.clone()], vec![test_metadata]).await;
 
         let mut updated_offer = test_offer.offer.clone();
         updated_offer.max_sendable = 2000000;
@@ -644,17 +694,65 @@ mod tests {
 
     #[tokio::test]
     async fn get_all_metadata_when_exists_then_returns_list() {
-        let test_metadata = create_test_metadata();
-        let server = create_test_server_with_metadata(test_metadata).await;
+        use crate::api::offer::OfferMetadataRest;
+
+        let mut expected_metadata = Vec::new();
+        for i in 0..10 {
+            let mut metadata = create_test_metadata();
+            metadata.id = Uuid::from_u128(i as u128);
+            expected_metadata.push(metadata);
+        }
+
+        let server = create_test_server_with_offer(vec![], expected_metadata.clone()).await;
+
         let response = server
             .server
             .get("/metadata/default")
             .authorization_bearer(server.authorization.clone())
             .await;
-
         assert_eq!(response.status_code(), StatusCode::OK);
-        let metadata: Vec<OfferMetadata> = response.json();
-        assert_eq!(metadata.len(), 1);
+        let all_metadata: Vec<OfferMetadataRest> = response.json();
+        let all_metadata: Vec<OfferMetadata> =
+            all_metadata.into_iter().map(|r| r.metadata).collect();
+        assert_eq!(all_metadata.as_slice(), expected_metadata.as_slice());
+
+        let response = server
+            .server
+            .get("/metadata/default?start=1")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let next_nine: Vec<OfferMetadataRest> = response.json();
+        let next_nine: Vec<OfferMetadata> = next_nine.into_iter().map(|r| r.metadata).collect();
+        assert_eq!(next_nine.as_slice(), &expected_metadata[1..]);
+
+        let response = server
+            .server
+            .get("/metadata/default?count=1")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let first: Vec<OfferMetadataRest> = response.json();
+        let first: Vec<OfferMetadata> = first.into_iter().map(|r| r.metadata).collect();
+        assert_eq!(first.as_slice(), &expected_metadata[0..1]);
+
+        let response = server
+            .server
+            .get("/metadata/default?start=3&count=4")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let middle_metadata: Vec<OfferMetadataRest> = response.json();
+        let middle_metadata: Vec<OfferMetadata> =
+            middle_metadata.into_iter().map(|r| r.metadata).collect();
+        assert_eq!(middle_metadata.as_slice(), &expected_metadata[3..7]);
+
+        let response = server
+            .server
+            .get("/metadata/default?count=101")
+            .authorization_bearer(server.authorization.clone())
+            .await;
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
@@ -749,7 +847,8 @@ mod tests {
     #[tokio::test]
     async fn unauthorized() {
         let server = create_empty_test_server();
-        let test_offer = create_test_offer();
+        let test_metadata = create_test_metadata();
+        let test_offer = create_test_offer_with_metadata_id(test_metadata.id);
 
         let response = server.server.post("/offers").json(&test_offer).await;
 

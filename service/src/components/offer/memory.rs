@@ -12,9 +12,21 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
+struct OfferRecordTimestamped {
+    created: chrono::DateTime<chrono::Utc>,
+    offer: OfferRecord,
+}
+
+#[derive(Clone, Debug)]
+struct OfferMetadataTimestamped {
+    created: chrono::DateTime<chrono::Utc>,
+    metadata: OfferMetadata,
+}
+
+#[derive(Clone, Debug)]
 pub struct MemoryOfferStore {
-    offer: Arc<Mutex<HashMap<(String, Uuid), OfferRecord>>>,
-    metadata: Arc<Mutex<HashMap<(String, Uuid), OfferMetadata>>>,
+    offer: Arc<Mutex<HashMap<(String, Uuid), OfferRecordTimestamped>>>,
+    metadata: Arc<Mutex<HashMap<(String, Uuid), OfferMetadataTimestamped>>>,
 }
 
 impl MemoryOfferStore {
@@ -42,16 +54,37 @@ impl OfferStore for MemoryOfferStore {
         id: &Uuid,
     ) -> Result<Option<OfferRecord>, Self::Error> {
         let store = self.offer.lock().await;
-        Ok(store.get(&(partition.to_string(), *id)).cloned())
+        Ok(store
+            .get(&(partition.to_string(), *id))
+            .map(|o| o.offer.clone()))
     }
 
-    async fn get_offers(&self, partition: &str) -> Result<Vec<OfferRecord>, Self::Error> {
+    async fn get_offers(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferRecord>, Self::Error> {
         let store = self.offer.lock().await;
-        let offers: Vec<OfferRecord> = store
+        let mut offers: Vec<OfferRecordTimestamped> = store
             .iter()
             .filter(|((p, _), _)| p == partition)
             .map(|(_, offer)| offer.clone())
             .collect();
+
+        offers.sort_by(|a, b| {
+            a.created
+                .cmp(&b.created)
+                .then_with(|| a.offer.id.cmp(&b.offer.id))
+        });
+
+        let offers = offers
+            .into_iter()
+            .skip(start)
+            .take(count)
+            .map(|o| o.offer)
+            .collect();
+
         Ok(offers)
     }
 
@@ -72,7 +105,10 @@ impl OfferStore for MemoryOfferStore {
         if let std::collections::hash_map::Entry::Vacant(e) =
             store.entry((offer.partition.to_string(), offer.id))
         {
-            e.insert(offer.clone());
+            e.insert(OfferRecordTimestamped {
+                created: chrono::Utc::now(),
+                offer: offer.clone(),
+            });
             Ok(Some(offer.id))
         } else {
             Ok(None)
@@ -94,7 +130,13 @@ impl OfferStore for MemoryOfferStore {
         }
 
         let was_new = store
-            .insert((offer.partition.to_string(), offer.id), offer)
+            .insert(
+                (offer.partition.to_string(), offer.id),
+                OfferRecordTimestamped {
+                    created: chrono::Utc::now(),
+                    offer,
+                },
+            )
             .is_none();
         Ok(was_new)
     }
@@ -175,35 +217,66 @@ impl OfferMetadataStore for MemoryOfferStore {
         id: &Uuid,
     ) -> Result<Option<OfferMetadata>, Self::Error> {
         let store = self.metadata.lock().await;
-        Ok(store.get(&(partition.to_string(), *id)).cloned())
+        Ok(store
+            .get(&(partition.to_string(), *id))
+            .map(|o| o.metadata.clone()))
     }
 
-    async fn get_all_metadata(&self, partition: &str) -> Result<Vec<OfferMetadata>, Self::Error> {
+    async fn get_all_metadata(
+        &self,
+        partition: &str,
+        start: usize,
+        count: usize,
+    ) -> Result<Vec<OfferMetadata>, Self::Error> {
         let store = self.metadata.lock().await;
-        let offers: Vec<OfferMetadata> = store
+        let mut metadata: Vec<OfferMetadataTimestamped> = store
             .iter()
             .filter(|((p, _), _)| p == partition)
             .map(|(_, metadata)| metadata.clone())
             .collect();
-        Ok(offers)
+
+        metadata.sort_by(|a, b| {
+            a.created
+                .cmp(&b.created)
+                .then_with(|| a.metadata.id.cmp(&b.metadata.id))
+        });
+
+        let metadata = metadata
+            .into_iter()
+            .skip(start)
+            .take(count)
+            .map(|o| o.metadata)
+            .collect();
+
+        Ok(metadata)
     }
 
-    async fn post_metadata(&self, offer: OfferMetadata) -> Result<Option<Uuid>, Self::Error> {
+    async fn post_metadata(&self, metadata: OfferMetadata) -> Result<Option<Uuid>, Self::Error> {
         let mut store = self.metadata.lock().await;
         if let std::collections::hash_map::Entry::Vacant(e) =
-            store.entry((offer.partition.to_string(), offer.id))
+            store.entry((metadata.partition.to_string(), metadata.id))
         {
-            e.insert(offer.clone());
-            Ok(Some(offer.id))
+            e.insert(OfferMetadataTimestamped {
+                created: chrono::Utc::now(),
+                metadata: metadata.clone(),
+            });
+
+            Ok(Some(metadata.id))
         } else {
             Ok(None)
         }
     }
 
-    async fn put_metadata(&self, offer: OfferMetadata) -> Result<bool, Self::Error> {
+    async fn put_metadata(&self, metadata: OfferMetadata) -> Result<bool, Self::Error> {
         let mut store = self.metadata.lock().await;
         let was_new = store
-            .insert((offer.partition.to_string(), offer.id), offer)
+            .insert(
+                (metadata.partition.to_string(), metadata.id),
+                OfferMetadataTimestamped {
+                    created: chrono::Utc::now(),
+                    metadata,
+                },
+            )
             .is_none();
         Ok(was_new)
     }
@@ -212,9 +285,9 @@ impl OfferMetadataStore for MemoryOfferStore {
         let offer_store = self.offer.lock().await;
         let mut metadata_store = self.metadata.lock().await;
 
-        let metadata_in_use = offer_store
-            .values()
-            .any(|offer| offer.partition == partition && offer.offer.metadata_id == *id);
+        let metadata_in_use = offer_store.values().any(|offer| {
+            offer.offer.partition == partition && offer.offer.offer.metadata_id == *id
+        });
 
         if metadata_in_use {
             return Err(OfferStoreError::invalid_input_error(

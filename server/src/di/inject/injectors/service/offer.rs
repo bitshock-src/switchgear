@@ -89,9 +89,14 @@ impl OfferServiceInjector {
             )
         })?;
 
-        let router = OfferService::router(OfferState::new(store.clone(), store, auth_authority))
-            .layer(ClfLogger::new("offer"))
-            .into_make_service_with_connect_info::<SocketAddr>();
+        let router = OfferService::router(OfferState::new(
+            store.clone(),
+            store,
+            auth_authority,
+            service_config.max_page_size,
+        ))
+        .layer(ClfLogger::new("offer"))
+        .into_make_service_with_connect_info::<SocketAddr>();
 
         let f = async move {
             match acceptor {
