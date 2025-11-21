@@ -40,7 +40,7 @@ Switchgear is in **ALPHA** status:
 * Integration tests are complete
 * APIs may change without warning
 
-See [ROADMAP.md](./ROADMAP.md) for the Switchgear release roadmap.
+See [ROADMAP.md](https://github.com/bitshock-src/switchgear/blob/HEAD/ROADMAP.md) for the Switchgear release roadmap.
 
 ## Why Bitcoin Lightning Payments Fail
 
@@ -171,7 +171,7 @@ docker run bitshock/switchgear {cli-options}
 
 All service configuration is controlled by a yaml file passed to the server at startup.
 
-See [server/config](./server/config) directory for more configuration examples.
+See [server/config](https://github.com/bitshock-src/switchgear/blob/HEAD/server/config) directory for more configuration examples.
 
 Each service has a root entry the configuration file:
 
@@ -302,7 +302,7 @@ Switchgear partitions have predictable URLs. Use partitions and a global Applica
 
 ## LNURL Service
 
-The OpenAPI LNURL Service specification: [doc/lnurl-service-openapi.yaml](./doc/lnurl-service-openapi.yaml).
+The OpenAPI LNURL Service specification: [doc/lnurl-service-openapi.yaml](https://github.com/bitshock-src/switchgear/blob/HEAD/doc/lnurl-service-openapi.yaml).
 
 The LNURL Service is public facing, and implements the [LNURL LUD-06 specification.](https://github.com/lnurl/luds/blob/luds/06.md)
 
@@ -341,7 +341,7 @@ The QR image is in PNG format.
 
 ### LNURL Service Configuration
 
-See [server/config](./server/config) directory for more configuration examples.
+See [server/config](https://github.com/bitshock-src/switchgear/blob/HEAD/server/config) directory for more configuration examples.
 
 ```yaml
 lnurl-service:
@@ -426,7 +426,7 @@ Consistent uses the optional LNURL `comment` query parameter as a hash key, whic
 
 ## Discovery Service
 
-The OpenAPI Discovery Service specification: [doc/discovery-service-openapi.yaml](./doc/discovery-service-openapi.yaml).
+The OpenAPI Discovery Service specification: [doc/discovery-service-openapi.yaml](https://github.com/bitshock-src/switchgear/blob/HEAD/doc/discovery-service-openapi.yaml).
 
 The Discovery Service is an administrative service used to manage connections to individual Lightning Nodes.
 
@@ -436,7 +436,7 @@ See the [Manage Lightning Node Backends with Discovery Service](#manage-lightnin
 
 ### Discovery Service Configuration
 
-See [server/config](./server/config) directory for more configuration examples.
+See [server/config](https://github.com/bitshock-src/switchgear/blob/HEAD/server/config) directory for more configuration examples.
 
 ```yaml
 discovery-service:
@@ -472,7 +472,7 @@ swgr discovery token mint --key discovery-private.pem --output discovery.token
 
 ## Offer Service
 
-The OpenAPI Offer Service specification: [doc/offer-service-openapi.yaml](./doc/offer-service-openapi.yaml).
+The OpenAPI Offer Service specification: [doc/offer-service-openapi.yaml](https://github.com/bitshock-src/switchgear/blob/HEAD/doc/offer-service-openapi.yaml).
 
 The Offer Service is an administrative service used to manage Offers, which are used to generate LNURLs.
 
@@ -482,7 +482,7 @@ See the [Manage LNURLs with Offer Service](#manage-lnurls-with-offer-service) se
 
 ### Offer Service Configuration
 
-See [server/config](./server/config) directory for more configuration examples.
+See [server/config](https://github.com/bitshock-src/switchgear/blob/HEAD/server/config) directory for more configuration examples.
 
 ```yaml
 offer-service:
@@ -499,6 +499,9 @@ offer-service:
     cert-path: "/etc/ssl/certs/offer-cert.pem"
     # Path to TLS private key file
     key-path: "/etc/ssl/certs/offer-key.pem"
+
+  # max page size for get all queries
+  max-page-size: 100
 ```
 
 #### Authentication Setup
@@ -859,7 +862,7 @@ swgr discovery delete pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f28
 
 ### Discovery Data Model
 
-Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](./doc/discovery-service-openapi.yaml).
+Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](https://github.com/bitshock-src/switchgear/blob/HEAD/doc/discovery-service-openapi.yaml).
 
 Example CLN backend configuration:
 ```json
@@ -1142,7 +1145,7 @@ swgr offer metadata delete default 88deff7e-ca45-4144-8fca-286a5a18fb1a
 
 ### Offer Data Model
 
-Offer OpenAPI schema: [doc/offer-service-openapi.yaml](./doc/offer-service-openapi.yaml).
+Offer OpenAPI schema: [doc/offer-service-openapi.yaml](https://github.com/bitshock-src/switchgear/blob/HEAD/doc/offer-service-openapi.yaml).
 
 Example offer configuration:
 ```json
@@ -1189,21 +1192,21 @@ Metadata identifiers can be:
 
 ### Service
 
-The [switchgear-service](./service) crate defines all services and their trait dependencies. See the `api` module for trait definitions and data models: [service/src/api](./service/src/api)
+The [switchgear-service](https://github.com/bitshock-src/switchgear/blob/HEAD/service) crate defines all services and their trait dependencies. See the `api` module for trait definitions and data models: [service/src/api](https://github.com/bitshock-src/switchgear/blob/HEAD/service/src/api)
 
 ![image](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/service_traits_component_diagram-Service_Layer_Trait_Relationships.png)
 
 
 ### Pingora
 
-`PingoraLnBalancer` is the default `LnBalancer` implementation. The [switchgear-pingora](./pingora) crate holds the complete implementation, plus trait definitions it uses for itself.
+`PingoraLnBalancer` is the default `LnBalancer` implementation. The [switchgear-pingora](https://github.com/bitshock-src/switchgear/blob/HEAD/pingora) crate holds the complete implementation, plus trait definitions it uses for itself.
 
 ![image](https://raw.githubusercontent.com/bitshock-src/switchgear/main/doc/pingora_traits_component_diagram-PingoraLnBalancer_Trait_Dependencies.png)
 
 
 ### Components
 
-The `components` module in [switchgear-service](./service/src/components) is a collection self-defined traits and implementations useful for implementing a complete `LnBalancer`. The module also holds different implementations of `DiscoveryBackendStore`, `OfferStore` and `OfferMetadataStore`.
+The `components` module in [switchgear-service](https://github.com/bitshock-src/switchgear/blob/HEAD/service/src/components) is a collection self-defined traits and implementations useful for implementing a complete `LnBalancer`. The module also holds different implementations of `DiscoveryBackendStore`, `OfferStore` and `OfferMetadataStore`.
 
 #### Service Components 
 

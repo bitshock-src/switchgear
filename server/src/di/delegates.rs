@@ -112,8 +112,10 @@ impl OfferStore for OfferStoreDelegate {
     async fn get_offers(
         &self,
         partition: &str,
+        start: usize,
+        count: usize,
     ) -> Result<Vec<switchgear_service::api::offer::OfferRecord>, Self::Error> {
-        delegate_to_offer_store_variants!(self, get_offers, partition).await
+        delegate_to_offer_store_variants!(self, get_offers, partition, start, count).await
     }
 
     async fn post_offer(
@@ -150,8 +152,10 @@ impl OfferMetadataStore for OfferStoreDelegate {
     async fn get_all_metadata(
         &self,
         partition: &str,
+        start: usize,
+        count: usize,
     ) -> Result<Vec<switchgear_service::api::offer::OfferMetadata>, Self::Error> {
-        delegate_to_offer_store_variants!(self, get_all_metadata, partition).await
+        delegate_to_offer_store_variants!(self, get_all_metadata, partition, start, count).await
     }
 
     async fn post_metadata(

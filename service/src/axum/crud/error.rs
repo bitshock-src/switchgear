@@ -45,6 +45,13 @@ impl CrudError {
         }
     }
 
+    pub fn bad() -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            headers: Default::default(),
+        }
+    }
+
     pub fn conflict(location: HeaderValue) -> Self {
         Self {
             status: StatusCode::CONFLICT,

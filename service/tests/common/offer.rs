@@ -1,6 +1,5 @@
-use chrono::Utc;
+use chrono::{Timelike, Utc};
 use sha2::Digest;
-use std::collections::HashSet;
 use switchgear_service::api::lnurl::LnUrlOfferMetadata;
 use switchgear_service::api::offer::{
     OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
@@ -12,6 +11,12 @@ use uuid::Uuid;
 
 // Test data generators
 pub fn create_test_offer_with_existing_metadata(id: Uuid, metadata_id: Uuid) -> OfferRecord {
+    // Truncate timestamps to second precision to match MySQL's TIMESTAMP behavior
+    let now = Utc::now().with_nanosecond(0).unwrap();
+    let expires = (now + chrono::Duration::seconds(3600))
+        .with_nanosecond(0)
+        .unwrap();
+
     OfferRecord {
         partition: "default".to_string(),
         id,
@@ -19,8 +24,8 @@ pub fn create_test_offer_with_existing_metadata(id: Uuid, metadata_id: Uuid) -> 
             max_sendable: 1000,
             min_sendable: 100,
             metadata_id,
-            timestamp: Utc::now(),
-            expires: Some(Utc::now() + chrono::Duration::seconds(3600)),
+            timestamp: now,
+            expires: Some(expires),
         },
     }
 }
@@ -191,25 +196,38 @@ where
     <S as OfferStore>::Error: std::fmt::Debug,
     <S as OfferMetadataStore>::Error: std::fmt::Debug,
 {
-    let offer1_id = Uuid::new_v4();
-    let offer2_id = Uuid::new_v4();
-    let offer3_id = Uuid::new_v4();
+    let mut expected_offers = Vec::new();
 
-    let (offer1, _metadata1) = create_test_offer_with_metadata(&store, offer1_id).await;
-    let (offer2, _metadata2) = create_test_offer_with_metadata(&store, offer2_id).await;
-    let (offer3, _metadata3) = create_test_offer_with_metadata(&store, offer3_id).await;
+    for i in 0..10 {
+        let offer_id = Uuid::from_u128(i as u128);
+        let (offer, _metadata) = create_test_offer_with_metadata(&store, offer_id).await;
+        store.put_offer(offer.clone()).await.unwrap();
+        expected_offers.push(offer);
+    }
 
-    store.put_offer(offer1.clone()).await.unwrap();
-    store.put_offer(offer2.clone()).await.unwrap();
-    store.put_offer(offer3.clone()).await.unwrap();
+    let all_offers = store.get_offers("default", 0, 100).await.unwrap();
+    assert_eq!(all_offers.as_slice(), expected_offers.as_slice());
 
-    let all_offers = store.get_offers("default").await.unwrap();
-    assert_eq!(all_offers.len(), 3);
+    let first_five = store.get_offers("default", 0, 5).await.unwrap();
+    assert_eq!(first_five.as_slice(), &expected_offers[0..5]);
 
-    let ids: HashSet<Uuid> = all_offers.iter().map(|o| o.id).collect();
-    assert!(ids.contains(&offer1.id));
-    assert!(ids.contains(&offer2.id));
-    assert!(ids.contains(&offer3.id));
+    let next_five = store.get_offers("default", 5, 5).await.unwrap();
+    assert_eq!(next_five.as_slice(), &expected_offers[5..10]);
+
+    let middle_offers = store.get_offers("default", 3, 4).await.unwrap();
+    assert_eq!(middle_offers.as_slice(), &expected_offers[3..7]);
+
+    let last_offers = store.get_offers("default", 8, 10).await.unwrap();
+    assert_eq!(last_offers.as_slice(), &expected_offers[8..10]);
+
+    let beyond_offers = store.get_offers("default", 15, 5).await.unwrap();
+    assert_eq!(beyond_offers.len(), 0);
+
+    let zero_count = store.get_offers("default", 0, 0).await.unwrap();
+    assert_eq!(zero_count.len(), 0);
+
+    let single_offer = store.get_offers("default", 5, 1).await.unwrap();
+    assert_eq!(single_offer.as_slice(), &expected_offers[5..6]);
 }
 
 // OfferMetadataStore tests
@@ -324,21 +342,38 @@ where
     S: OfferMetadataStore,
     <S as OfferMetadataStore>::Error: std::fmt::Debug,
 {
-    let metadata1 = create_test_offer_metadata(Uuid::new_v4());
-    let metadata2 = create_test_offer_metadata(Uuid::new_v4());
-    let metadata3 = create_test_offer_metadata(Uuid::new_v4());
+    let mut expected_metadata = Vec::new();
 
-    store.put_metadata(metadata1.clone()).await.unwrap();
-    store.put_metadata(metadata2.clone()).await.unwrap();
-    store.put_metadata(metadata3.clone()).await.unwrap();
+    for i in 0..10 {
+        let metadata_id = Uuid::from_u128(i as u128);
+        let metadata = create_test_offer_metadata(metadata_id);
+        store.put_metadata(metadata.clone()).await.unwrap();
+        expected_metadata.push(metadata);
+    }
 
-    let all_metadata = store.get_all_metadata("default").await.unwrap();
-    assert_eq!(all_metadata.len(), 3);
+    let all_metadata = store.get_all_metadata("default", 0, 100).await.unwrap();
+    assert_eq!(all_metadata.as_slice(), expected_metadata.as_slice());
 
-    let ids: HashSet<Uuid> = all_metadata.iter().map(|m| m.id).collect();
-    assert!(ids.contains(&metadata1.id));
-    assert!(ids.contains(&metadata2.id));
-    assert!(ids.contains(&metadata3.id));
+    let first_five = store.get_all_metadata("default", 0, 5).await.unwrap();
+    assert_eq!(first_five.as_slice(), &expected_metadata[0..5]);
+
+    let next_five = store.get_all_metadata("default", 5, 5).await.unwrap();
+    assert_eq!(next_five.as_slice(), &expected_metadata[5..10]);
+
+    let middle_metadata = store.get_all_metadata("default", 3, 4).await.unwrap();
+    assert_eq!(middle_metadata.as_slice(), &expected_metadata[3..7]);
+
+    let last_metadata = store.get_all_metadata("default", 8, 10).await.unwrap();
+    assert_eq!(last_metadata.as_slice(), &expected_metadata[8..10]);
+
+    let beyond_metadata = store.get_all_metadata("default", 15, 5).await.unwrap();
+    assert_eq!(beyond_metadata.len(), 0);
+
+    let zero_count = store.get_all_metadata("default", 0, 0).await.unwrap();
+    assert_eq!(zero_count.len(), 0);
+
+    let single_metadata = store.get_all_metadata("default", 5, 1).await.unwrap();
+    assert_eq!(single_metadata.as_slice(), &expected_metadata[5..6]);
 }
 
 // OfferProvider tests

@@ -30,8 +30,14 @@ pub enum OfferMetadataManagementCommands {
     Get {
         /// Partition name
         partition: String,
-        /// Optional offer metadata uuid, default returns all offers for partition
+        /// Optional offer metadata uuid, default returns all metadata for partition
         id: Option<Uuid>,
+        /// Start position when returning multiple metadata
+        #[arg(short, long, conflicts_with = "id", default_value_t = 0)]
+        start: usize,
+        /// Count position when returning multiple metadata
+        #[arg(short, long, conflicts_with = "id", default_value_t = 100)]
+        count: usize,
         /// Optional output metadata path, defaults to stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -103,6 +109,8 @@ pub fn new_metadata(partition: &str, text: &str, output: Option<&Path>) -> anyho
 pub async fn get_metadata(
     partition: &str,
     id: Option<&Uuid>,
+    start: usize,
+    count: usize,
     output: Option<&Path>,
     client_configuration: &OfferManagementClientConfig,
 ) -> anyhow::Result<()> {
@@ -126,7 +134,7 @@ pub async fn get_metadata(
             bail!("Metadata {id} not found");
         }
     } else {
-        let metadata = client.get_all_metadata(partition).await?;
+        let metadata = client.get_all_metadata(partition, start, count).await?;
         let metadata = metadata
             .into_iter()
             .map(|metadata| OfferMetadataRest {

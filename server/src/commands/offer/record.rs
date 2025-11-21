@@ -31,6 +31,12 @@ pub enum OfferRecordManagementCommands {
         partition: String,
         /// Optional offer uuid, default returns all offers for partition
         id: Option<Uuid>,
+        /// Start position when returning multiple offers
+        #[arg(short, long, conflicts_with = "id", default_value_t = 0)]
+        start: usize,
+        /// Count when returning multiple offers
+        #[arg(short, long, conflicts_with = "id", default_value_t = 100)]
+        count: usize,
         /// Optional output path, defaults to stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -107,6 +113,8 @@ pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> 
 pub async fn get_offer(
     partition: &str,
     id: Option<&Uuid>,
+    start: usize,
+    count: usize,
     output: Option<&Path>,
     client_configuration: &OfferManagementClientConfig,
 ) -> anyhow::Result<()> {
@@ -130,7 +138,7 @@ pub async fn get_offer(
             bail!("Offer {id} not found");
         }
     } else {
-        let offers = client.get_offers(partition).await?;
+        let offers = client.get_offers(partition, start, count).await?;
         let offers = offers
             .into_iter()
             .map(|offer| OfferRecordRest {

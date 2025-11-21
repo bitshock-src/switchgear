@@ -18,9 +18,9 @@ Mitigate overload and certain DOS attacks with rate limiting:
 * per-session (ip-based) rate limit per endpoint
 * configurable individual max and session limits for each endpoint
 
-#### Paging for Offer GET Endpoint
+#### ~~Paging for Offer GET Endpoint~~ DONE
 
-GET endpoints for Discovery and Offer Services that return a list need paging. For REST: `?page={page}` query parameter. The CLI will need a --page parameter.
+~~GET endpoints for Discovery and Offer Services that return a list need paging. For REST: `?page={page}` query parameter. The CLI will need a --page parameter.~~
 
 #### ~~PATCH Method for Discovery~~ DONE
 

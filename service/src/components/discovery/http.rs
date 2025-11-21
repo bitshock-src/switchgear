@@ -89,6 +89,27 @@ impl HttpDiscoveryBackendStore {
     fn discovery_address_url(&self, addr: &DiscoveryBackendAddress) -> String {
         format!("{}/{}", self.discovery_url, addr.encoded())
     }
+
+    fn general_error(status: StatusCode, context: &str) -> DiscoveryBackendStoreError {
+        if status.is_success() {
+            return DiscoveryBackendStoreError::internal_error(
+                ServiceErrorSource::Upstream,
+                context.to_string(),
+                format!("unexpected http status {status}"),
+            );
+        }
+        if status.is_client_error() {
+            return DiscoveryBackendStoreError::invalid_input_error(
+                context.to_string(),
+                format!("invalid input, http status: {status}"),
+            );
+        }
+        DiscoveryBackendStoreError::http_status_error(
+            ServiceErrorSource::Upstream,
+            context.to_string(),
+            status.as_u16(),
+        )
+    }
 }
 
 #[async_trait]
@@ -101,10 +122,10 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let url = self.discovery_address_url(addr);
 
-        let response = self.client.get(url).send().await.map_err(|e| {
+        let response = self.client.get(&url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                format!("getting discovery backend for address {}", addr.encoded()),
+                format!("get backend {url}"),
                 e,
             )
         })?;
@@ -114,18 +135,14 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                 let backend: DiscoveryBackend = response.json().await.map_err(|e| {
                     DiscoveryBackendStoreError::deserialization_error(
                         ServiceErrorSource::Upstream,
-                        format!("reading discovery backend for address {}", addr.encoded()),
+                        format!("parse backend {url}"),
                         e,
                     )
                 })?;
                 Ok(Some(backend))
             }
             StatusCode::NOT_FOUND => Ok(None),
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("getting discovery backend for address {}", addr.encoded()),
-                status.as_u16(),
-            )),
+            status => Err(Self::general_error(status, &format!("get backend {url}"))),
         }
     }
 
@@ -134,7 +151,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let response = self.client.get(url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                "retrieving all discovery backends",
+                format!("get all backends {url}"),
                 e,
             )
         })?;
@@ -145,16 +162,15 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                     response.json().await.map_err(|e| {
                         DiscoveryBackendStoreError::deserialization_error(
                             ServiceErrorSource::Upstream,
-                            "parsing discovery backends list",
+                            format!("parse all backends {url}"),
                             e,
                         )
                     })?;
                 Ok(backends_response)
             }
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                "retrieving all discovery backends",
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("get all backends {url}"),
             )),
         }
     }
@@ -172,24 +188,23 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
             .map_err(|e| {
                 DiscoveryBackendStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("registering discovery backend {backend:?}",),
+                    format!(
+                        "post backend: {}, url: {}",
+                        backend.address, &self.discovery_url
+                    ),
                     e,
                 )
             })?;
 
         match response.status() {
-            StatusCode::CREATED => {
-                // Successfully created
-                Ok(Some(backend.address))
-            }
-            StatusCode::CONFLICT => {
-                // Backend already exists
-                Ok(None)
-            }
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("registering discovery backend {backend:?}",),
-                status.as_u16(),
+            StatusCode::CREATED => Ok(Some(backend.address)),
+            StatusCode::CONFLICT => Ok(None),
+            status => Err(Self::general_error(
+                status,
+                &format!(
+                    "post backend: {}, url: {}",
+                    backend.address, &self.discovery_url
+                ),
             )),
         }
     }
@@ -199,38 +214,22 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
 
         let response = self
             .client
-            .put(url)
-            .json(&backend.backend) // PUT expects DiscoveryBackendSparse
+            .put(&url)
+            .json(&backend.backend)
             .send()
             .await
             .map_err(|e| {
                 DiscoveryBackendStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!(
-                        "updating discovery backend at address {}",
-                        backend.address.encoded()
-                    ),
+                    format!("put backend {url}"),
                     e,
                 )
             })?;
 
         match response.status() {
-            StatusCode::NO_CONTENT => {
-                // Updated existing backend
-                Ok(false)
-            }
-            StatusCode::CREATED => {
-                // Created new backend
-                Ok(true)
-            }
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!(
-                    "updating discovery backend at address {}",
-                    backend.address.encoded()
-                ),
-                status.as_u16(),
-            )),
+            StatusCode::NO_CONTENT => Ok(false),
+            StatusCode::CREATED => Ok(true),
+            status => Err(Self::general_error(status, &format!("put backend {url}"))),
         }
     }
 
@@ -239,17 +238,14 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
 
         let response = self
             .client
-            .patch(url)
+            .patch(&url)
             .json(&backend.backend)
             .send()
             .await
             .map_err(|e| {
                 DiscoveryBackendStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!(
-                        "updating discovery backend at address {}",
-                        backend.address.encoded()
-                    ),
+                    format!("patch backend {url}"),
                     e,
                 )
             })?;
@@ -257,24 +253,17 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!(
-                    "patching discovery backend at address {}",
-                    backend.address.encoded()
-                ),
-                status.as_u16(),
-            )),
+            status => Err(Self::general_error(status, &format!("patch backend {url}"))),
         }
     }
 
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
         let url = self.discovery_address_url(addr);
 
-        let response = self.client.delete(url).send().await.map_err(|e| {
+        let response = self.client.delete(&url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
                 ServiceErrorSource::Upstream,
-                format!("removing discovery backend at address {}", addr.encoded()),
+                format!("delete backend {url}"),
                 e,
             )
         })?;
@@ -282,10 +271,9 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
             StatusCode::NOT_FOUND => Ok(false),
-            status => Err(DiscoveryBackendStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                format!("removing discovery backend at address {}", addr.encoded()),
-                status.as_u16(),
+            status => Err(Self::general_error(
+                status,
+                &format!("delete backend: {url}"),
             )),
         }
     }

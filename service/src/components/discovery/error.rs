@@ -40,6 +40,8 @@ pub enum DiscoveryBackendStoreErrorSource {
     JsonSerialization(#[from] serde_json::Error),
     #[error("internal error: {0}")]
     Internal(String),
+    #[error("Invalid Input error: {0}")]
+    InvalidInput(String),
 }
 
 impl DiscoveryBackendStoreError {
@@ -147,6 +149,14 @@ impl DiscoveryBackendStoreError {
         Self::new(
             DiscoveryBackendStoreErrorSource::Internal(message),
             esource,
+            context,
+        )
+    }
+
+    pub fn invalid_input_error<C: Into<Cow<'static, str>>>(context: C, message: String) -> Self {
+        Self::new(
+            DiscoveryBackendStoreErrorSource::InvalidInput(message),
+            ServiceErrorSource::Downstream,
             context,
         )
     }

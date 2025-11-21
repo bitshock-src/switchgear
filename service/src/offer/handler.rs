@@ -7,8 +7,22 @@ use crate::axum::crud::response::JsonCrudResponse;
 use crate::axum::extract::uuid::UuidParam;
 use crate::axum::header::no_cache_headers;
 use crate::offer::state::OfferState;
+use axum::extract::Query;
 use axum::http::HeaderValue;
 use axum::{extract::State, Json};
+use serde::Deserialize;
+
+#[derive(Deserialize, Debug)]
+pub struct GetAllOffersQueryParameters {
+    pub start: Option<usize>,
+    pub count: Option<usize>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GetAllMetadataQueryParameters {
+    pub start: Option<usize>,
+    pub count: Option<usize>,
+}
 
 pub struct OfferHandlers;
 
@@ -40,15 +54,20 @@ impl OfferHandlers {
 
     pub async fn get_offers<S, M>(
         axum::extract::Path(partition): axum::extract::Path<String>,
+        Query(params): Query<GetAllOffersQueryParameters>,
         State(state): State<OfferState<S, M>>,
     ) -> Result<JsonCrudResponse<Vec<OfferRecordRest>>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
+        let count = params.count.unwrap_or(state.max_page_size());
+        if count > state.max_page_size() {
+            return Err(CrudError::bad());
+        }
         let offers = state
             .offer_store()
-            .get_offers(&partition)
+            .get_offers(&partition, params.start.unwrap_or(0), count)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
@@ -163,15 +182,20 @@ impl OfferHandlers {
 
     pub async fn get_all_metadata<S, M>(
         axum::extract::Path(partition): axum::extract::Path<String>,
+        Query(params): Query<GetAllMetadataQueryParameters>,
         State(state): State<OfferState<S, M>>,
     ) -> Result<JsonCrudResponse<Vec<OfferMetadataRest>>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
+        let count = params.count.unwrap_or(state.max_page_size());
+        if count > state.max_page_size() {
+            return Err(CrudError::bad());
+        }
         let metadata = state
             .metadata_store()
-            .get_all_metadata(&partition)
+            .get_all_metadata(&partition, params.start.unwrap_or(0), count)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 

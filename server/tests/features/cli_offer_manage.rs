@@ -180,7 +180,7 @@ async fn test_offer_get() {
 }
 
 /// Feature: Offer CLI management
-/// Scenario: Get all offers
+/// Scenario Outline: Get all offers with parameters
 #[tokio::test]
 async fn test_offer_get_all() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -223,26 +223,122 @@ async fn test_offer_get_all() {
         .await
         .expect("assert");
 
-    // Setup - load offer
-    step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
+    let mut expected_offers = vec![];
+    for _ in 0..10 {
+        step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+
+        let offer = extract_offer(&cli_ctx).await.expect("assert");
+        expected_offers.push(offer);
+
+        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+
+        // make sure timestamps are different
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let parameter_combinations = vec![
+        (None, None),
+        (Some(1), None),
+        (None, Some(5)),
+        (Some(1), Some(1)),
+    ];
+
+    for (start, count) in parameter_combinations {
+        let start_index = start.unwrap_or(0);
+        let end_index = count
+            .map(|c| start_index + c)
+            .unwrap_or(expected_offers.len());
+        cli_ctx.reset();
+        step_when_i_run_swgr_offer_get_all(&mut ctx, &mut cli_ctx, start, count)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+
+        step_then_all_offers_should_be_output(
+            &mut cli_ctx,
+            &expected_offers[start_index..end_index],
+        )
         .await
         .expect("assert");
-    let offer_id = extract_offer_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
+    }
+
+    ctx.stop_all_servers().expect("assert");
+}
+
+/// Feature: Offer CLI management
+/// Scenario: Get all offers with count exceeding limit
+#[tokio::test]
+async fn test_offer_get_all_bounds_error() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
+    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    let server1 = "server1";
+    let config_path = manifest_dir.join("config/memory-basic.yaml");
+    ctx.add_server(
+        server1,
+        config_path,
+        Protocol::Https,
+        Protocol::Https,
+        Protocol::Https,
+    )
+    .expect("assert");
+    ctx.activate_server(server1);
+
+    let mut cli_ctx = CliContext::create().expect("assert");
+
+    // Background
+    step_given_the_swgr_cli_is_available(&mut cli_ctx)
         .await
         .expect("assert");
 
+    // Start server
+    step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
+        .await
+        .expect("assert");
+    step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
+        .await
+        .expect("assert");
+    step_then_the_server_should_start_successfully(&mut ctx)
+        .await
+        .expect("assert");
+    step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
+        .await
+        .expect("assert");
+
+    // Setup - load 10 offers
+    for _ in 0..10 {
+        step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+    }
+
     // Scenario steps
-    step_when_i_run_swgr_offer_get_all(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_get_all(&mut ctx, &mut cli_ctx, None, Some(101))
         .await
         .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
+    step_then_the_command_should_fail(&mut cli_ctx)
         .await
         .expect("assert");
-    step_then_all_offers_should_be_output(&mut cli_ctx, &offer_id)
+    step_then_a_user_error_message_should_be_shown(&mut cli_ctx)
         .await
         .expect("assert");
 
@@ -579,7 +675,7 @@ async fn test_offer_metadata_get() {
 }
 
 /// Feature: Offer CLI management
-/// Scenario: Get all offer metadata
+/// Scenario Outline: Get all offer metadata with parameters
 #[tokio::test]
 async fn test_offer_metadata_get_all() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -622,26 +718,123 @@ async fn test_offer_metadata_get_all() {
         .await
         .expect("assert");
 
-    // Setup - load metadata
-    step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
+    // Setup - load 10 metadata
+    let mut expected_metadata = vec![];
+    for _ in 0..10 {
+        step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+
+        let metadata = extract_metadata(&cli_ctx).await.expect("assert");
+        expected_metadata.push(metadata);
+
+        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+
+        // make sure timestamps are different
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    let parameter_combinations = vec![
+        (None, None),
+        (Some(1), None),
+        (None, Some(5)),
+        (Some(1), Some(1)),
+    ];
+
+    for (start, count) in parameter_combinations {
+        let start_index = start.unwrap_or(0);
+        let end_index = count
+            .map(|c| start_index + c)
+            .unwrap_or(expected_metadata.len());
+        cli_ctx.reset();
+        step_when_i_run_swgr_offer_metadata_get_all(&mut ctx, &mut cli_ctx, start, count)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+
+        step_then_all_offer_metadata_should_be_output(
+            &mut cli_ctx,
+            &expected_metadata[start_index..end_index],
+        )
         .await
         .expect("assert");
-    let metadata_id = extract_metadata_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
+    }
+
+    ctx.stop_all_servers().expect("assert");
+}
+
+/// Feature: Offer CLI management
+/// Scenario: Get all offer metadata with count exceeding limit
+#[tokio::test]
+async fn test_offer_metadata_get_all_bounds_error() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
+    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
+        Some(ctx) => ctx,
+        None => return,
+    };
+
+    let server1 = "server1";
+    let config_path = manifest_dir.join("config/memory-basic.yaml");
+    ctx.add_server(
+        server1,
+        config_path,
+        Protocol::Https,
+        Protocol::Https,
+        Protocol::Https,
+    )
+    .expect("assert");
+    ctx.activate_server(server1);
+
+    let mut cli_ctx = CliContext::create().expect("assert");
+
+    // Background
+    step_given_the_swgr_cli_is_available(&mut cli_ctx)
         .await
         .expect("assert");
 
+    // Start server
+    step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
+        .await
+        .expect("assert");
+    step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
+        .await
+        .expect("assert");
+    step_then_the_server_should_start_successfully(&mut ctx)
+        .await
+        .expect("assert");
+    step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
+        .await
+        .expect("assert");
+
+    // Setup - load 10 metadata
+    for _ in 0..10 {
+        step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+    }
+
     // Scenario steps
-    step_when_i_run_swgr_offer_metadata_get_all(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_get_all(&mut ctx, &mut cli_ctx, None, Some(101))
         .await
         .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
+    step_then_the_command_should_fail(&mut cli_ctx)
         .await
         .expect("assert");
-    step_then_all_offer_metadata_should_be_output(&mut cli_ctx, &metadata_id)
+    step_then_a_user_error_message_should_be_shown(&mut cli_ctx)
         .await
         .expect("assert");
 

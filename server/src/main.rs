@@ -132,12 +132,16 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 OfferRecordManagementCommands::Get {
                     partition,
                     id,
+                    start,
+                    count,
                     output,
                     client,
                 } => {
                     commands::offer::record::get_offer(
                         &partition,
                         id.as_ref(),
+                        start,
+                        count,
                         output.as_deref(),
                         &client,
                     )
@@ -175,12 +179,16 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 OfferMetadataManagementCommands::Get {
                     partition,
                     id,
+                    start,
+                    count,
                     output,
                     client,
                 } => {
                     commands::offer::metadata::get_metadata(
                         &partition,
                         id.as_ref(),
+                        start,
+                        count,
                         output.as_deref(),
                         &client,
                     )
