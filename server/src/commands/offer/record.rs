@@ -90,6 +90,7 @@ pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> 
             metadata_id: *metadata_id,
             #[allow(clippy::expect_used)]
             timestamp: DateTime::<Utc>::from_timestamp_secs(0).expect("unix epoch"),
+            #[allow(clippy::expect_used)]
             expires: Some(
                 DateTime::<Utc>::from_timestamp_secs(86_400).expect("unix epoch + 24 hours"),
             ),

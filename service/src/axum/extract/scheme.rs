@@ -1,7 +1,6 @@
 use axum::extract::FromRef;
 use axum::http::header;
 use axum::{extract::FromRequestParts, http::request::Parts};
-use axum_forwarded_header::ForwardedHeader;
 use std::convert::Infallible;
 
 #[derive(Debug, Clone)]
@@ -18,8 +17,7 @@ where
         if let Some(proto) = parts
             .headers
             .get(header::FORWARDED)
-            .and_then(|h| ForwardedHeader::try_from(h).ok())
-            .and_then(|h| h.proto)
+            .and_then(parse_forwarded_proto)
         {
             return Ok(Scheme(proto));
         }
@@ -33,6 +31,17 @@ where
 
         Ok(Scheme::from_ref(state))
     }
+}
+
+fn parse_forwarded_proto(forwarded: &header::HeaderValue) -> Option<String> {
+    forwarded.to_str().ok()?.split(';').find_map(|s| {
+        let s = s.trim().to_lowercase();
+        if s.starts_with("proto=") {
+            s.split('=').next_back().map(|c| c.to_string())
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]

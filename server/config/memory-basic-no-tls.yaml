@@ -19,6 +19,9 @@ lnurl-service:
     max-elapsed-time-secs: 2.5
   backend-selection: "round-robin"
   selection-capacity-bias: -0.2
+  bech32-qr-scale: 8
+  bech32-qr-light: 255
+  bech32-qr-dark: 0
 
 discovery-service:
   address: "${DISCOVERY_SERVICE_ADDRESS:-127.0.0.1:8081}"

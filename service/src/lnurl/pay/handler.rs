@@ -12,11 +12,11 @@ use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse};
 use bech32::{Bech32, Hrp};
-use image::{ImageFormat, Luma};
+use image::Luma;
 use qrcode::QrCode;
 use serde::Deserialize;
 use sqlx::types::JsonValue;
-use std::io;
+use std::io::{self, Cursor};
 use url::Url;
 use uuid::Uuid;
 
@@ -163,16 +163,27 @@ impl LnUrlPayHandlers {
                 format!("{e} : when parsing {callback}"),
             )
         })?;
-        let callback = QrCode::new(callback.as_bytes()).map_err(|e| {
+        let qr = QrCode::new(callback.as_bytes()).map_err(|e| {
             LnUrlPayServiceError::internal_error(
                 module_path!(),
                 &format!("{}:{}", file!(), line!()),
                 format!("{e} : while generating qr code for {callback}"),
             )
         })?;
-        let img = callback.render::<Luma<u8>>().build();
+
+        let scale = state.bech32_qr_scale();
+        let dark = state.bech32_qr_dark();
+        let light = state.bech32_qr_light();
+
+        let img = qr
+            .render::<Luma<u8>>()
+            .dark_color(Luma([dark]))
+            .light_color(Luma([light]))
+            .module_dimensions(scale as u32, scale as u32)
+            .build();
+
         let mut png_bytes = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut png_bytes), ImageFormat::Png)
+        img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
             .map_err(|e| {
                 LnUrlPayServiceError::internal_error(
                     module_path!(),
@@ -180,12 +191,11 @@ impl LnUrlPayHandlers {
                     format!("{e} : while encoding QR code to PNG"),
                 )
             })?;
-        let callback = png_bytes;
 
         let mut headers = Self::expires_headers(offer.expires)?;
         headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
 
-        Ok((headers, callback))
+        Ok((headers, png_bytes))
     }
 
     pub async fn health_full<O, B>(

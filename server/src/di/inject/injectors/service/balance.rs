@@ -94,6 +94,9 @@ impl BalancerServiceInjector {
             scheme,
             service_config.allowed_hosts.clone(),
             service_config.comment_allowed,
+            service_config.bech32_qr_scale,
+            service_config.bech32_qr_light,
+            service_config.bech32_qr_dark,
         ))
         .layer(ClfLogger::new("lnurl"))
         .into_make_service_with_connect_info::<SocketAddr>();

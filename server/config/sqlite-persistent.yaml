@@ -18,11 +18,13 @@ lnurl-service:
     max-elapsed-time-secs: 2.5
   backend-selection: "round-robin"
   selection-capacity-bias: -0.2
-
   tls:
     cert-path: "${LNURL_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/lnurl-cert.pem}"
     key-path: "${LNURL_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/lnurl-key.pem}"
-    
+  bech32-qr-scale: 8
+  bech32-qr-light: 255
+  bech32-qr-dark: 0
+
 discovery-service:
   address: "${DISCOVERY_SERVICE_ADDRESS:-127.0.0.1:8081}"
   auth-authority: "${DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/discovery-auth-authority.pem}"

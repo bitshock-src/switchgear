@@ -5,14 +5,13 @@ use crate::components::pool::cln::grpc::config::{
 use crate::components::pool::error::LnPoolError;
 use crate::components::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
 use async_trait::async_trait;
-use secp256k1::hashes::hex::DisplayHex;
+use hex::ToHex;
 use sha2::Digest;
 use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-
 use url::Url;
 
 #[allow(clippy::all)]
@@ -243,7 +242,7 @@ impl InnerTonicClnGrpcClient {
             Bolt11InvoiceDescription::Direct(d) => (d.to_string(), Some(false), d.to_string()),
             Bolt11InvoiceDescription::DirectIntoHash(d) => {
                 let hash = sha2::Sha256::digest(d.as_bytes()).to_vec();
-                (d.to_string(), Some(true), hash.to_lower_hex_string())
+                (d.to_string(), Some(true), hash.encode_hex())
             }
             Bolt11InvoiceDescription::Hash(_) => {
                 return Err(LnPoolError::from_invalid_configuration(

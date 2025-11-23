@@ -54,9 +54,9 @@ pub async fn step_given_an_invalid_configuration_file_exists(
     let config_content = std::fs::read_to_string(config_path)
         .with_context(|| format!("reading config file: {}", config_path.display()))?;
 
-    // Try to parse with serde_yaml and assert that it fails
+    // Try to parse with serde_saphyr and assert that it fails
     let parse_result =
-        serde_yaml::from_str::<switchgear_server::config::ServerConfig>(&config_content);
+        serde_saphyr::from_str::<switchgear_server::config::ServerConfig>(&config_content);
 
     if parse_result.is_ok() {
         bail_log!(
@@ -99,8 +99,9 @@ pub async fn step_given_the_lnurl_server_is_ready_to_start(ctx: &mut GlobalConte
         )
     })?;
 
-    let _config = serde_yaml::from_str::<switchgear_server::config::ServerConfig>(&config_content)
-        .with_context(|| format!("parsing config file: {}", config_path.display()))?;
+    let _config =
+        serde_saphyr::from_str::<switchgear_server::config::ServerConfig>(&config_content)
+            .with_context(|| format!("parsing config file: {}", config_path.display()))?;
 
     Ok(())
 }
