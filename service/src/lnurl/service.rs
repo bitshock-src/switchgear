@@ -241,6 +241,9 @@ mod tests {
             Scheme("http".to_string()),
             Default::default(),
             Default::default(),
+            8,
+            255u8,
+            0u8,
         );
 
         let app = LnUrlBalancerService::router(state);
@@ -259,6 +262,9 @@ mod tests {
             Scheme("http".to_string()),
             Default::default(),
             Default::default(),
+            8,
+            255u8,
+            0u8,
         );
 
         let app = LnUrlBalancerService::router(state);
@@ -292,6 +298,9 @@ mod tests {
             Scheme("http".to_string()),
             Default::default(),
             Default::default(),
+            8,
+            255u8,
+            0u8,
         );
 
         let app = LnUrlBalancerService::router(state);
@@ -371,6 +380,9 @@ mod tests {
             Scheme(scheme.to_string()),
             Default::default(),
             Default::default(),
+            8,
+            255u8,
+            0u8,
         );
 
         let app = LnUrlBalancerService::router(state);
@@ -745,6 +757,9 @@ mod tests {
             Scheme("http".to_string()),
             Default::default(),
             Default::default(),
+            8,
+            255u8,
+            0u8,
         );
         let app = LnUrlBalancerService::router(state);
         let server = TestServer::new(app).unwrap();
@@ -828,19 +843,26 @@ mod tests {
         let png_bytes = response.as_bytes();
 
         // Decode the QR code from the PNG to verify content
-        use image::ImageReader;
+        use png::Decoder;
         use std::io::Cursor;
 
-        let img = ImageReader::new(Cursor::new(&png_bytes))
-            .with_guessed_format()
-            .unwrap()
-            .decode()
-            .unwrap();
+        let decoder = Decoder::new(Cursor::new(&png_bytes));
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![
+            0;
+            reader
+                .output_buffer_size()
+                .expect("PNG has no output buffer size")
+        ];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let bytes = &buf[..info.buffer_size()];
 
-        let gray_img = img.to_luma8();
+        // Convert to rqrr-compatible image
         use rqrr::PreparedImage;
+        let img = image::GrayImage::from_raw(info.width, info.height, bytes.to_vec())
+            .expect("Failed to create image from PNG data");
 
-        let mut prepared = PreparedImage::prepare(gray_img);
+        let mut prepared = PreparedImage::prepare(img);
         let grids = prepared.detect_grids();
         assert!(!grids.is_empty(), "Should detect at least one QR code");
 

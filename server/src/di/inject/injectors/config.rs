@@ -62,7 +62,7 @@ impl ServerConfigInjector {
             )
         })?;
 
-        let config: ServerConfig = serde_yaml::from_str(&expanded_config).with_context(|| {
+        let config: ServerConfig = serde_saphyr::from_str(&expanded_config).with_context(|| {
             format!(
                 "parsing YAML configuration from file '{}'",
                 config_path.to_string_lossy()

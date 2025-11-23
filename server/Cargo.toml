@@ -15,48 +15,46 @@ publish = true
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
-axum-server = { version = "0.7.2", features = ["tokio-rustls", "tls-rustls"] }
-backoff = "0.4.0"
-chrono = { version = "0.4.41", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
+axum-server = { version = "0.7", features = ["tokio-rustls", "tls-rustls"] }
+backoff = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 futures-util = "0.3"
-hyper = ">=1.4, <1.8"
-hyper-util = ">=0.1.2, <0.1.17"
-jemallocator = "0.5.4"
-jsonwebtoken = "9.3.1"
+jemallocator = "0.5"
+jsonwebtoken = "10.2"
 log = "0.4"
 p256 = { version = "0.13", features = ["ecdsa"] }
-pingora-load-balancing = { version = "0.5.0" }
+pingora-load-balancing = { version = "0.6" }
 pkcs8 = { version = "0.10", features = ["pem"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-rustls = { version = "0.23.28", features = ["ring"] }
-rustls-pemfile = "2.1"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
-shellexpand = "3.1.1"
+serde-saphyr = "0.0.8"
+shellexpand = "3.1"
 signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
-simplelog = {version = "0.12.2", features = ["paris"] }
+simplelog = {version = "0.12", features = ["paris"] }
 switchgear-pingora = { version = "0.1.7",path = "../pingora" }
 switchgear-service = { version = "0.1.7",path = "../service" }
 tokio = { version = "1", features = ["full"] }
-uuid = { version = "1.17.0", features = ["v4", "serde"] }
+uuid = { version = "1.17", features = ["v4", "serde"] }
 
 [dev-dependencies]
-chrono = { version = "0.4.41", features = ["serde"] }
-lightning-invoice = { version = "0.33.2", features = ["serde", "std"] }
+chrono = { version = "0.4", features = ["serde"] }
+lightning-invoice = { version = "0.33", features = ["serde", "std"] }
 switchgear-testing  = { version = "0.1.7", path = "../testing" }
-rcgen = { version = "0.14.1", features = ["crypto"] }
-reqwest = { version = "0.12.20", default-features = false, features = ["json", "rustls-tls"] }
-serde_yaml = "0.9"
-sysinfo = "0.32"
+rcgen = { version = "0.14", features = ["crypto"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde-saphyr = "0.0.8"
+sysinfo = "0.37"
 tempfile = "3.0"
-toml = "0.8"
-uuid = { version = "1.17.0", features = ["v4", "serde"] }
-jemallocator = "0.5.4"
+toml = "0.9"
+uuid = { version = "1.17", features = ["v4", "serde"] }
+jemallocator = "0.5"
 
 [lib]
 name = "switchgear_server"

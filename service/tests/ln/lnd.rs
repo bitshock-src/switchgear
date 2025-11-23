@@ -1,8 +1,8 @@
 use crate::try_create_lnd_backend;
 use anyhow::bail;
+use bitcoin_hashes::Hash;
 use lightning_invoice::Bolt11Invoice;
 use rand::{distributions::Alphanumeric, Rng};
-use secp256k1::hashes::Hash;
 use sha2::Digest;
 use std::str::FromStr;
 use std::time::Duration;

@@ -418,6 +418,13 @@ lnurl-service:
     cert-path: "/etc/ssl/certs/lnurl-cert.pem"
     # Path to TLS private key file
     key-path: "/etc/ssl/certs/lnurl-key.pem"
+
+  # QR module width x height
+  bech32-qr-scale: 8
+  # QR light gray level
+  bech32-qr-light: 255
+  # QR dark gray level
+  bech32-qr-dark: 0
 ```
 
 ### Consistent Backend-Selection

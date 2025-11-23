@@ -14,6 +14,9 @@ pub struct LnUrlPayState<O, B> {
     invoice_expiry: u64,
     allowed_hosts: AllowedHosts,
     comment_allowed: Option<u32>,
+    bech32_qr_scale: usize,
+    bech32_qr_light: u8,
+    bech32_qr_dark: u8,
 }
 
 impl<O, B> FromRef<LnUrlPayState<O, B>> for Scheme {
@@ -42,6 +45,9 @@ where
         scheme: Scheme,
         allowed_hosts: HashSet<String>,
         comment_allowed: Option<u32>,
+        bech32_qr_scale: usize,
+        bech32_qr_light: u8,
+        bech32_qr_dark: u8,
     ) -> Self {
         Self {
             partitions,
@@ -51,6 +57,9 @@ where
             scheme,
             allowed_hosts: AllowedHosts(allowed_hosts),
             comment_allowed,
+            bech32_qr_scale,
+            bech32_qr_light,
+            bech32_qr_dark,
         }
     }
 
@@ -72,5 +81,17 @@ where
 
     pub fn comment_allowed(&self) -> Option<u32> {
         self.comment_allowed
+    }
+
+    pub fn bech32_qr_scale(&self) -> usize {
+        self.bech32_qr_scale
+    }
+
+    pub fn bech32_qr_light(&self) -> u8 {
+        self.bech32_qr_light
+    }
+
+    pub fn bech32_qr_dark(&self) -> u8 {
+        self.bech32_qr_dark
     }
 }

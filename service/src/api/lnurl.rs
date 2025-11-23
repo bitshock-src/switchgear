@@ -203,9 +203,9 @@ mod test {
         LnUrlError, LnUrlErrorStatus, LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata, LnUrlOfferTag,
     };
     use crate::api::offer::{OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse};
+    use bitcoin_hashes::{sha256, Hash};
     use lightning_invoice::{Currency, InvoiceBuilder, PaymentSecret};
-    use secp256k1::hashes::{sha256, Hash};
-    use secp256k1::{Secp256k1, SecretKey};
+    use secp256k1_0_29::{Secp256k1, SecretKey};
     use std::time::SystemTime;
     use url::Url;
 

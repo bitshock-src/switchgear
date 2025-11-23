@@ -30,6 +30,9 @@ pub struct LnUrlBalancerServiceConfig {
     pub ln_client_timeout_secs: f64,
     pub selection_capacity_bias: Option<f64>,
     pub comment_allowed: Option<u32>,
+    pub bech32_qr_scale: usize,
+    pub bech32_qr_light: u8,
+    pub bech32_qr_dark: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
