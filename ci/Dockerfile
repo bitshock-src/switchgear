@@ -1,3 +1,4 @@
+# CI Rust build image
 FROM rust:1.91.1
 
 RUN apt-get update && \
