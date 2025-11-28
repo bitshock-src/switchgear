@@ -14,33 +14,33 @@ Feature: Http Remote Stores
     And the server is not already running
 
   @http-stores @remote-data-access @multi-server
-  Scenario: Complete HTTP remote stores workflow with distributed services
+  Scenario Outline: Complete HTTP remote stores workflow with distributed services
     # Setup first server with offers and discovery services using memory stores
     Given a server 1 configuration with memory stores exists
     When I start server 1 with offers and discovery services
     Then server 1 should have offers and discovery services listening
-    
+
     # Setup second server with only lnurl service using HTTP stores
-    Given a server 2 configuration with HTTP stores pointing to server 1 exists
+    Given a server 2 configuration with HTTP stores pointing to server 1 exists with <certificate-location>
     When I start server 2 with only lnurl service
     Then server 2 should have only lnurl service listening
-    
+
     # Create offer and backend on server 1 (data storage server)
     When the single payee creates an offer for their lightning node
     And the single payee registers their lightning node as a backend
     And the system waits for backend readiness
-    
+
     # Test LNURL Pay flow through server 2 (using HTTP remote stores)
     When the payer requests the LNURL offer from the payee
     Then the payee offer should contain valid sendable amounts
     And the payee offer should contain valid metadata
     And the payee offer should provide a callback URL
-    
+
     When the payer requests an invoice for 100 sats using the payee's callback URL
     Then the payer should receive a valid Lightning invoice
     And the invoice amount should be 100000 millisatoshis
     And the invoice description hash should match the metadata hash
-    
+
     # Stop servers and validate logs
     When I stop all servers
     Then server 1 logs should contain offer creation requests
@@ -50,3 +50,8 @@ Feature: Http Remote Stores
     And server 2 logs should contain offer retrieval requests via HTTP stores
     And server 2 logs should contain invoice generation requests
     And server 2 logs should contain health check requests for lnurl service
+
+    Examples:
+      | certificate-location                                                        |
+      | env var OFFER_STORE_HTTP_TRUSTED_ROOTS + DISCOVERY_STORE_HTTP_TRUSTED_ROOTS |
+      | env var SSL_CERT_FILE                                                       |

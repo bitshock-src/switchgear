@@ -6,7 +6,10 @@ use crate::common::context::{
     DiscoveryServiceConfigOverride, LnUrlBalancerServiceConfigOverride, OfferServiceConfigOverride,
     ServerConfigOverrides, Service, ServiceProfile,
 };
+use anyhow::{bail, Context};
 use rcgen::{Issuer, KeyPair};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
@@ -15,6 +18,14 @@ use switchgear_server::config::TlsConfig;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::offer::http::HttpOfferStore;
 use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub enum CertificateLocation {
+    Arg,
+    Env,
+    Native,
+    NativePath(String),
+}
 
 pub struct ServerContext {
     id: Uuid,
@@ -32,8 +43,13 @@ pub struct ServerContext {
     offer_store_url: Option<String>,
     discovery_store_url: Option<String>,
 
+    offer_store_database_url: String,
+    discovery_store_database_url: String,
+
     discovery_store_authorization: Option<PathBuf>,
     offer_store_authorization: Option<PathBuf>,
+
+    certificate_location: CertificateLocation,
 
     lnurl_client: LnUrlTestClient,
     discovery_client: HttpDiscoveryBackendStore,
@@ -50,6 +66,8 @@ pub struct ServerContext {
     offer_probe: TcpProbe,
 
     server_config_overrides: ServerConfigOverrides,
+
+    ln_trusted_roots_path: Option<PathBuf>,
 }
 
 impl ServerContext {
@@ -143,8 +161,8 @@ impl ServerContext {
         Ok(Self {
             id,
             config_path,
-            discovery_store_dir,
-            offer_store_dir,
+            discovery_store_dir: discovery_store_dir.clone(),
+            offer_store_dir: offer_store_dir.clone(),
             pki_root_certificate_path,
             server_process: None,
             exit_code: -1,
@@ -153,8 +171,20 @@ impl ServerContext {
             offer_store_url: None,
             discovery_store_url: None,
 
+            discovery_store_database_url: format!(
+                "sqlite://{}?mode=rwc",
+                discovery_store_dir.join("discovery.db").to_string_lossy()
+            ),
+
+            offer_store_database_url: format!(
+                "sqlite://{}?mode=rwc",
+                offer_store_dir.join("offers.db").to_string_lossy()
+            ),
+
             discovery_store_authorization: None,
             offer_store_authorization: None,
+
+            certificate_location: CertificateLocation::Env,
 
             lnurl_client,
             lnurl_probe: TcpProbe::new(lnurl_service_profile.address, Duration::from_millis(500)),
@@ -210,6 +240,7 @@ impl ServerContext {
                     domain: offer_service_profile.domain,
                 },
             },
+            ln_trusted_roots_path: None,
         })
     }
 
@@ -249,22 +280,28 @@ impl ServerContext {
 
         match service_profile.protocol {
             Protocol::Https => {
-                let cert_data = std::fs::read(root_certificate)?;
-                let cert = reqwest::Certificate::from_pem(&cert_data)?;
+                let certs = CertificateDer::pem_file_iter(root_certificate)
+                    .with_context(|| {
+                        format!("parsing root certificate: {}", root_certificate.display())
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                    .with_context(|| {
+                        format!("parsing root certificate: {}", root_certificate.display())
+                    })?;
 
                 Ok(HttpDiscoveryBackendStore::create(
-                    url.parse()?,
+                    url,
                     Duration::from_secs(10),
                     Duration::from_secs(10),
-                    vec![cert],
+                    &certs,
                     authorization,
                 )?)
             }
             Protocol::Http => Ok(HttpDiscoveryBackendStore::create(
-                url.parse()?,
+                url,
                 Duration::from_secs(10),
                 Duration::from_secs(10),
-                vec![],
+                &[],
                 authorization,
             )?),
         }
@@ -279,22 +316,28 @@ impl ServerContext {
 
         match service_profile.protocol {
             Protocol::Https => {
-                let cert_data = std::fs::read(root_certificate)?;
-                let cert = reqwest::Certificate::from_pem(&cert_data)?;
+                let certs = CertificateDer::pem_file_iter(root_certificate)
+                    .with_context(|| {
+                        format!("parsing root certificate: {}", root_certificate.display())
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                    .with_context(|| {
+                        format!("parsing root certificate: {}", root_certificate.display())
+                    })?;
 
                 Ok(HttpOfferStore::create(
-                    url.parse()?,
+                    url,
                     Duration::from_secs(10),
                     Duration::from_secs(10),
-                    vec![cert],
+                    &certs,
                     authorization,
                 )?)
             }
             Protocol::Http => Ok(HttpOfferStore::create(
-                url.parse()?,
+                url,
                 Duration::from_secs(10),
                 Duration::from_secs(10),
-                vec![],
+                &[],
                 authorization,
             )?),
         }
@@ -391,31 +434,37 @@ impl ServerContext {
             .env("RUST_LOG", rust_log)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .env("OFFER_SERVICE_ADDRESS", offers_svc.address.to_string())
-            .env(
-                "DISCOVERY_STORE_HTTP_TRUSTED_ROOTS",
-                &self.pki_root_certificate_path,
-            )
-            .env(
-                "OFFER_STORE_HTTP_TRUSTED_ROOTS",
-                &self.pki_root_certificate_path,
-            )
+            .env("OFFER_SERVICE_ADDRESS", offers_svc.address.to_string());
+
+        match &self.certificate_location {
+            CertificateLocation::Env => {
+                command
+                    .env(
+                        "DISCOVERY_STORE_HTTP_TRUSTED_ROOTS",
+                        &self.pki_root_certificate_path,
+                    )
+                    .env(
+                        "OFFER_STORE_HTTP_TRUSTED_ROOTS",
+                        &self.pki_root_certificate_path,
+                    );
+            }
+            CertificateLocation::Native => {
+                command.env("SSL_CERT_FILE", &self.pki_root_certificate_path);
+            }
+            CertificateLocation::NativePath(path) => {
+                command.env("SSL_CERT_FILE", path);
+            }
+            CertificateLocation::Arg => {
+                bail!("not supported: server cannot be configured with cli arguments for trusted root locations")
+            }
+        }
+
+        command
             .env(
                 "DISCOVERY_STORE_DATABASE_URL",
-                format!(
-                    "sqlite://{}?mode=rwc",
-                    self.discovery_store_dir
-                        .join("discovery.db")
-                        .to_string_lossy()
-                ),
+                &self.discovery_store_database_url,
             )
-            .env(
-                "OFFER_STORE_DATABASE_URL",
-                format!(
-                    "sqlite://{}?mode=rwc",
-                    self.offer_store_dir.join("offers.db").to_string_lossy()
-                ),
-            )
+            .env("OFFER_STORE_DATABASE_URL", &self.offer_store_database_url)
             .env(
                 "DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH",
                 &self.discovery_authority,
@@ -461,6 +510,9 @@ impl ServerContext {
         }
         if let Some(offer_store_authorization) = &self.offer_store_authorization {
             command.env("OFFER_STORE_HTTP_AUTHORIZATION", offer_store_authorization);
+        }
+        if let Some(ln_trusted_roots_path) = &self.ln_trusted_roots_path {
+            command.env("LN_TRUSTED_ROOTS", ln_trusted_roots_path);
         }
         if has_rust_log {
             println!("[STDOUT] Executing command: {command:?}");
@@ -635,5 +687,21 @@ impl ServerContext {
 
     pub fn offer_authorization(&self) -> &Path {
         &self.offer_authorization
+    }
+
+    pub fn set_certificate_location(&mut self, certificate_location: CertificateLocation) {
+        self.certificate_location = certificate_location;
+    }
+
+    pub fn set_offer_store_database_url(&mut self, offer_store_database_url: String) {
+        self.offer_store_database_url = offer_store_database_url;
+    }
+
+    pub fn set_discovery_store_database_url(&mut self, discovery_store_database_url: String) {
+        self.discovery_store_database_url = discovery_store_database_url;
+    }
+
+    pub fn set_ln_trusted_roots_path(&mut self, ln_trusted_roots_path: Option<PathBuf>) {
+        self.ln_trusted_roots_path = ln_trusted_roots_path;
     }
 }

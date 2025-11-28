@@ -1,33 +1,29 @@
-use anyhow::{anyhow, Context};
-use reqwest::Certificate;
-use rustls_pemfile::certs;
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
+use anyhow::Context;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
+use std::path::Path;
 
 pub fn load_server_certificate(
-    server_certificate_paths: &[PathBuf],
-) -> anyhow::Result<Vec<Certificate>> {
-    let mut server_certificates = Vec::new();
-    for server_certificate_path in server_certificate_paths {
-        let server_certificate = certs(&mut BufReader::new(File::open(server_certificate_path)?))
-            .filter_map(Result::ok)
-            .next()
-            .ok_or_else(|| {
-                anyhow!(format!(
-                    "no certificate found in {}",
-                    server_certificate_path.display()
-                ))
-            })?;
-
-        let server_certificate =
-            reqwest::Certificate::from_der(&server_certificate).with_context(|| {
+    server_certificate_paths: Option<&Path>,
+) -> anyhow::Result<Vec<CertificateDer<'_>>> {
+    let certificates = if let Some(server_certificate_paths) = server_certificate_paths {
+        CertificateDer::pem_file_iter(server_certificate_paths)
+            .with_context(|| {
                 format!(
-                    "loading certificate from {}",
-                    server_certificate_path.display()
+                    "parsing root certificate: {}",
+                    server_certificate_paths.display()
                 )
-            })?;
-        server_certificates.push(server_certificate);
-    }
-    Ok(server_certificates)
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| {
+                format!(
+                    "parsing root certificate: {}",
+                    server_certificate_paths.display()
+                )
+            })?
+    } else {
+        vec![]
+    };
+
+    Ok(certificates)
 }

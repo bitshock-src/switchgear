@@ -1,19 +1,24 @@
 use crate::common::{discovery, service};
+use anyhow::anyhow;
 use std::path::PathBuf;
 use std::time::Duration;
 use switchgear_service::api::discovery::HttpDiscoveryBackendClient;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 
 async fn create_http_store() -> (HttpDiscoveryBackendStore, service::TestService) {
+    let _ = rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
+
     let ports_path = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let test_service = service::TestService::start(&ports_path).await.unwrap();
     let base_url = test_service.discovery_base_url();
 
     let store = HttpDiscoveryBackendStore::create(
-        base_url.parse().unwrap(),
+        base_url,
         Duration::from_secs(10),
         Duration::from_secs(10),
-        vec![],
+        &[],
         test_service.discovery_authorization.clone(),
     )
     .unwrap();

@@ -1,18 +1,18 @@
 use crate::api::service::ServiceErrorSource;
 use crate::components::pool::cln::grpc::config::{
-    ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
+    ClnGrpcClientAuth, ClnGrpcDiscoveryBackendImplementation,
 };
 use crate::components::pool::error::LnPoolError;
 use crate::components::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
 use async_trait::async_trait;
 use hex::ToHex;
+use rustls::pki_types::CertificateDer;
 use sha2::Digest;
 use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
-use url::Url;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 
 #[allow(clippy::all)]
 pub mod cln {
@@ -21,20 +21,69 @@ pub mod cln {
 
 use cln::node_client::NodeClient;
 
-type ClientCredentials = (Vec<u8>, Vec<u8>, Vec<u8>);
-
 pub struct TonicClnGrpcClient {
     timeout: Duration,
     config: ClnGrpcDiscoveryBackendImplementation,
     features: Option<LnFeatures>,
     inner: Arc<Mutex<Option<Arc<InnerTonicClnGrpcClient>>>>,
+    ca_certificates: Vec<Certificate>,
+    identity: Identity,
 }
 
 impl TonicClnGrpcClient {
     pub fn create(
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
+        trusted_roots: &[CertificateDer],
     ) -> Result<Self, LnPoolError> {
+        let ClnGrpcClientAuth::Path(auth) = &config.auth;
+
+        let mut ca_certificates = trusted_roots
+            .iter()
+            .map(|c| {
+                let c = Self::certificate_der_as_pem(c);
+                Certificate::from_pem(&c)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(ca_cert_path) = &auth.ca_cert_path {
+            let ca_certificate = fs::read(ca_cert_path).map_err(|e| {
+                LnPoolError::from_invalid_credentials(
+                    e.to_string(),
+                    ServiceErrorSource::Internal,
+                    format!(
+                        "loading CLN credentials and reading CA certificate from path {}",
+                        ca_cert_path.to_string_lossy()
+                    ),
+                )
+            })?;
+            ca_certificates.push(Certificate::from_pem(&ca_certificate));
+        }
+
+        let client_cert = fs::read(&auth.client_cert_path).map_err(|e| {
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
+                ServiceErrorSource::Internal,
+                format!(
+                    "loading CLN credentials and reading client certificate from path {}",
+                    auth.client_cert_path.to_string_lossy()
+                ),
+            )
+        })?;
+
+        let client_key = fs::read(&auth.client_key_path).map_err(|e| {
+            LnPoolError::from_invalid_credentials(
+                e.to_string(),
+                ServiceErrorSource::Internal,
+                format!(
+                    "loading CLN credentials and reading client key from path {}",
+                    auth.client_key_path.to_string_lossy()
+                ),
+            )
+        })?;
+
+        let identity = Identity::from_pem(client_cert, client_key);
+
         Ok(Self {
             timeout,
             config,
@@ -42,6 +91,8 @@ impl TonicClnGrpcClient {
                 invoice_from_desc_hash: false,
             }),
             inner: Arc::new(Default::default()),
+            ca_certificates,
+            identity,
         })
     }
 
@@ -52,8 +103,10 @@ impl TonicClnGrpcClient {
                 let inner_connect = Arc::new(
                     InnerTonicClnGrpcClient::connect(
                         self.timeout,
-                        self.config.clone(),
-                        self.config.url.clone(),
+                        self.ca_certificates.clone(),
+                        self.identity.clone(),
+                        self.config.url.to_string(),
+                        self.config.domain.as_deref(),
                     )
                     .await?,
                 );
@@ -67,6 +120,12 @@ impl TonicClnGrpcClient {
     async fn inner_disconnect(&self) {
         let mut inner = self.inner.lock().await;
         *inner = None;
+    }
+
+    fn certificate_der_as_pem(certificate: &CertificateDer) -> String {
+        use base64::Engine;
+        let base64_cert = base64::engine::general_purpose::STANDARD.encode(certificate.as_ref());
+        format!("-----BEGIN CERTIFICATE-----\n{base64_cert}\n-----END CERTIFICATE-----")
     }
 }
 
@@ -110,21 +169,18 @@ impl LnRpcClient for TonicClnGrpcClient {
 
 struct InnerTonicClnGrpcClient {
     client: NodeClient<Channel>,
-    config: ClnGrpcDiscoveryBackendImplementation,
+    url: String,
 }
 
 impl InnerTonicClnGrpcClient {
     async fn connect(
         timeout: Duration,
-        config: ClnGrpcDiscoveryBackendImplementation,
-        url: Url,
+        ca_certificates: Vec<Certificate>,
+        identity: Identity,
+        url: String,
+        domain: Option<&str>,
     ) -> Result<Self, LnPoolError> {
-        let ClnGrpcClientAuth::Path(auth) = config.auth.clone();
-
-        let (ca_cert_data, client_cert_data, client_key_data) =
-            Self::load_client_credentials(&auth)?;
-
-        let endpoint = Channel::from_shared(url.to_string()).map_err(|e| {
+        let endpoint = Channel::from_shared(url.clone()).map_err(|e| {
             LnPoolError::from_invalid_configuration(
                 format!("Invalid endpoint URI: {}", e),
                 ServiceErrorSource::Internal,
@@ -132,78 +188,9 @@ impl InnerTonicClnGrpcClient {
             )
         })?;
 
-        let channel = Self::connect_with_tls(
-            timeout,
-            &url,
-            endpoint,
-            &ca_cert_data,
-            &client_cert_data,
-            &client_key_data,
-            config.domain.as_deref(),
-        )
-        .await?;
-
-        let client = NodeClient::new(channel);
-        Ok(Self { client, config })
-    }
-
-    fn load_client_credentials(
-        auth: &ClnGrpcClientAuthPath,
-    ) -> Result<ClientCredentials, LnPoolError> {
-        let ca_cert_path = &auth.ca_cert_path;
-        let client_cert_path = &auth.client_cert_path;
-        let client_key_path = &auth.client_key_path;
-
-        let ca_cert = fs::read(ca_cert_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading CLN credentials and reading CA certificate from path {}",
-                    ca_cert_path.to_string_lossy()
-                ),
-            )
-        })?;
-
-        let client_cert = fs::read(client_cert_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading CLN credentials and reading client certificate from path {}",
-                    client_cert_path.to_string_lossy()
-                ),
-            )
-        })?;
-
-        let client_key = fs::read(client_key_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading CLN credentials and reading client key from path {}",
-                    client_key_path.to_string_lossy()
-                ),
-            )
-        })?;
-
-        Ok((ca_cert, client_cert, client_key))
-    }
-
-    async fn connect_with_tls(
-        timeout: Duration,
-        url: &Url,
-        endpoint: Endpoint,
-        ca_cert: &[u8],
-        client_cert: &[u8],
-        client_key: &[u8],
-        domain: Option<&str>,
-    ) -> Result<Channel, LnPoolError> {
-        let ca_cert = Certificate::from_pem(ca_cert);
-        let identity = Identity::from_pem(client_cert, client_key);
-
         let mut tls_config = ClientTlsConfig::new()
-            .ca_certificate(ca_cert)
+            .with_native_roots()
+            .ca_certificates(ca_certificates)
             .identity(identity);
 
         if let Some(domain) = domain {
@@ -218,18 +205,21 @@ impl InnerTonicClnGrpcClient {
             )
         })?;
 
-        endpoint
+        let channel = endpoint
             .connect_timeout(timeout)
             .timeout(timeout)
             .connect()
             .await
             .map_err(|e| {
-                LnPoolError::from_cln_transport_error(
+                LnPoolError::from_transport_error(
                     e,
                     ServiceErrorSource::Upstream,
                     format!("connecting CLN client to {url}"),
                 )
-            })
+            })?;
+
+        let client = NodeClient::new(channel);
+        Ok(Self { client, url })
     }
 
     async fn get_invoice<'a>(
@@ -250,7 +240,7 @@ impl InnerTonicClnGrpcClient {
                     ServiceErrorSource::Internal,
                     format!(
                         "CLN get invoice from {}, parsing invoice description",
-                        self.config.url
+                        self.url
                     ),
                 ))
             }
@@ -262,7 +252,7 @@ impl InnerTonicClnGrpcClient {
                 ServiceErrorSource::Internal,
                 format!(
                     "CLN get invoice from {}, getting current time for label",
-                    self.config.url
+                    self.url
                 ),
             )
         })?;
@@ -289,12 +279,9 @@ impl InnerTonicClnGrpcClient {
             .invoice(request)
             .await
             .map_err(|e| {
-                LnPoolError::from_cln_tonic_error(
+                LnPoolError::from_tonic_error(
                     e,
-                    format!(
-                        "CLN get invoice from {}, requesting invoice",
-                        self.config.url
-                    ),
+                    format!("CLN get invoice from {}, requesting invoice", self.url),
                 )
             })?
             .into_inner();
@@ -312,12 +299,9 @@ impl InnerTonicClnGrpcClient {
             .list_peer_channels(channels_request)
             .await
             .map_err(|e| {
-                LnPoolError::from_cln_tonic_error(
+                LnPoolError::from_tonic_error(
                     e,
-                    format!(
-                        "CLN get metrics for {}, requesting channels",
-                        self.config.url
-                    ),
+                    format!("CLN get metrics for {}, requesting channels", self.url),
                 )
             })?
             .into_inner();

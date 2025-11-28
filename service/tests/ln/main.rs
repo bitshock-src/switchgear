@@ -8,7 +8,7 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_testing::credentials::{LnCredentials, RegTestLnNode};
+use switchgear_testing::credentials::lightning::{LnCredentials, RegTestLnNode};
 use url::Url;
 
 #[path = "../common/mod.rs"]
@@ -43,11 +43,11 @@ pub fn try_create_cln_backend(
         DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
             url,
             auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
-                ca_cert_path: cln_node.ca_cert_path,
+                ca_cert_path: cln_node.ca_cert_path.into(),
                 client_cert_path: cln_node.client_cert_path,
                 client_key_path: cln_node.client_key_path,
             }),
-            domain: Some(cln_node.sni),
+            domain: None,
         });
 
     let backend = DiscoveryBackend {
@@ -90,7 +90,7 @@ pub fn try_create_lnd_backend(
         DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
             url,
             auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                tls_cert_path: lnd_node.tls_cert_path,
+                tls_cert_path: lnd_node.tls_cert_path.into(),
                 macaroon_path: lnd_node.macaroon_path,
             }),
             amp_invoice: false,

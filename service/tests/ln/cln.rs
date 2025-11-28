@@ -1,5 +1,5 @@
 use crate::try_create_cln_backend;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use bitcoin_hashes::Hash;
 use lightning_invoice::Bolt11Invoice;
 use rand::{distributions::Alphanumeric, Rng};
@@ -9,7 +9,7 @@ use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
 use switchgear_service::components::pool::cln::grpc::client::TonicClnGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
-use switchgear_testing::credentials::LnCredentials;
+use switchgear_testing::credentials::lightning::LnCredentials;
 
 async fn try_create_cln_tonic_client(
     credentials: &LnCredentials,
@@ -23,8 +23,9 @@ async fn try_create_cln_tonic_client(
         >,
     >,
 > {
-    // Install default crypto provider for rustls
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
 
     let backend = match try_create_cln_backend(credentials)? {
         None => return Ok(None),
@@ -34,7 +35,7 @@ async fn try_create_cln_tonic_client(
         },
     };
 
-    let client = TonicClnGrpcClient::create(Duration::from_secs(1), backend)?;
+    let client = TonicClnGrpcClient::create(Duration::from_secs(1), backend, &[])?;
 
     Ok(Some(Box::new(client)))
 }

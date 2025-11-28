@@ -1,10 +1,9 @@
+use crate::credentials::download_credentials;
 use crate::services::{IntegrationTestServices, LightningIntegrationTestServices};
 use anyhow::Context;
-use flate2::read::GzDecoder;
 use secp256k1::PublicKey;
 use std::fs;
 use std::path::{Path, PathBuf};
-use tar::Archive;
 use tempfile::TempDir;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -14,7 +13,6 @@ pub struct ClnRegTestLnNode {
     pub ca_cert_path: PathBuf,
     pub client_cert_path: PathBuf,
     pub client_key_path: PathBuf,
-    pub sni: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -72,43 +70,18 @@ struct LnCredentialsInner {
 impl LnCredentials {
     pub fn create() -> anyhow::Result<Self> {
         let services = IntegrationTestServices::create()?;
-        let inner = match services.lightning() {
-            None => None,
-            Some(lightning) => {
+        let inner = match (services.credentials(), services.lightning()) {
+            (Some(credentials), Some(lightning)) => {
                 let credentials_dir = TempDir::new()?;
-                Self::download_credentials(credentials_dir.path(), &lightning.credentials)?;
+                download_credentials(credentials_dir.path(), credentials)?;
                 Some(LnCredentialsInner {
                     credentials_dir,
                     lightning: lightning.clone(),
                 })
             }
+            _ => None,
         };
         Ok(Self { inner })
-    }
-
-    fn download_credentials(credentials_dir: &Path, credentials_url: &str) -> anyhow::Result<()> {
-        let download_path = credentials_dir.join("credentials.tar.gz");
-        let response = ureq::get(credentials_url)
-            .call()
-            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
-
-        let bytes = response
-            .into_body()
-            .read_to_vec()
-            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
-
-        fs::write(&download_path, &bytes)
-            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
-
-        let tar_gz = fs::File::open(&download_path)
-            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
-
-        let tar = GzDecoder::new(tar_gz);
-        let mut archive = Archive::new(tar);
-        archive
-            .unpack(credentials_dir)
-            .with_context(|| format!("Downloading credentials from {}", credentials_url))?;
-        Ok(())
     }
 
     pub fn get_backends(&self) -> anyhow::Result<Vec<RegTestLnNode>> {
@@ -212,7 +185,6 @@ impl LnCredentials {
             ca_cert_path,
             client_cert_path,
             client_key_path,
-            sni: "localhost".to_string(),
         })
     }
 

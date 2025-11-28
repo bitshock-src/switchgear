@@ -30,10 +30,6 @@ pub async fn execute(
 ) -> anyhow::Result<()> {
     info!("starting services");
 
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"))?;
-
     let (signals_fut, signals_handle) = get_signals_fut()?;
 
     let config_injector = ServerConfigInjector::new(config_path)?;

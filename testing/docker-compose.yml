@@ -42,11 +42,16 @@ services:
         condition: service_healthy
       lnd:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - shared:/shared
     networks:
       - lightning_network
+      - services
     restart: "no"
     healthcheck:
       test: ["CMD", "test", "-f", "/tmp/setup_complete"]
@@ -56,22 +61,13 @@ services:
       start_period: 10s
 
   cln:
-    image: elementsproject/lightningd:v25.09
+    build: ./cln
     container_name: cln-regtest
     hostname: "${CLN_HOSTNAME}"
     environment:
       LIGHTNINGD_NETWORK: regtest
-    command: [
-      "--bitcoin-rpcconnect=bitcoin",
-      "--bitcoin-rpcport=18443",
-      "--bitcoin-rpcuser=bitcoin",
-      "--bitcoin-rpcpassword=bitcoin123",
-      "--grpc-port=${CLN_PORT}",
-      "--grpc-host=0.0.0.0",
-      "--log-level=info",
-      "--bind-addr=0.0.0.0:9735",
-      "--announce-addr=cln:9735"
-    ]
+      CLN_HOSTNAME: "${CLN_HOSTNAME}"
+      CLN_PORT: "${CLN_PORT}"
     ports:
       - "9735:9735"   # Lightning P2P port
       - "${CLN_PORT}:${CLN_PORT}"   # gRPC port
@@ -92,31 +88,12 @@ services:
       start_period: 30s
 
   lnd:
-    image: lightninglabs/lnd:v0.19.3-beta
+    build: ./lnd
     container_name: lnd-regtest
     hostname: "${LND_HOSTNAME}"
-    command: [
-      "lnd",
-      "--bitcoin.active",
-      "--bitcoin.regtest",
-      "--bitcoin.node=bitcoind",
-      "--bitcoind.rpchost=bitcoin:18443",
-      "--bitcoind.rpcuser=bitcoin",
-      "--bitcoind.rpcpass=bitcoin123",
-      "--bitcoind.zmqpubrawblock=tcp://bitcoin:28332",
-      "--bitcoind.zmqpubrawtx=tcp://bitcoin:28333",
-      "--rpclisten=0.0.0.0:${LND_PORT}",
-      "--restlisten=0.0.0.0:8080",
-      "--listen=0.0.0.0:9734",
-      "--externalip=lnd:9734",
-      "--tlsextradomain=localhost",
-      "--tlsextraip=0.0.0.0",
-      "--tlsextraip=127.0.0.1",
-      "--noseedbackup",
-      "--accept-keysend",
-      "--accept-amp",
-      "--debuglevel=info"
-    ]
+    environment:
+      LND_HOSTNAME: "${LND_HOSTNAME}"
+      LND_PORT: "${LND_PORT}"
     ports:
       - "${LND_PORT}:${LND_PORT}"  # gRPC port
       - "8080:8080"    # REST port
@@ -138,13 +115,13 @@ services:
       start_period: 30s
 
   postgres:
-    image: postgres:16-alpine
+    build: ./postgres
     container_name: postgres-db
     hostname: "${POSTGRES_HOSTNAME}"
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_LOG_MIN_MESSAGES: info
-    command: ["postgres", "-c", "log_min_messages=${POSTGRES_LOG_MIN_MESSAGES:-info}", "-c", "listen_addresses=*"]
+      POSTGRES_HOSTNAME: "${POSTGRES_HOSTNAME}"
     volumes:
       - lnurl-balancer_postgres_data:/var/lib/postgresql/data
     ports:
@@ -160,12 +137,12 @@ services:
       start_period: 10s
 
   mysql:
-    image: mysql:8.0
+    build: ./mysql
     container_name: mysql-db
     hostname: "${MYSQL_HOSTNAME}"
     environment:
       MYSQL_ROOT_PASSWORD: mysql
-    command: ["mysqld", "--log-error-verbosity=2", "--bind-address=0.0.0.0"]
+      MYSQL_HOSTNAME: "${MYSQL_HOSTNAME}"
     volumes:
       - lnurl-balancer_mysql_data:/var/lib/mysql
     ports:

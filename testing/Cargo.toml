@@ -16,8 +16,10 @@ dotenvy = "0.15"
 flate2 = "1.1"
 fs4 = { version ="0.13" }
 hex = "0.4"
-indexmap = "2.10"
+indexmap = "2.12"
 secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
 tar = "0.4"
 tempfile = "3.23"
-ureq = "3.1"
+ureq = { version = "3.1", default-features = false }
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-no-provider-native-roots", "sqlite", "postgres", "mysql"] }

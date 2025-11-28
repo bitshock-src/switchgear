@@ -12,6 +12,7 @@ lnurl-service:
   backend-update-frequency-secs: 1.0
   invoice-expiry-secs: 180
   ln-client-timeout-secs: 2.0
+  ln-trusted-roots: ${LN_TRUSTED_ROOTS:-}
   allowed-hosts: [ "${LNURL_SERVICE_ALLOWED_HOSTS:-}" ]
   backoff:
     type: "exponential"
@@ -33,7 +34,7 @@ store:
     base-url: "${OFFER_STORE_HTTP_BASE_URL:-https://127.0.0.1:8082}"  # Update to your offers service URL
     connect-timeout-secs: 2.0
     total-timeout-secs: 2.0
-    trusted-roots: ["${OFFER_STORE_HTTP_TRUSTED_ROOTS:-/etc/ssl/certs/roots.pem}"]
+    trusted-roots: ${OFFER_STORE_HTTP_TRUSTED_ROOTS:-}
     authorization: "${OFFER_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/offer-authorization.token}"
     
   discover:
@@ -41,6 +42,6 @@ store:
     base-url: "${DISCOVERY_STORE_HTTP_BASE_URL:-https://127.0.0.1:8081}"  # Update to your discovery service URL
     connect-timeout-secs: 2.0
     total-timeout-secs: 2.0
-    trusted-roots: ["${DISCOVERY_STORE_HTTP_TRUSTED_ROOTS:-/etc/ssl/certs/roots.pem}"]
+    trusted-roots: ${DISCOVERY_STORE_HTTP_TRUSTED_ROOTS:-}
     authorization: "${DISCOVERY_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/discovery-authorization.token}"
 

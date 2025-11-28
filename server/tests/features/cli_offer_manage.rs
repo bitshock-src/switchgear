@@ -5,6 +5,8 @@ use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
 
+use crate::common::context::server::CertificateLocation;
+
 /// Feature: Offer CLI management
 /// Scenario: Generate offer JSON
 #[tokio::test]
@@ -99,7 +101,7 @@ async fn test_offer_post() {
     step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -110,73 +112,87 @@ async fn test_offer_post() {
 }
 
 /// Feature: Offer CLI management
-/// Scenario: Get an offer
+/// Scenario Outline: Get an offer
 #[tokio::test]
 async fn test_offer_get() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    // Test all three root certificate location methods
+    let certificate_locations = vec![
+        CertificateLocation::Arg,    // --trusted-roots CLI flag
+        CertificateLocation::Env,    // DISCOVERY_STORE_HTTP_TRUSTED_ROOTS env var
+        CertificateLocation::Native, // SSL_CERT_FILE env var
+    ];
 
-    let server1 = "server1";
-    let config_path = manifest_dir.join("config/memory-basic.yaml");
-    ctx.add_server(
-        server1,
-        config_path,
-        Protocol::Https,
-        Protocol::Https,
-        Protocol::Https,
-    )
-    .expect("assert");
-    ctx.activate_server(server1);
+    for certificate_location in certificate_locations {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
+        let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
+            Some(ctx) => ctx,
+            None => return,
+        };
 
-    let mut cli_ctx = CliContext::create().expect("assert");
+        let server1 = "server1";
+        let config_path = manifest_dir.join("config/memory-basic.yaml");
+        ctx.add_server(
+            server1,
+            config_path,
+            Protocol::Https,
+            Protocol::Https,
+            Protocol::Https,
+        )
+        .expect("assert");
+        ctx.activate_server(server1);
 
-    // Background
-    step_given_the_swgr_cli_is_available(&mut cli_ctx)
-        .await
-        .expect("assert");
+        let mut cli_ctx = CliContext::create().expect("assert");
 
-    // Start server
-    step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
-        .await
-        .expect("assert");
-    step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
-        .await
-        .expect("assert");
-    step_then_the_server_should_start_successfully(&mut ctx)
-        .await
-        .expect("assert");
-    step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
-        .await
-        .expect("assert");
+        // Background
+        step_given_the_swgr_cli_is_available(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    // Setup - load offer
-    step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    let expected_offer = extract_offer(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
+        // Start server
+        step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
+            .await
+            .expect("assert");
+        step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
+            .await
+            .expect("assert");
+        step_then_the_server_should_start_successfully(&mut ctx)
+            .await
+            .expect("assert");
+        step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
+            .await
+            .expect("assert");
 
-    // Scenario steps
-    step_when_i_run_swgr_offer_get(&mut ctx, &mut cli_ctx, &expected_offer.id)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_offer_details_should_be_output(&mut cli_ctx, &expected_offer)
-        .await
-        .expect("assert");
+        // Setup - load offer
+        step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        let expected_offer = extract_offer(&cli_ctx).await.expect("assert");
+        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, certificate_location.clone())
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    ctx.stop_all_servers().expect("assert");
+        // Scenario steps
+        step_when_i_run_swgr_offer_get(
+            &mut ctx,
+            &mut cli_ctx,
+            &expected_offer.id,
+            certificate_location,
+        )
+        .await
+        .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_offer_details_should_be_output(&mut cli_ctx, &expected_offer)
+            .await
+            .expect("assert");
+
+        ctx.stop_all_servers().expect("assert");
+    }
 }
 
 /// Feature: Offer CLI management
@@ -232,7 +248,7 @@ async fn test_offer_get_all() {
         let offer = extract_offer(&cli_ctx).await.expect("assert");
         expected_offers.push(offer);
 
-        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
             .await
             .expect("assert");
         step_then_the_command_should_succeed(&mut cli_ctx)
@@ -323,7 +339,7 @@ async fn test_offer_get_all_bounds_error() {
         step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
             .await
             .expect("assert");
-        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+        step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
             .await
             .expect("assert");
         step_then_the_command_should_succeed(&mut cli_ctx)
@@ -394,7 +410,7 @@ async fn test_offer_put() {
         .await
         .expect("assert");
     let offer_id = extract_offer_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -411,7 +427,7 @@ async fn test_offer_put() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_get(&mut ctx, &mut cli_ctx, &offer_id)
+    step_when_i_run_swgr_offer_get(&mut ctx, &mut cli_ctx, &offer_id, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -473,7 +489,7 @@ async fn test_offer_delete() {
         .await
         .expect("assert");
     let offer_id = extract_offer_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -487,7 +503,7 @@ async fn test_offer_delete() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_get(&mut ctx, &mut cli_ctx, &offer_id)
+    step_when_i_run_swgr_offer_get(&mut ctx, &mut cli_ctx, &offer_id, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
@@ -594,7 +610,7 @@ async fn test_offer_metadata_post() {
     step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -605,73 +621,91 @@ async fn test_offer_metadata_post() {
 }
 
 /// Feature: Offer CLI management
-/// Scenario: Get offer metadata
+/// Scenario Outline: Get offer metadata
 #[tokio::test]
 async fn test_offer_metadata_get() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    // Test all three root certificate location methods
+    let certificate_locations = vec![
+        CertificateLocation::Arg,    // --trusted-roots CLI flag
+        CertificateLocation::Env,    // DISCOVERY_STORE_HTTP_TRUSTED_ROOTS env var
+        CertificateLocation::Native, // SSL_CERT_FILE env var
+    ];
 
-    let server1 = "server1";
-    let config_path = manifest_dir.join("config/memory-basic.yaml");
-    ctx.add_server(
-        server1,
-        config_path,
-        Protocol::Https,
-        Protocol::Https,
-        Protocol::Https,
-    )
-    .expect("assert");
-    ctx.activate_server(server1);
+    for certificate_location in certificate_locations {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
+        let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
+            Some(ctx) => ctx,
+            None => return,
+        };
 
-    let mut cli_ctx = CliContext::create().expect("assert");
+        let server1 = "server1";
+        let config_path = manifest_dir.join("config/memory-basic.yaml");
+        ctx.add_server(
+            server1,
+            config_path,
+            Protocol::Https,
+            Protocol::Https,
+            Protocol::Https,
+        )
+        .expect("assert");
+        ctx.activate_server(server1);
 
-    // Background
-    step_given_the_swgr_cli_is_available(&mut cli_ctx)
-        .await
-        .expect("assert");
+        let mut cli_ctx = CliContext::create().expect("assert");
 
-    // Start server
-    step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
-        .await
-        .expect("assert");
-    step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
-        .await
-        .expect("assert");
-    step_then_the_server_should_start_successfully(&mut ctx)
-        .await
-        .expect("assert");
-    step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
-        .await
-        .expect("assert");
+        // Background
+        step_given_the_swgr_cli_is_available(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    // Setup - load metadata
-    step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    let expected_metadata = extract_metadata(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
+        // Start server
+        step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
+            .await
+            .expect("assert");
+        step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
+            .await
+            .expect("assert");
+        step_then_the_server_should_start_successfully(&mut ctx)
+            .await
+            .expect("assert");
+        step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
+            .await
+            .expect("assert");
 
-    // Scenario steps
-    step_when_i_run_swgr_offer_metadata_get(&mut ctx, &mut cli_ctx, &expected_metadata.id)
+        // Setup - load metadata
+        step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        let expected_metadata = extract_metadata(&cli_ctx).await.expect("assert");
+        step_when_i_run_swgr_offer_metadata_post(
+            &mut ctx,
+            &mut cli_ctx,
+            certificate_location.clone(),
+        )
         .await
         .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_offer_metadata_details_should_be_output(&mut cli_ctx, &expected_metadata)
-        .await
-        .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    ctx.stop_all_servers().expect("assert");
+        // Scenario steps
+        step_when_i_run_swgr_offer_metadata_get(
+            &mut ctx,
+            &mut cli_ctx,
+            &expected_metadata.id,
+            certificate_location,
+        )
+        .await
+        .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_offer_metadata_details_should_be_output(&mut cli_ctx, &expected_metadata)
+            .await
+            .expect("assert");
+
+        ctx.stop_all_servers().expect("assert");
+    }
 }
 
 /// Feature: Offer CLI management
@@ -728,7 +762,7 @@ async fn test_offer_metadata_get_all() {
         let metadata = extract_metadata(&cli_ctx).await.expect("assert");
         expected_metadata.push(metadata);
 
-        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
             .await
             .expect("assert");
         step_then_the_command_should_succeed(&mut cli_ctx)
@@ -819,7 +853,7 @@ async fn test_offer_metadata_get_all_bounds_error() {
         step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
             .await
             .expect("assert");
-        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+        step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
             .await
             .expect("assert");
         step_then_the_command_should_succeed(&mut cli_ctx)
@@ -890,7 +924,7 @@ async fn test_offer_metadata_put() {
         .await
         .expect("assert");
     let metadata_id = extract_metadata_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -907,9 +941,14 @@ async fn test_offer_metadata_put() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_metadata_get(&mut ctx, &mut cli_ctx, &metadata_id)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_offer_metadata_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &metadata_id,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
@@ -969,7 +1008,7 @@ async fn test_offer_metadata_delete() {
         .await
         .expect("assert");
     let metadata_id = extract_metadata_id(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -983,9 +1022,14 @@ async fn test_offer_metadata_delete() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_metadata_get(&mut ctx, &mut cli_ctx, &metadata_id)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_offer_metadata_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &metadata_id,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
         .await
         .expect("assert");
@@ -1044,7 +1088,7 @@ async fn test_offer_post_invalid_metadata() {
     step_given_an_offer_json_with_non_existent_metadata_id_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
@@ -1108,7 +1152,7 @@ async fn test_offer_metadata_delete_referenced() {
     let metadata_id = extract_metadata_id_from_offer(&cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -1291,7 +1335,7 @@ async fn test_offer_post_conflict() {
     step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -1299,7 +1343,7 @@ async fn test_offer_post_conflict() {
         .expect("assert");
 
     // Scenario steps - post same offer again
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
@@ -1476,7 +1520,7 @@ async fn test_offer_metadata_post_conflict() {
     step_given_a_valid_offer_metadata_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -1484,7 +1528,7 @@ async fn test_offer_metadata_post_conflict() {
         .expect("assert");
 
     // Scenario steps - post same metadata again
-    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)

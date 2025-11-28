@@ -1,5 +1,5 @@
 use crate::try_create_lnd_backend;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use bitcoin_hashes::Hash;
 use lightning_invoice::Bolt11Invoice;
 use rand::{distributions::Alphanumeric, Rng};
@@ -9,7 +9,7 @@ use std::time::Duration;
 use switchgear_service::api::discovery::DiscoveryBackendImplementation;
 use switchgear_service::components::pool::lnd::grpc::client::TonicLndGrpcClient;
 use switchgear_service::components::pool::{Bolt11InvoiceDescription, LnRpcClient};
-use switchgear_testing::credentials::LnCredentials;
+use switchgear_testing::credentials::lightning::LnCredentials;
 
 type LnClientBox = Box<
     dyn LnRpcClient<Error = switchgear_service::components::pool::error::LnPoolError>
@@ -21,7 +21,9 @@ type LnClientBox = Box<
 async fn try_create_lnd_tonic_client(
     credentials: &LnCredentials,
 ) -> anyhow::Result<Option<LnClientBox>> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
 
     let backend = match try_create_lnd_backend(credentials)? {
         None => return Ok(None),
@@ -31,7 +33,7 @@ async fn try_create_lnd_tonic_client(
         },
     };
 
-    let client = TonicLndGrpcClient::create(Duration::from_secs(1), backend)?;
+    let client = TonicLndGrpcClient::create(Duration::from_secs(1), backend, &[])?;
 
     Ok(Some(Box::new(client)))
 }
@@ -87,6 +89,8 @@ async fn test_lnd_tonic_invoice_with_direct_description() {
 
     // Validate expiry
     assert_eq!(invoice.expiry_time().as_secs(), expected_expiry_secs);
+
+    eprintln!("lnd success! credentials: {:?}", credentials.get_backends());
 }
 
 #[tokio::test]

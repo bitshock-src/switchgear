@@ -3,7 +3,7 @@ use crate::common::context::Protocol;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
-use switchgear_testing::credentials::RegTestLnNodeType;
+use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
 #[tokio::test]
 async fn test_no_backends_no_invoices_for_either_offer() {

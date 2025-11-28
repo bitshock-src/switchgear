@@ -1,10 +1,15 @@
-use crate::common::db::TestPostgresDatabase;
 use crate::common::discovery;
+use anyhow::anyhow;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
+use switchgear_testing::db::TestPostgresDatabase;
 use switchgear_testing::services::IntegrationTestServices;
 use uuid::Uuid;
 
 async fn create_postgres_store() -> Option<(DbDiscoveryBackendStore, TestPostgresDatabase)> {
+    let _ = rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
+
     let db_name = format!(
         "test_discovery_{}",
         Uuid::new_v4().to_string().replace("-", "")
@@ -15,7 +20,7 @@ async fn create_postgres_store() -> Option<(DbDiscoveryBackendStore, TestPostgre
         None => return None,
         Some(v) => v,
     };
-    let db = TestPostgresDatabase::new(db_name, postgres);
+    let db = TestPostgresDatabase::new(db_name, postgres, false, None);
 
     let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)
         .await

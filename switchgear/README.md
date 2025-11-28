@@ -134,6 +134,18 @@ docker run bitshock/switchgear
 
 The image is configured with a default configuration file path of `/etc/swgr/config.yaml` . Mount a volume on top of `/etc/swgr` to provide your own configuration file.
 
+To build the Docker image:
+
+```shell
+docker buildx build --platform linux/arm64,linux/amd64 -t swgr .
+```
+
+Set the build arg `WEBPKI_ROOTS=true` if you need Mozilla's web PKI roots bundle installed on the image:
+
+```shell
+docker buildx build --platform linux/arm64,linux/amd64 --build-arg WEBPKI_ROOTS=true -t swgr .
+```
+
 ## Administration
 
 Switchgear can be configured by both the REST API and the CLI.
@@ -372,6 +384,9 @@ lnurl-service:
   
   # Timeout in seconds for Lightning node client connections (float)
   ln-client-timeout-secs: 2.0
+
+  # Optional trusted roots pem bundle for all LN clients
+  ln-trusted-roots: "/etc/ssl/certs/ln-ca.pem"
   
   # List of allowed host headers for incoming requests
   # Used for safely generating callback/invoice URLs.
@@ -418,7 +433,7 @@ lnurl-service:
     cert-path: "/etc/ssl/certs/lnurl-cert.pem"
     # Path to TLS private key file
     key-path: "/etc/ssl/certs/lnurl-key.pem"
-
+    
   # QR module width x height
   bech32-qr-scale: 8
   # QR light gray level
@@ -562,8 +577,8 @@ store:
     connect-timeout-secs: 2.0
     # Total timeout in seconds for complete request/response
     total-timeout-secs: 5.0
-    # List of trusted CA certificate paths for TLS verification
-    trusted-roots: ["/etc/ssl/certs/ca.pem"]
+    # Optional pem bundle of trusted CA certificate paths for TLS verification
+    trusted-roots: "/etc/ssl/certs/ca.pem"
     # Path to bearer token file for authentication
     authorization: "/etc/ssl/certs/auth.token"
 ```
@@ -622,7 +637,7 @@ store:
     base-url: "https://discovery.internal:8081"
     connect-timeout-secs: 2.0
     total-timeout-secs: 5.0
-    trusted-roots: ["/etc/ssl/certs/internal-ca.pem"]
+    trusted-roots: "/etc/ssl/certs/internal-ca.pem"
     authorization: "/etc/ssl/certs/discovery.token"
   
   # Local database for Offers

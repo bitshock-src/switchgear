@@ -13,6 +13,7 @@ lnurl-service:
   backend-update-frequency-secs: 1.0
   invoice-expiry-secs: 180
   ln-client-timeout-secs: 2.0
+  ln-trusted-roots: ${LN_TRUSTED_ROOTS:-}
   allowed-hosts: [ "${LNURL_SERVICE_ALLOWED_HOSTS:-}" ]
   backoff:
     type: "exponential"

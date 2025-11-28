@@ -13,10 +13,10 @@ Feature: LNURL Pay invoice generation
     And all services should be listening on their configured ports
 
   @lightning-backend @happy-path
-  Scenario Outline: Payer requests invoice from single payee's <backend_type> lightning offer using <protocol>
+  Scenario Outline: Payer requests invoice from single payee's <backend_type> lightning offer using <protocol> and ln trust root location <trust>
     # Test LNURL Pay flow where payee creates offer and payer requests invoice
     Given a valid configuration file exists for <protocol>
-    And the single payee has a <backend_type> lightning node available
+    And the single payee has a <backend_type> lightning node available with trust root <trust>
     When the single payee creates an offer for their lightning node
     And the single payee registers their lightning node as a backend
     And the system waits for backend readiness
@@ -30,8 +30,12 @@ Feature: LNURL Pay invoice generation
     And the invoice description hash should match the metadata hash
 
     Examples:
-      | backend_type | protocol |
-      | CLN          | http     |
-      | CLN          | https    |
-      | LND          | http     |
-      | LND          | https    |
+      | backend_type | protocol | trust  |
+      | CLN          | http     | creds  |
+      | CLN          | https    | creds  |
+      | CLN          | https    | config |
+      | CLN          | https    | native |
+      | LND          | http     | creds  |
+      | LND          | https    | creds  |
+      | LND          | https    | config |
+      | LND          | https    | native |

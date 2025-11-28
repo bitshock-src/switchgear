@@ -20,15 +20,15 @@ backoff = { version = "0.4", features = ["tokio"] }
 chrono = { version = "0.4", features = ["serde"] }
 switchgear-service = { version = "0.1.7", path = "../service" }
 log = "0.4"
-pingora-core = { version = "0.6", features = ["rustls"] }
-pingora-error = { version = "0.6" }
-pingora-load-balancing = { version = "0.6" }
+pingora-core = { version = "0.6", default-features = false }
+pingora-error = { version = "0.6", default-features = false }
+pingora-load-balancing = { version = "0.6", default-features = false }
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
-uuid = { version = "1.17", features = ["v4", "serde"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
 url = "2.5"
 
 [dev-dependencies]
 chrono = "0.4"
 tokio = { version = "1", features = ["full"] }
-uuid = "1.17"
+uuid = "1.18"

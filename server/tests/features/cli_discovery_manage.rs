@@ -5,6 +5,8 @@ use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
 
+use crate::common::context::server::CertificateLocation;
+
 /// Feature: Discovery CLI management
 /// Scenario Outline: Generate cln-grpc backend JSON
 #[tokio::test]
@@ -123,7 +125,7 @@ async fn test_discovery_post() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -181,7 +183,7 @@ async fn test_discovery_post_conflict() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -189,7 +191,7 @@ async fn test_discovery_post_conflict() {
         .expect("assert");
 
     // Scenario steps - post same backend again
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
@@ -251,7 +253,7 @@ async fn test_discovery_ls() {
         .await
         .expect("assert");
     let expected_backend = extract_backend(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -273,73 +275,86 @@ async fn test_discovery_ls() {
 }
 
 /// Feature: Discovery CLI management
-/// Scenario: Get a backend
+/// Scenario Outline: Get a backend
 #[tokio::test]
 async fn test_discovery_get() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let root_locations = vec![
+        CertificateLocation::Arg,
+        CertificateLocation::Env,
+        CertificateLocation::Native,
+    ];
 
-    let server1 = "server1";
-    let config_path = manifest_dir.join("config/memory-basic.yaml");
-    ctx.add_server(
-        server1,
-        config_path,
-        Protocol::Https,
-        Protocol::Https,
-        Protocol::Https,
-    )
-    .expect("assert");
-    ctx.activate_server(server1);
+    for root_location in root_locations {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
+        let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
+            Some(ctx) => ctx,
+            None => return,
+        };
 
-    let mut cli_ctx = CliContext::create().expect("assert");
+        let server1 = "server1";
+        let config_path = manifest_dir.join("config/memory-basic.yaml");
+        ctx.add_server(
+            server1,
+            config_path,
+            Protocol::Https,
+            Protocol::Https,
+            Protocol::Https,
+        )
+        .expect("assert");
+        ctx.activate_server(server1);
 
-    // Background
-    step_given_the_swgr_cli_is_available(&mut cli_ctx)
-        .await
-        .expect("assert");
+        let mut cli_ctx = CliContext::create().expect("assert");
 
-    // Start server
-    step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
-        .await
-        .expect("assert");
-    step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
-        .await
-        .expect("assert");
-    step_then_the_server_should_start_successfully(&mut ctx)
-        .await
-        .expect("assert");
-    step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
-        .await
-        .expect("assert");
+        // Background
+        step_given_the_swgr_cli_is_available(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    // Setup - load backend
-    step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    let expected_backend = extract_backend(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
+        // Start server
+        step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
+            .await
+            .expect("assert");
+        step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
+            .await
+            .expect("assert");
+        step_then_the_server_should_start_successfully(&mut ctx)
+            .await
+            .expect("assert");
+        step_and_all_services_should_be_listening_on_their_configured_ports(&mut ctx)
+            .await
+            .expect("assert");
 
-    // Scenario steps
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &expected_backend.address.encoded())
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_backend_details_should_be_output(&mut cli_ctx, &expected_backend)
-        .await
-        .expect("assert");
+        // Setup - load backend
+        step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
+            .await
+            .expect("assert");
+        let expected_backend = extract_backend(&cli_ctx).await.expect("assert");
+        step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, root_location.clone())
+            .await
+            .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
 
-    ctx.stop_all_servers().expect("assert");
+        // Scenario steps
+        step_when_i_run_swgr_discovery_get(
+            &mut ctx,
+            &mut cli_ctx,
+            &expected_backend.address.encoded(),
+            root_location,
+        )
+        .await
+        .expect("assert");
+        step_then_the_command_should_succeed(&mut cli_ctx)
+            .await
+            .expect("assert");
+        step_then_backend_details_should_be_output(&mut cli_ctx, &expected_backend)
+            .await
+            .expect("assert");
+
+        ctx.stop_all_servers().expect("assert");
+    }
 }
 
 /// Feature: Discovery CLI management
@@ -391,7 +406,7 @@ async fn test_discovery_get_all() {
         .await
         .expect("assert");
     let expected_backend = extract_backend(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -461,7 +476,7 @@ async fn test_discovery_put() {
         .await
         .expect("assert");
     let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -478,9 +493,14 @@ async fn test_discovery_put() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &backend_address)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_discovery_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &backend_address,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
@@ -540,7 +560,7 @@ async fn test_discovery_delete() {
         .await
         .expect("assert");
     let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -554,9 +574,14 @@ async fn test_discovery_delete() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &backend_address)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_discovery_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &backend_address,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_fail(&mut cli_ctx)
         .await
         .expect("assert");
@@ -616,7 +641,7 @@ async fn test_discovery_patch() {
         .await
         .expect("assert");
     let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -633,9 +658,14 @@ async fn test_discovery_patch() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &backend_address)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_discovery_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &backend_address,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
@@ -695,7 +725,7 @@ async fn test_discovery_enable() {
         .await
         .expect("assert");
     let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -715,9 +745,14 @@ async fn test_discovery_enable() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &backend_address)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_discovery_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &backend_address,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
@@ -777,7 +812,7 @@ async fn test_discovery_disable() {
         .await
         .expect("assert");
     let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
-    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx)
+    step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -791,9 +826,14 @@ async fn test_discovery_disable() {
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_get(&mut ctx, &mut cli_ctx, &backend_address)
-        .await
-        .expect("assert");
+    step_when_i_run_swgr_discovery_get(
+        &mut ctx,
+        &mut cli_ctx,
+        &backend_address,
+        CertificateLocation::Arg,
+    )
+    .await
+    .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");

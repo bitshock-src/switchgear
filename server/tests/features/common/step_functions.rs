@@ -1,6 +1,7 @@
 use crate::common::context::cli::CliContext;
 use crate::common::context::global::GlobalContext;
 use crate::common::context::pay::OfferRequest;
+use crate::common::context::server::CertificateLocation;
 use crate::common::context::{Protocol, Service};
 use crate::common::helpers::{
     check_all_services_health, check_services_listening_status, count_log_patterns,
@@ -32,9 +33,10 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_testing::credentials::{RegTestLnNode, RegTestLnNodeType};
+use switchgear_testing::credentials::lightning::{RegTestLnNode, RegTestLnNodeType};
 use tokio::time::sleep as tokio_sleep;
 use uuid::Uuid;
+
 // =============================================================================
 // STEP FUNCTIONS - Mapped to Gherkin steps in feature files
 // =============================================================================
@@ -411,6 +413,7 @@ pub async fn step_when_the_payee_creates_an_offer_for_their_lightning_node(
 pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
     ctx: &mut GlobalContext,
     payee_id: &str,
+    include_ca: bool,
 ) -> Result<()> {
     // Use the selected node from context
     let payee = get_payee_from_context(ctx, payee_id)?;
@@ -427,18 +430,26 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
                 url,
                 auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
-                    ca_cert_path: cln.ca_cert_path.clone(),
+                    ca_cert_path: if include_ca {
+                        cln.ca_cert_path.clone().into()
+                    } else {
+                        None
+                    },
                     client_cert_path: cln.client_cert_path.clone(),
                     client_key_path: cln.client_key_path.clone(),
                 }),
-                domain: Some(cln.sni.clone()),
+                domain: None,
             })
         }
         RegTestLnNode::Lnd(lnd) => {
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
                 url,
                 auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                    tls_cert_path: lnd.tls_cert_path.clone(),
+                    tls_cert_path: if include_ca {
+                        lnd.tls_cert_path.clone().into()
+                    } else {
+                        None
+                    },
                     macaroon_path: lnd.macaroon_path.clone(),
                 }),
                 amp_invoice: false,
@@ -697,18 +708,18 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
                 url,
                 auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
-                    ca_cert_path: cln.ca_cert_path.clone(),
+                    ca_cert_path: cln.ca_cert_path.clone().into(),
                     client_cert_path: cln.client_cert_path.clone(),
                     client_key_path: cln.client_key_path.clone(),
                 }),
-                domain: Some(cln.sni.clone()),
+                domain: None,
             })
         }
         RegTestLnNode::Lnd(lnd) => {
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
                 url,
                 auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                    tls_cert_path: lnd.tls_cert_path.clone(),
+                    tls_cert_path: lnd.tls_cert_path.clone().into(),
                     macaroon_path: lnd.macaroon_path.clone(),
                 }),
                 amp_invoice: false,
@@ -2573,6 +2584,7 @@ pub async fn step_given_a_valid_backend_json_exists(
 pub async fn step_when_i_run_swgr_discovery_post(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
+    root_location: CertificateLocation,
 ) -> Result<()> {
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -2591,21 +2603,32 @@ pub async fn step_when_i_run_swgr_discovery_post(
     let authorization = ctx.get_active_discovery_authorization()?;
     let authorization_str = authorization.to_str().unwrap().to_string();
 
-    let args = vec![
-        "discovery",
-        "post",
-        "--base-url",
-        &base_url,
-        "--trusted-roots",
-        &trusted_roots_str,
-        "--authorization-path",
-        &authorization_str,
-        "--input",
-        &backend_json_path,
-    ];
+    let mut args = vec!["discovery", "post", "--base-url", &base_url];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &root_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&trusted_roots_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("DISCOVERY_STORE_HTTP_TRUSTED_ROOTS", &trusted_roots_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &trusted_roots_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    args.push("--authorization-path");
+    args.push(&authorization_str);
+    args.push("--input");
+    args.push(&backend_json_path);
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 
@@ -2740,6 +2763,7 @@ pub async fn step_when_i_run_swgr_discovery_get(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
     backend_address: &str,
+    root_location: CertificateLocation,
 ) -> Result<()> {
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -2757,20 +2781,30 @@ pub async fn step_when_i_run_swgr_discovery_get(
     let authorization = ctx.get_active_discovery_authorization()?;
     let authorization_str = authorization.to_str().unwrap().to_string();
 
-    let args = vec![
-        "discovery",
-        "get",
-        backend_address,
-        "--base-url",
-        &base_url,
-        "--trusted-roots",
-        &trusted_roots_str,
-        "--authorization-path",
-        &authorization_str,
-    ];
+    let mut args = vec!["discovery", "get", backend_address, "--base-url", &base_url];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &root_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&trusted_roots_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("DISCOVERY_STORE_HTTP_TRUSTED_ROOTS", &trusted_roots_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &trusted_roots_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    args.push("--authorization-path");
+    args.push(&authorization_str);
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 
@@ -3620,6 +3654,7 @@ pub async fn step_given_a_valid_offer_json_exists(
 pub async fn step_when_i_run_swgr_offer_post(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
+    certificate_location: CertificateLocation,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -3635,21 +3670,37 @@ pub async fn step_when_i_run_swgr_offer_post(
 
     let input_path = cli_ctx.offer_json_path.to_str().unwrap().to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "post",
         "--base-url",
         &base_url,
         "--authorization-path",
         &authorization_str,
-        "--trusted-roots",
-        &ca_bundle_str,
-        "--input",
-        &input_path,
     ];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &certificate_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&ca_bundle_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("OFFER_STORE_HTTP_TRUSTED_ROOTS", &ca_bundle_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &ca_bundle_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    args.push("--input");
+    args.push(&input_path);
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 
@@ -3659,6 +3710,7 @@ pub async fn step_when_i_run_swgr_offer_get(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
     offer_id: &Uuid,
+    certificate_location: CertificateLocation,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -3674,7 +3726,7 @@ pub async fn step_when_i_run_swgr_offer_get(
 
     let id = offer_id.to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "get",
         "default",
@@ -3683,12 +3735,27 @@ pub async fn step_when_i_run_swgr_offer_get(
         &base_url,
         "--authorization-path",
         &authorization_str,
-        "--trusted-roots",
-        &ca_bundle_str,
     ];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &certificate_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&ca_bundle_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("OFFER_STORE_HTTP_TRUSTED_ROOTS", &ca_bundle_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &ca_bundle_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 
@@ -4083,6 +4150,7 @@ pub async fn step_given_a_valid_offer_metadata_json_exists(
 pub async fn step_when_i_run_swgr_offer_metadata_post(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
+    certificate_location: CertificateLocation,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -4098,7 +4166,7 @@ pub async fn step_when_i_run_swgr_offer_metadata_post(
 
     let input_path = cli_ctx.metadata_json_path.to_str().unwrap().to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "metadata",
         "post",
@@ -4106,14 +4174,30 @@ pub async fn step_when_i_run_swgr_offer_metadata_post(
         &base_url,
         "--authorization-path",
         &authorization_str,
-        "--trusted-roots",
-        &ca_bundle_str,
-        "--input",
-        &input_path,
     ];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &certificate_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&ca_bundle_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("OFFER_STORE_HTTP_TRUSTED_ROOTS", &ca_bundle_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &ca_bundle_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    args.push("--input");
+    args.push(&input_path);
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 
@@ -4123,6 +4207,7 @@ pub async fn step_when_i_run_swgr_offer_metadata_get(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
     metadata_id: &Uuid,
+    certificate_location: CertificateLocation,
 ) -> Result<()> {
     let service_profile = ctx.get_active_offer_service_profile()?;
     let protocol = service_profile.protocol;
@@ -4138,7 +4223,7 @@ pub async fn step_when_i_run_swgr_offer_metadata_get(
 
     let id = metadata_id.to_string();
 
-    let args = vec![
+    let mut args = vec![
         "offer",
         "metadata",
         "get",
@@ -4148,12 +4233,27 @@ pub async fn step_when_i_run_swgr_offer_metadata_get(
         &base_url,
         "--authorization-path",
         &authorization_str,
-        "--trusted-roots",
-        &ca_bundle_str,
     ];
 
-    let empty_env: Vec<(&str, &str)> = vec![];
-    cli_ctx.command(empty_env, args)?;
+    // Configure root certificate location
+    let mut env: Vec<(&str, &str)> = vec![];
+    match &certificate_location {
+        CertificateLocation::Arg => {
+            args.push("--trusted-roots");
+            args.push(&ca_bundle_str);
+        }
+        CertificateLocation::Env => {
+            env.push(("OFFER_STORE_HTTP_TRUSTED_ROOTS", &ca_bundle_str));
+        }
+        CertificateLocation::Native => {
+            env.push(("SSL_CERT_FILE", &ca_bundle_str));
+        }
+        CertificateLocation::NativePath(path) => {
+            env.push(("SSL_CERT_FILE", path));
+        }
+    }
+
+    cli_ctx.command(env, args)?;
     Ok(())
 }
 

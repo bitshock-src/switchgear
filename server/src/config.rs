@@ -28,6 +28,7 @@ pub struct LnUrlBalancerServiceConfig {
     pub backend_selection: BackendSelectionConfig,
     pub tls: Option<TlsConfig>,
     pub ln_client_timeout_secs: f64,
+    pub ln_trusted_roots: Option<PathBuf>,
     pub selection_capacity_bias: Option<f64>,
     pub comment_allowed: Option<u32>,
     pub bech32_qr_scale: usize,
@@ -95,7 +96,7 @@ pub enum OfferStoreConfig {
         base_url: String,
         connect_timeout_secs: f64,
         total_timeout_secs: f64,
-        trusted_roots: Vec<PathBuf>,
+        trusted_roots: Option<PathBuf>,
         authorization: PathBuf,
     },
 }
@@ -114,7 +115,7 @@ pub enum DiscoveryStoreConfig {
         base_url: String,
         connect_timeout_secs: f64,
         total_timeout_secs: f64,
-        trusted_roots: Vec<PathBuf>,
+        trusted_roots: Option<PathBuf>,
         authorization: PathBuf,
     },
 }

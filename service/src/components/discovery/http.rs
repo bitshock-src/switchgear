@@ -6,7 +6,8 @@ use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Certificate, Client, ClientBuilder, StatusCode};
+use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
+use rustls::pki_types::CertificateDer;
 use std::time::Duration;
 use url::Url;
 
@@ -18,11 +19,11 @@ pub struct HttpDiscoveryBackendStore {
 }
 
 impl HttpDiscoveryBackendStore {
-    pub fn create(
-        base_url: Url,
+    pub fn create<U: IntoUrl>(
+        base_url: U,
         total_timeout: Duration,
         connect_timeout: Duration,
-        trusted_roots: Vec<Certificate>,
+        trusted_roots: &[CertificateDer],
         authorization: String,
     ) -> Result<Self, DiscoveryBackendStoreError> {
         let mut headers = HeaderMap::new();
@@ -30,7 +31,7 @@ impl HttpDiscoveryBackendStore {
             HeaderValue::from_str(&format!("Bearer {authorization}")).map_err(|e| {
                 DiscoveryBackendStoreError::internal_error(
                     ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {base_url}"),
+                    format!("creating http client with base url: {}", base_url.as_str()),
                     e.to_string(),
                 )
             })?;
@@ -40,6 +41,13 @@ impl HttpDiscoveryBackendStore {
         let mut builder = ClientBuilder::new();
 
         for root in trusted_roots {
+            let root = Certificate::from_der(root).map_err(|e| {
+                DiscoveryBackendStoreError::internal_error(
+                    ServiceErrorSource::Internal,
+                    format!("parsing certificate for url: {}", base_url.as_str()),
+                    e.to_string(),
+                )
+            })?;
             builder = builder.add_root_certificate(root);
         }
 
@@ -52,14 +60,17 @@ impl HttpDiscoveryBackendStore {
             .map_err(|e| {
                 DiscoveryBackendStoreError::http_error(
                     ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {base_url}"),
+                    format!("creating http client with base url: {}", base_url.as_str()),
                     e,
                 )
             })?;
         Self::with_client(client, base_url)
     }
 
-    pub fn with_client(client: Client, base_url: Url) -> Result<Self, DiscoveryBackendStoreError> {
+    pub fn with_client<U: IntoUrl>(
+        client: Client,
+        base_url: U,
+    ) -> Result<Self, DiscoveryBackendStoreError> {
         let base_url = base_url.as_str().trim_end_matches('/').to_string();
         let discovery_url = format!("{base_url}/discovery");
         Url::parse(&discovery_url).map_err(|e| {
@@ -309,10 +320,15 @@ impl HttpDiscoveryBackendClient for HttpDiscoveryBackendStore {
 mod tests {
     use crate::api::discovery::DiscoveryBackendAddress;
     use crate::components::discovery::http::HttpDiscoveryBackendStore;
+    use anyhow::anyhow;
     use url::Url;
 
     #[test]
     fn base_urls() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
+
         let client = HttpDiscoveryBackendStore::with_client(
             reqwest::Client::default(),
             Url::parse("https://base.com").unwrap(),

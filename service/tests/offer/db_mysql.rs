@@ -1,10 +1,15 @@
-use crate::common::db::TestMysqlDatabase;
 use crate::common::offer;
+use anyhow::anyhow;
 use switchgear_service::components::offer::db::DbOfferStore;
+use switchgear_testing::db::TestMysqlDatabase;
 use switchgear_testing::services::IntegrationTestServices;
 use uuid::Uuid;
 
 async fn create_mysql_store() -> Option<(DbOfferStore, TestMysqlDatabase)> {
+    let _ = rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
+
     let db_name = format!(
         "test_discovery_{}",
         Uuid::new_v4().to_string().replace("-", "")
@@ -15,7 +20,7 @@ async fn create_mysql_store() -> Option<(DbOfferStore, TestMysqlDatabase)> {
         None => return None,
         Some(v) => v,
     };
-    let db = TestMysqlDatabase::new(db_name, mysql);
+    let db = TestMysqlDatabase::new(db_name, mysql, false, None);
 
     let store = DbOfferStore::connect(db.connection_url(), 5).await.unwrap();
     store.migrate_up().await.unwrap();

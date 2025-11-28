@@ -19,7 +19,7 @@ impl MigrationTrait for OfferMigration {
                     )
                     .col(
                         ColumnDef::new(OfferMetadataTable::Metadata)
-                            .json()
+                            .json_binary()
                             .not_null(),
                     )
                     .col(
