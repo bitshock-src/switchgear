@@ -20,7 +20,7 @@ pub enum ClnGrpcClientAuth {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClnGrpcClientAuthPath {
-    pub ca_cert_path: PathBuf,
+    pub ca_cert_path: Option<PathBuf>,
     pub client_cert_path: PathBuf,
     pub client_key_path: PathBuf,
 }

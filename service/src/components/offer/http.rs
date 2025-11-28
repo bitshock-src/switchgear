@@ -7,7 +7,8 @@ use crate::api::service::ServiceErrorSource;
 use crate::components::offer::error::OfferStoreError;
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderValue};
-use reqwest::{Certificate, Client, ClientBuilder, StatusCode};
+use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
+use rustls::pki_types::CertificateDer;
 use sha2::Digest;
 use std::time::Duration;
 use url::Url;
@@ -22,11 +23,11 @@ pub struct HttpOfferStore {
 }
 
 impl HttpOfferStore {
-    pub fn create(
-        base_url: Url,
+    pub fn create<U: IntoUrl>(
+        base_url: U,
         total_timeout: Duration,
         connect_timeout: Duration,
-        trusted_roots: Vec<Certificate>,
+        trusted_roots: &[CertificateDer],
         authorization: String,
     ) -> Result<Self, OfferStoreError> {
         let mut headers = HeaderMap::new();
@@ -34,7 +35,7 @@ impl HttpOfferStore {
             HeaderValue::from_str(&format!("Bearer {authorization}")).map_err(|e| {
                 OfferStoreError::internal_error(
                     ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {base_url}"),
+                    format!("creating http client with base url: {}", base_url.as_str()),
                     e.to_string(),
                 )
             })?;
@@ -43,6 +44,13 @@ impl HttpOfferStore {
 
         let mut builder = ClientBuilder::new();
         for root in trusted_roots {
+            let root = Certificate::from_der(root).map_err(|e| {
+                OfferStoreError::internal_error(
+                    ServiceErrorSource::Internal,
+                    format!("parsing certificate for url: {}", base_url.as_str()),
+                    e.to_string(),
+                )
+            })?;
             builder = builder.add_root_certificate(root);
         }
 
@@ -55,14 +63,14 @@ impl HttpOfferStore {
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {base_url}"),
+                    format!("creating http client with base url: {}", base_url.as_str()),
                     e,
                 )
             })?;
         Self::with_client(client, base_url)
     }
 
-    fn with_client(client: Client, base_url: Url) -> Result<Self, OfferStoreError> {
+    fn with_client<U: IntoUrl>(client: Client, base_url: U) -> Result<Self, OfferStoreError> {
         let base_url = base_url.as_str().trim_end_matches('/').to_string();
 
         let offer_url = format!("{base_url}/offers");

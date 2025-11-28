@@ -1,7 +1,7 @@
 use crate::common::client::{LnUrlTestClient, TcpProbe};
 use crate::common::context::certs::gen_root_cert;
 use crate::common::context::pay::{OfferRequest, PayeeContext};
-use crate::common::context::server::ServerContext;
+use crate::common::context::server::{CertificateLocation, ServerContext};
 use crate::common::context::{Protocol, TestConfiguration, TestConfigurationServiceDomains};
 use crate::common::context::{Service, ServiceProfile};
 use anyhow::{anyhow, Context};
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_service::components::offer::http::HttpOfferStore;
-use switchgear_testing::credentials::{
+use switchgear_testing::credentials::lightning::{
     ClnRegTestLnNode, LnCredentials, LndRegTestLnNode, RegTestLnNode,
 };
 use tempfile::TempDir;
@@ -31,6 +31,10 @@ pub struct GlobalContext {
 
 impl GlobalContext {
     pub fn create(feature_test_config_path: &Path) -> anyhow::Result<Option<Self>> {
+        let _ = rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
+
         let credentials = LnCredentials::create()?;
         let ln_nodes = credentials.get_backends()?;
         if ln_nodes.is_empty() {
@@ -317,6 +321,21 @@ impl GlobalContext {
         Ok(())
     }
 
+    pub fn set_discovery_store_database_url(
+        &mut self,
+        server_key_id: &str,
+        database_url: String,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_discovery_store_database_url(database_url);
+
+        Ok(())
+    }
+
     pub fn set_discovery_store_authorization(
         &mut self,
         service_server_key_id: &str,
@@ -363,6 +382,21 @@ impl GlobalContext {
         Ok(())
     }
 
+    pub fn set_certificate_location(
+        &mut self,
+        server_key_id: &str,
+        certificate_location: CertificateLocation,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_certificate_location(certificate_location);
+
+        Ok(())
+    }
+
     pub fn set_offer_store_url(
         &mut self,
         service_server_key_id: &str,
@@ -380,6 +414,36 @@ impl GlobalContext {
             .ok_or_else(|| anyhow!("dest server not found"))?;
 
         client_server.set_offer_store_url(Self::get_service_url(service_server_profile).into());
+
+        Ok(())
+    }
+
+    pub fn set_offer_store_database_url(
+        &mut self,
+        server_key_id: &str,
+        database_url: String,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_offer_store_database_url(database_url);
+
+        Ok(())
+    }
+
+    pub fn set_ln_trusted_roots_path(
+        &mut self,
+        server_key_id: &str,
+        ln_trusted_roots_path: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_ln_trusted_roots_path(ln_trusted_roots_path);
 
         Ok(())
     }

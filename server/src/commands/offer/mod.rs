@@ -3,11 +3,13 @@ use crate::commands::offer::record::OfferRecordManagementCommands;
 use crate::commands::token::TokenCommands;
 use anyhow::{anyhow, Context};
 use clap::{Parser, Subcommand};
-use reqwest::{Certificate, Url};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{env, fs};
 use switchgear_service::components::offer::http::HttpOfferStore;
+use url::Url;
 
 pub mod metadata;
 pub mod record;
@@ -75,19 +77,12 @@ pub fn create_offer_client(
     };
 
     let trusted_roots = if let Some(trusted_roots_path) = trusted_roots_path {
-        let trusted_roots = fs::read(&trusted_roots_path).with_context(|| {
-            format!(
-                "reading trusted roots file: {}",
-                trusted_roots_path.to_string_lossy()
-            )
-        })?;
-
-        vec![Certificate::from_pem(&trusted_roots).with_context(|| {
-            format!(
-                "parsing trusted roots file: {}",
-                trusted_roots_path.to_string_lossy()
-            )
-        })?]
+        CertificateDer::pem_file_iter(&trusted_roots_path)
+            .with_context(|| format!("parsing root certificate: {}", trusted_roots_path.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| {
+                format!("parsing root certificate: {}", trusted_roots_path.display())
+            })?
     } else {
         vec![]
     };
@@ -96,7 +91,7 @@ pub fn create_offer_client(
         base_url,
         Duration::from_secs(1),
         Duration::from_secs(1),
-        trusted_roots,
+        &trusted_roots,
         authorization,
     )?)
 }

@@ -21,6 +21,6 @@ pub enum LndGrpcClientAuth {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LndGrpcClientAuthPath {
-    pub tls_cert_path: PathBuf,
+    pub tls_cert_path: Option<PathBuf>,
     pub macaroon_path: PathBuf,
 }

@@ -2,7 +2,8 @@ use crate::commands::{cli_read_to_string, cli_write_all};
 use anyhow::{anyhow, bail, Context};
 use clap::{Parser, ValueEnum};
 use log::info;
-use reqwest::{Certificate, Url};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -20,6 +21,7 @@ use switchgear_service::components::pool::cln::grpc::config::{
 use switchgear_service::components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
+use url::Url;
 
 #[derive(Parser, Debug)]
 pub enum DiscoveryBackendManagementCommands {
@@ -169,7 +171,7 @@ pub fn new_backend(
                 url: Url::parse("https://127.0.0.1:9736")?,
                 domain: Some("localhost".to_string()),
                 auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
-                    ca_cert_path: PathBuf::from("/path/to/ca.pem"),
+                    ca_cert_path: PathBuf::from("/path/to/ca.pem").into(),
                     client_cert_path: PathBuf::from("/path/to/client.pem"),
                     client_key_path: PathBuf::from("/path/to/client-key.pem"),
                 }),
@@ -180,7 +182,7 @@ pub fn new_backend(
                 url: Url::parse("https://127.0.0.1:10009")?,
                 domain: Some("localhost".to_string()),
                 auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                    tls_cert_path: PathBuf::from("/path/to/tls.cert"),
+                    tls_cert_path: PathBuf::from("/path/to/tls.cert").into(),
                     macaroon_path: PathBuf::from("/path/to/admin.macaroon"),
                 }),
                 amp_invoice: false,
@@ -458,19 +460,12 @@ fn create_backend_client(
     };
 
     let trusted_roots = if let Some(trusted_roots_path) = trusted_roots_path {
-        let trusted_roots = fs::read(&trusted_roots_path).with_context(|| {
-            format!(
-                "reading trusted roots file: {}",
-                trusted_roots_path.to_string_lossy()
-            )
-        })?;
-
-        vec![Certificate::from_pem(&trusted_roots).with_context(|| {
-            format!(
-                "parsing trusted roots file: {}",
-                trusted_roots_path.to_string_lossy()
-            )
-        })?]
+        CertificateDer::pem_file_iter(&trusted_roots_path)
+            .with_context(|| format!("parsing root certificate: {}", trusted_roots_path.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| {
+                format!("parsing root certificate: {}", trusted_roots_path.display())
+            })?
     } else {
         vec![]
     };
@@ -479,7 +474,7 @@ fn create_backend_client(
         base_url,
         Duration::from_secs(1),
         Duration::from_secs(1),
-        trusted_roots,
+        &trusted_roots,
         authorization,
     )?)
 }

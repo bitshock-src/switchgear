@@ -5,6 +5,7 @@ mod signals;
 
 use crate::commands::offer::metadata::OfferMetadataManagementCommands;
 use crate::commands::offer::record::OfferRecordManagementCommands;
+use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use commands::discovery::backend::DiscoveryBackendManagementCommands;
 use commands::discovery::DiscoveryCommands;
@@ -95,6 +96,10 @@ async fn main() -> ExitCode {
 }
 
 async fn _main(args: CliArgs) -> anyhow::Result<()> {
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"))?;
+
     match args.command {
         RootCommands::Service { config, enablement } => {
             commands::services::execute(config, enablement).await

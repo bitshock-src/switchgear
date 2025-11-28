@@ -5,6 +5,8 @@ set -e
 CREDS_DIR="/shared/credentials"
 mkdir -p "$CREDS_DIR/cln"
 mkdir -p "$CREDS_DIR/lnd"
+mkdir -p "$CREDS_DIR/postgres"
+mkdir -p "$CREDS_DIR/mysql"
 
 CLN_PUBKEY=$(docker exec cln-regtest lightning-cli --regtest getinfo | jq -r ".id")
 echo "$CLN_PUBKEY" > "$CREDS_DIR/cln/node_id"
@@ -19,21 +21,14 @@ echo "$LND_PUBKEY" > "$CREDS_DIR/lnd/node_id"
 docker cp lnd-regtest:/root/.lnd/tls.cert "$CREDS_DIR/lnd/"
 docker cp lnd-regtest:/root/.lnd/data/chain/bitcoin/regtest/admin.macaroon "$CREDS_DIR/lnd/"
 
+docker cp postgres-db:/var/lib/postgresql/server.pem "$CREDS_DIR/postgres/"
+
+docker cp mysql-db:/etc/mysql/certs/server.pem "$CREDS_DIR/mysql/"
+
 chmod -R 644 "$CREDS_DIR"
 chmod -R +X "$CREDS_DIR"
 
-echo ""
-echo "=== CREDENTIALS SUMMARY ==="
-echo "CLN:"
-echo "  - Node ID: $(cat $CREDS_DIR/cln/node_id)"
-echo "  - ca.pem: $CREDS_DIR/cln/ca.pem"
-echo "  - client.pem: $CREDS_DIR/cln/client.pem"
-echo "  - client-key.pem: $CREDS_DIR/cln/client-key.pem"
-echo ""
-echo "LND:"
-echo "  - Node ID: $(cat $CREDS_DIR/lnd/node_id)"
-echo "  - tls.cert: $CREDS_DIR/lnd/tls.cert"
-echo "  - admin.macaroon: $CREDS_DIR/lnd/admin.macaroon"
-
 cd /shared
-tar -czf credentials.tar.gz credentials/
+
+echo "=== CREDENTIALS ==="
+tar cvzf credentials.tar.gz credentials/

@@ -64,7 +64,7 @@ impl DiscoveryStoreInjector {
                 trusted_roots,
                 authorization,
             } => {
-                let trusted_roots = load_server_certificate(trusted_roots)
+                let trusted_roots = load_server_certificate(trusted_roots.as_deref())
                     .with_context(|| "loading server certificate for http discovery store")?;
                 let authorization_token =
                     std::fs::read(authorization.as_path()).with_context(|| {
@@ -81,12 +81,10 @@ impl DiscoveryStoreInjector {
                 })?;
                 DiscoveryBackendStoreDelegate::Http(
                     HttpDiscoveryBackendStore::create(
-                        base_url
-                            .parse()
-                            .with_context(|| format!("invalid base url: {base_url}"))?,
+                        base_url,
                         Duration::from_secs_f64(*total_timeout),
                         Duration::from_secs_f64(*connect_timeout),
-                        trusted_roots,
+                        &trusted_roots,
                         authorization_token.to_string(),
                     )
                     .with_context(|| "creating http client for discovery store")?,

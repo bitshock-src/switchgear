@@ -2,11 +2,9 @@ name: Build and Push CI Docker Build Image
 
 on:
   workflow_dispatch:
-  workflow_call:
-    outputs:
-      image-tag:
-        description: 'The Docker image tag to use'
-        value: ${{ jobs.build-and-push.outputs.image-tag }}
+  push:
+    paths:
+      - 'ci/Dockerfile'
 
 env:
   REGISTRY: ghcr.io
@@ -35,9 +33,12 @@ jobs:
       - name: Determine image tag
         id: determine-tag
         run: |
-          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.dockerfile-sha.outputs.sha }}"
+          BRANCH_NAME="${{ github.ref_name }}"
+          SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
+          IMAGE_NAME_WITH_BRANCH="${{ env.IMAGE_NAME }}-${SAFE_BRANCH}"
+          IMAGE_TAG="${{ env.REGISTRY }}/${IMAGE_NAME_WITH_BRANCH}:${{ steps.dockerfile-sha.outputs.sha }}"
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "Image tag: ${IMAGE_TAG}"
+          echo "image-name-with-branch=${IMAGE_NAME_WITH_BRANCH}" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -60,10 +61,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.determine-tag.outputs.image-name-with-branch }}
           tags: |
             type=raw,value=${{ steps.dockerfile-sha.outputs.sha }}
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         if: steps.check-image.outputs.exists == 'false'

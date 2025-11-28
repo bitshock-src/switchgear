@@ -32,16 +32,22 @@ Feature: Offer CLI management
     Then the command should succeed
 
   @offer-get
-  Scenario: Get an offer
+  Scenario Outline: Get an offer
     Given the lnurl server is ready to start
     When I start the lnurl server with the configuration
     Then the server should start successfully
     Given a valid offer JSON exists
     When I run "swgr offer post" with offer JSON
     Then the command should succeed
-    When I run "swgr offer get" for offer ID
+    When I run "swgr offer get" for offer ID with <certificate-location>
     Then the command should succeed
     And offer details should be output
+
+    Examples:
+      | certificate-location                   |
+      | --trusted-roots                        |
+      | env var OFFER_STORE_HTTP_TRUSTED_ROOTS |
+      | env var SSL_CERT_FILE                  |
 
   @offer-get-all
   Scenario Outline: Get all offers with parameters
@@ -125,16 +131,22 @@ Feature: Offer CLI management
     Then the command should succeed
 
   @offer-metadata-get
-  Scenario: Get offer metadata
+  Scenario Outline: Get offer metadata
     Given the lnurl server is ready to start
     When I start the lnurl server with the configuration
     Then the server should start successfully
     Given a valid offer metadata JSON exists
     When I run "swgr offer metadata post" with metadata JSON
     Then the command should succeed
-    When I run "swgr offer metadata get" for metadata ID
+    When I run "swgr offer metadata get" for metadata ID with <certificate-location>
     Then the command should succeed
     And offer metadata details should be output
+
+    Examples:
+      | certificate-location                   |
+      | --trusted-roots                        |
+      | env var OFFER_STORE_HTTP_TRUSTED_ROOTS |
+      | env var SSL_CERT_FILE                  |
 
   @offer-metadata-get-all
   Scenario Outline: Get all offer metadata with parameters

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use switchgear_service::api::lnurl::LnUrlOffer;
-use switchgear_testing::credentials::RegTestLnNode;
+use switchgear_testing::credentials::lightning::RegTestLnNode;
 use uuid::Uuid;
 
 #[derive(Clone)]

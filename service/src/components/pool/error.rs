@@ -1,5 +1,4 @@
 use crate::api::service::{HasServiceErrorSource, ServiceErrorSource};
-use http;
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use thiserror::Error;
@@ -8,19 +7,13 @@ use tonic::{transport, Code, Status};
 #[derive(Error, Debug)]
 pub enum LnPoolErrorSourceKind {
     #[error("CLN tonic gRPC error: {0}")]
-    ClnTonicError(Status),
-    #[error("LND tonic gRPC error: {0}")]
-    LndTonicError(Status),
+    TonicError(Status),
     #[error("CLN transport connection error: {0}")]
-    ClnTransportError(transport::Error),
-    #[error("LND transport connection error: {0}")]
-    LndTransportError(transport::Error),
+    TransportError(transport::Error),
     #[error("invalid configuration for: {0}")]
     InvalidConfiguration(String),
     #[error("invalid credentials for {0}")]
     InvalidCredentials(String),
-    #[error("invalid endpoint URI: {0}")]
-    InvalidEndpointUri(http::uri::InvalidUri),
     #[error("memory error: {0}")]
     MemoryError(String),
 }
@@ -81,67 +74,18 @@ impl LnPoolError {
         )
     }
 
-    pub fn from_cln_invalid_endpoint_uri<C: Into<Cow<'static, str>>>(
-        invalid_uri: http::uri::InvalidUri,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::InvalidEndpointUri(invalid_uri),
-            esource,
-            context.into(),
-        )
-    }
-
-    pub fn from_cln_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
+    pub fn from_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
         let esource = Self::from_tonic_code(source.code());
-        Self::new(
-            LnPoolErrorSourceKind::ClnTonicError(source),
-            esource,
-            context,
-        )
+        Self::new(LnPoolErrorSourceKind::TonicError(source), esource, context)
     }
 
-    pub fn from_cln_tonic_error_with_esource<C: Into<Cow<'static, str>>>(
-        source: Status,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::ClnTonicError(source),
-            esource,
-            context,
-        )
-    }
-
-    pub fn from_lnd_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
-        let esource = Self::from_tonic_code(source.code());
-        Self::new(
-            LnPoolErrorSourceKind::LndTonicError(source),
-            esource,
-            context,
-        )
-    }
-
-    pub fn from_lnd_tonic_error_with_esource<C: Into<Cow<'static, str>>>(
-        source: Status,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::LndTonicError(source),
-            esource,
-            context,
-        )
-    }
-
-    pub fn from_cln_transport_error<C: Into<Cow<'static, str>>>(
+    pub fn from_transport_error<C: Into<Cow<'static, str>>>(
         source: transport::Error,
         esource: ServiceErrorSource,
         context: C,
     ) -> Self {
         Self::new(
-            LnPoolErrorSourceKind::ClnTransportError(source),
+            LnPoolErrorSourceKind::TransportError(source),
             esource,
             context,
         )

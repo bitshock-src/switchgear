@@ -3,7 +3,7 @@ use crate::common::context::Protocol;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
-use switchgear_testing::credentials::RegTestLnNodeType;
+use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
 #[tokio::test]
 async fn test_service_health_check_logging() {
@@ -119,7 +119,7 @@ async fn test_service_operation_request_logging() {
     step_when_the_payee_creates_an_offer_for_their_lightning_node(&mut ctx, "single")
         .await
         .expect("assert");
-    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "single")
+    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "single", true)
         .await
         .expect("assert");
     step_when_the_payer_requests_the_lnurl_offer_from_the_payee(&mut ctx, "single")

@@ -4,6 +4,7 @@ pub const SKIP_INTEGRATION_TESTS_ENV: &str = "SWGR_SKIP_INTEGRATION_TESTS";
 
 #[derive(Debug)]
 pub struct IntegrationTestServices {
+    credentials: Option<String>,
     postgres: Option<String>,
     mysql: Option<String>,
     lightning: Option<LightningIntegrationTestServices>,
@@ -11,7 +12,6 @@ pub struct IntegrationTestServices {
 
 #[derive(Debug, Clone)]
 pub struct LightningIntegrationTestServices {
-    pub credentials: String,
     pub cln: String,
     pub lnd: String,
 }
@@ -20,22 +20,6 @@ impl IntegrationTestServices {
     pub fn create() -> anyhow::Result<Self> {
         let _ = dotenvy::dotenv();
 
-        let postgres = match Self::env_or_panic("POSTGRES_PORT") {
-            None => None,
-            Some(port) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("POSTGRES_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-        };
-
-        let mysql = match Self::env_or_panic("MYSQL_PORT") {
-            None => None,
-            Some(port) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("MYSQL_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-        };
-
         let credentials = match Self::env_or_panic("CREDENTIALS_SERVER_PORT") {
             None => None,
             Some(port) => {
@@ -43,6 +27,31 @@ impl IntegrationTestServices {
                 Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME")
                     .map(|s| format!("http://{s}:{port}/credentials.tar.gz"))
             }
+        };
+
+        if credentials.is_none() {
+            return Ok(Self {
+                credentials,
+                postgres: None,
+                mysql: None,
+                lightning: None,
+            });
+        }
+
+        let postgres = match (&credentials, Self::env_or_panic("POSTGRES_PORT")) {
+            (Some(_), Some(port)) => {
+                let port = port.parse::<u16>()?;
+                Self::env_or_panic("POSTGRES_HOSTNAME").map(|s| format!("{s}:{port}"))
+            }
+            _ => None,
+        };
+
+        let mysql = match (&credentials, Self::env_or_panic("MYSQL_PORT")) {
+            (Some(_), Some(port)) => {
+                let port = port.parse::<u16>()?;
+                Self::env_or_panic("MYSQL_HOSTNAME").map(|s| format!("{s}:{port}"))
+            }
+            _ => None,
         };
 
         let cln = match Self::env_or_panic("CLN_PORT") {
@@ -61,16 +70,13 @@ impl IntegrationTestServices {
             }
         };
 
-        let lightning = match (credentials, cln, lnd) {
-            (Some(credentials), Some(cln), Some(lnd)) => Some(LightningIntegrationTestServices {
-                credentials,
-                cln,
-                lnd,
-            }),
+        let lightning = match (&credentials, cln, lnd) {
+            (Some(_), Some(cln), Some(lnd)) => Some(LightningIntegrationTestServices { cln, lnd }),
             _ => None,
         };
 
         Ok(Self {
+            credentials,
             postgres,
             mysql,
             lightning,
@@ -110,6 +116,10 @@ SKIP INTEGRATION TESTS
                 );
             }
         }
+    }
+
+    pub fn credentials(&self) -> Option<&String> {
+        self.credentials.as_ref()
     }
 
     pub fn postgres(&self) -> Option<&String> {

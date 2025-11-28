@@ -52,10 +52,10 @@ async fn test_complete_backend_lifecycle_management() {
         .await
         .expect("assert");
     // Register both backends individually
-    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "lnd")
+    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "lnd", true)
         .await
         .expect("assert");
-    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "cln")
+    step_when_the_payee_registers_their_lightning_node_as_a_backend(&mut ctx, "cln", true)
         .await
         .expect("assert");
 

@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tonic::transport::CertificateDer;
 
 type LnClientMap<K> =
     HashMap<K, Arc<Box<dyn LnRpcClient<Error = LnPoolError> + Send + Sync + 'static>>>;
@@ -24,17 +25,22 @@ where
     timeout: Duration,
     pool: Arc<Mutex<LnClientMap<K>>>,
     metrics_cache: Arc<Mutex<HashMap<K, LnMetrics>>>,
+    trusted_roots: Vec<CertificateDer<'static>>,
 }
 
 impl<K> DefaultLnClientPool<K>
 where
     K: Clone + std::hash::Hash + Eq + Debug,
 {
-    pub fn new(timeout: Duration) -> DefaultLnClientPool<K> {
+    pub fn new(
+        timeout: Duration,
+        trusted_roots: Vec<CertificateDer<'static>>,
+    ) -> DefaultLnClientPool<K> {
         Self {
             timeout,
             pool: Default::default(),
             metrics_cache: Default::default(),
+            trusted_roots,
         }
     }
 
@@ -107,14 +113,18 @@ where
     }
 
     fn connect(&self, key: Self::Key, backend: &DiscoveryBackend) -> Result<(), Self::Error> {
-        let client: Box<dyn LnRpcClient<Error = LnPoolError> + std::marker::Send + Sync> =
+        let client: Box<dyn LnRpcClient<Error = LnPoolError> + Send + Sync> =
             match &backend.backend.implementation {
-                DiscoveryBackendImplementation::ClnGrpc(c) => {
-                    Box::new(TonicClnGrpcClient::create(self.timeout, c.clone())?)
-                }
-                DiscoveryBackendImplementation::LndGrpc(c) => {
-                    Box::new(TonicLndGrpcClient::create(self.timeout, c.clone())?)
-                }
+                DiscoveryBackendImplementation::ClnGrpc(c) => Box::new(TonicClnGrpcClient::create(
+                    self.timeout,
+                    c.clone(),
+                    &self.trusted_roots,
+                )?),
+                DiscoveryBackendImplementation::LndGrpc(c) => Box::new(TonicLndGrpcClient::create(
+                    self.timeout,
+                    c.clone(),
+                    &self.trusted_roots,
+                )?),
                 DiscoveryBackendImplementation::RemoteHttp => {
                     return Err(LnPoolError::from_invalid_configuration(
                         "RemoteHttp backends not available".to_string(),

@@ -1,4 +1,5 @@
 ARG BUILDPLATFORM
+ARG WEBPKI_ROOTS=false
 
 FROM --platform=$BUILDPLATFORM bitshock/linux-musl-rust:1.91.1 AS builder
 
@@ -43,17 +44,15 @@ RUN . /app/build.env && \
     --target ${RUST_TARGET} && \
     cp /app/target/${RUST_TARGET}/release/swgr /app/swgr
 
+FROM scratch AS webpki-roots-true
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
+FROM scratch AS webpki-roots-false
 
-FROM scratch AS final
-
-# Copy the binary from the consistent location
+FROM webpki-roots-$WEBPKI_ROOTS AS final
 COPY --from=builder /app/swgr /usr/sbin/swgr
-
-COPY server/config/sqlite-persistent.yaml /etc/swgr/config.yaml
-
+COPY server/config/persistence.yaml /etc/swgr/config.yaml
 ENV RUST_LOG=info
-
 CMD ["service", "--config", "/etc/swgr/config.yaml"]
-
 ENTRYPOINT ["/usr/sbin/swgr"]
+

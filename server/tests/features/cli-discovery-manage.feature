@@ -61,16 +61,22 @@ Feature: Discovery CLI management
     And backend list should be output
 
   @discovery-get
-  Scenario: Get a backend
+  Scenario Outline: Get a backend
     Given the lnurl server is ready to start
     When I start the lnurl server with the configuration
     Then the server should start successfully
     Given a valid backend JSON exists
     When I run "swgr discovery post" with backend JSON
     Then the command should succeed
-    When I run "swgr discovery get" for backend address
+    When I run "swgr discovery get" for backend address with <certificate-location>
     Then the command should succeed
     And backend details should be output
+
+    Examples:
+      | certificate-location                       |
+      | --trusted-roots                            |
+      | env var DISCOVERY_STORE_HTTP_TRUSTED_ROOTS |
+      | env var SSL_CERT_FILE                      |
 
   @discovery-get-all
   Scenario: Get all backends

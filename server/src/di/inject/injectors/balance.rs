@@ -2,10 +2,12 @@ use crate::config::{BackendSelectionConfig, BackoffConfig, LnUrlBalancerServiceC
 use crate::di::delegates::{BackoffProviderDelegate, LnBalancerDelegate};
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 use crate::di::inject::injectors::store::discovery::DiscoveryStoreInjector;
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::health_check::HealthCheck;
 use pingora_load_balancing::{Backends, LoadBalancer};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::CertificateDer;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -94,8 +96,19 @@ impl BalancerInjector {
             }
         };
 
-        let pool =
-            DefaultLnClientPool::new(Duration::from_secs_f64(lnurl_config.ln_client_timeout_secs));
+        let trusted_roots = if let Some(trusted_roots) = &lnurl_config.ln_trusted_roots {
+            CertificateDer::pem_file_iter(trusted_roots)
+                .with_context(|| format!("parsing root certificate: {}", trusted_roots.display()))?
+                .collect::<Result<Vec<_>, _>>()
+                .with_context(|| format!("parsing root certificate: {}", trusted_roots.display()))?
+        } else {
+            vec![]
+        };
+
+        let pool = DefaultLnClientPool::new(
+            Duration::from_secs_f64(lnurl_config.ln_client_timeout_secs),
+            trusted_roots,
+        );
 
         let discovery = DefaultPingoraLnDiscovery::new(
             discovery,
