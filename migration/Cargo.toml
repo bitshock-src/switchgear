@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-migration"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Database migrations for Switchgear LNURL load balancer"

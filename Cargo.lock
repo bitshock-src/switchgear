@@ -4133,11 +4133,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.14"
+version = "0.1.15"
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -4145,7 +4145,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4165,7 +4165,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4207,7 +4207,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4262,7 +4262,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "dotenvy",
