@@ -3,6 +3,8 @@ name: Docker Publish
 on:
   push:
     tags: [ 'v*.*.*' ]
+    branches:
+      - main
 
 jobs:
   check_has_image_name:

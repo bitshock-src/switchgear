@@ -13,55 +13,15 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ci-rust
+  IMAGE_NAME_VERSION: "0.1.0"
 
 jobs:
-  verify-image:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
-    outputs:
-      image-tag: ${{ steps.determine-tag.outputs.image-tag }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Calculate Dockerfile SHA256
-        id: dockerfile-sha
-        run: |
-          DOCKERFILE_SHA=$(git hash-object ci/Dockerfile)
-          echo "sha=${DOCKERFILE_SHA}" >> $GITHUB_OUTPUT
-          echo "Dockerfile SHA: ${DOCKERFILE_SHA}"
-
-      - name: Determine image tag
-        id: determine-tag
-        run: |
-          # Sanitize branch name for use in Docker image name (replace / with -)
-          BRANCH_NAME="${{ github.ref_name }}"
-          SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
-          IMAGE_TAG="ghcr.io/${{ github.repository }}/ci-rust-${SAFE_BRANCH}:${{ steps.dockerfile-sha.outputs.sha }}"
-          echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check if image exists
-        run: |
-          if ! docker manifest inspect ${{ steps.determine-tag.outputs.image-tag }} > /dev/null 2>&1; then
-            echo "Error: Required CI Docker image not found: ${{ steps.determine-tag.outputs.image-tag }}"
-            exit 1
-          fi
-
   check:
-    needs: verify-image
     runs-on: ubuntu-latest
     container:
-      image: ${{ needs.verify-image.outputs.image-tag }}
+      image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_NAME_VERSION }}
       options: -v /var/run/docker.sock:/var/run/docker.sock
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
