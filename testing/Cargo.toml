@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-testing"
-version = "0.1.15"
+version.workspace = true
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "CI Integration Testing Framework for Switchgear"
@@ -22,4 +22,4 @@ tar = "0.4"
 tempfile = "3.23"
 ureq = { version = "3.1", default-features = false }
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-no-provider-native-roots", "sqlite", "postgres", "mysql"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }

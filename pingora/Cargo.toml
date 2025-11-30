@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-pingora"
-version = "0.1.15"
+version.workspace = true
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Pingora-based load balancer implementation for Switchgear LNURL payment infrastructure"
@@ -18,7 +18,7 @@ async-trait = "0.1"
 axum = {  version = "0.8", features = ["macros"] }
 backoff = { version = "0.4", features = ["tokio"] }
 chrono = { version = "0.4", features = ["serde"] }
-switchgear-service = { version = "0.1.7", path = "../service" }
+switchgear-service.workspace = true
 log = "0.4"
 pingora-core = { version = "0.6", default-features = false }
 pingora-error = { version = "0.6", default-features = false }

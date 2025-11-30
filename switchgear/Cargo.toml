@@ -1,6 +1,6 @@
 [package]
 name = "switchgear"
-version = "0.1.15"
+version.workspace = true
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"

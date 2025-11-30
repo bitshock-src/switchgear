@@ -1,6 +1,6 @@
 [package]
 name = "switchgear-service"
-version = "0.1.15"
+version.workspace = true
 edition = "2021"
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Service layer and API implementations for Switchgear LNURL load balancer"
@@ -40,8 +40,8 @@ secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
 serde = "1.0"
 serde_json = "1.0"
 sha2 = "0.10"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-no-provider-native-roots", "sqlite", "postgres", "mysql"] }
-switchgear-migration = { version = "0.1.7", path = "../migration" }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
+switchgear-migration.workspace = true
 tempfile = "3.23"
 thiserror = "2.0"
 tokio = { version = "1", features = ["full"] }
@@ -67,4 +67,4 @@ rand = "0.8"
 rqrr = "0.10"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
 secp256k1_0_29 = { package = "secp256k1", version = "0.29", features = ["recovery", "serde"] }
-switchgear-testing  = { version = "0.1.7", path = "../testing" }
+switchgear-testing.workspace = true
