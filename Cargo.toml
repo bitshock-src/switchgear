@@ -10,6 +10,15 @@ members = [
 
 resolver = "2"
 
+[workspace.package]
+version = "0.1.15"
+
+[workspace.dependencies]
+switchgear-pingora = { version = "0.1.15", path = "pingora" }
+switchgear-service = { version = "0.1.15", path = "service" }
+switchgear-migration = { version = "0.1.15", path = "migration" }
+switchgear-testing = { version = "0.1.15", path = "testing" }
+
 
 [profile.release]
 lto = true
@@ -19,10 +28,10 @@ strip = true
 
 
 [patch.crates-io]
-sqlx = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6" }
-sqlx-core ={ git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6" }
-sqlx-macros = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6"  }
-sqlx-macros-core = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6"  }
-sqlx-mysql = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6"  }
-sqlx-postgres = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6"  }
-sqlx-sqlite = { git = "https://github.com/bitshock-src/sqlx.git", branch = "issues-960-v0.8.6"  }
+sqlx = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-core ={ git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-macros = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
+sqlx-macros-core = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
+sqlx-mysql = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
+sqlx-postgres = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
+sqlx-sqlite = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }

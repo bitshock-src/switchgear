@@ -3883,7 +3883,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -3895,7 +3895,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "base64",
  "bytes",
@@ -3932,7 +3932,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3944,7 +3944,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "dotenvy",
  "either",
@@ -3968,7 +3968,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "atoi",
  "base64",
@@ -4011,7 +4011,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "atoi",
  "base64",
@@ -4049,7 +4049,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.8.6"
-source = "git+https://github.com/bitshock-src/sqlx.git?branch=issues-960-v0.8.6#56ec38aefda52ff14435984318046968aa322c85"
+source = "git+https://github.com/bitshock-src/sqlx.git?tag=rustls-native-certs-aws-lc-rs#b37c0878e3b24e118af1c5304e251d77d00f0bf2"
 dependencies = [
  "atoi",
  "chrono",
