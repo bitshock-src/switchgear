@@ -20,6 +20,7 @@ env:
 jobs:
   check:
     runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
     container:
       image: ghcr.io/${{ github.repository }}/ci-rust:1.0.0
       options: -v /var/run/docker.sock:/var/run/docker.sock
