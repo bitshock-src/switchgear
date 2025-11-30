@@ -1,10 +1,10 @@
-name: Build and Push CI Docker Build Image
+name: CI Image
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to tag the Docker image (e.g., 0.1.0)'
+        description: 'Docker image tag version (n.n.n)'
         required: true
         type: string
   push:
@@ -17,6 +17,7 @@ env:
 
 jobs:
   build-and-push:
+    name: Build and Push CI Image
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,7 +66,7 @@ jobs:
           tags: |
             type=raw,value=${{ steps.determine-tag.outputs.version }}
 
-      - name: Build and push Docker image
+      - name: Docker build and push
         uses: docker/build-push-action@v5
         with:
           context: ./ci

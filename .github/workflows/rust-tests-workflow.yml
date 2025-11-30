@@ -1,0 +1,70 @@
+name: Rust Tests
+
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  tests:
+    name: Format, Clippy, Tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/bitshock-src/switchgear/ci-rust:1.0.0
+      options: -v /var/run/docker.sock:/var/run/docker.sock
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Start Docker Compose services
+        run: |
+          cd testing
+          nohup /bin/sh -c 'docker compose up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
+          cd ..
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Compile tests
+        run: |
+          cargo test --no-run
+
+      - name: Wait for integration tests services
+        run: |
+          cd testing
+
+          MAX_WAIT=300
+          ELAPSED=0
+          while [ ! -f ./compose-ready ] && [ $ELAPSED -lt $MAX_WAIT ]; do
+            docker compose ps --format "table {{.Service}}\t{{.Status}}"
+            sleep 1
+            ELAPSED=$((ELAPSED + 1))
+          done
+
+          if [ ! -f ./compose-ready ]; then
+            echo "Docker compose did not complete in ${MAX_WAIT}s"
+            cat ./compose.log || true
+            exit 1
+          fi
+
+          . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
+          cd ..
+
+      - name: Run tests
+        run: |
+          cp testing/.env .
+          cargo test
+
+      - name: Stop Docker Compose services
+        if: always()
+        run: docker compose -f testing/docker-compose.yml down -v
