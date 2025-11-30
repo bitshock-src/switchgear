@@ -2,9 +2,14 @@ name: Build and Push CI Docker Build Image
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to tag the Docker image (e.g., 0.1.0)'
+        required: true
+        type: string
   push:
-    paths:
-      - 'ci/Dockerfile'
+    tags:
+      - 'ci-v*.*.*'
 
 env:
   REGISTRY: ghcr.io
@@ -33,12 +38,17 @@ jobs:
       - name: Determine image tag
         id: determine-tag
         run: |
-          BRANCH_NAME="${{ github.ref_name }}"
-          SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's/\//-/g')
-          IMAGE_NAME_WITH_BRANCH="${{ env.IMAGE_NAME }}-${SAFE_BRANCH}"
-          IMAGE_TAG="${{ env.REGISTRY }}/${IMAGE_NAME_WITH_BRANCH}:${{ steps.dockerfile-sha.outputs.sha }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Use version from workflow input
+            VERSION="${{ inputs.version }}"
+          else
+            # Extract version from tag ci-vn.n.n -> n.n.n
+            TAG_NAME="${{ github.ref_name }}"
+            VERSION=$(echo "$TAG_NAME" | sed 's/^ci-v//')
+          fi
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
           echo "image-tag=${IMAGE_TAG}" >> $GITHUB_OUTPUT
-          echo "image-name-with-branch=${IMAGE_NAME_WITH_BRANCH}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -47,26 +57,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check if image exists
-        id: check-image
-        run: |
-          if docker manifest inspect ${{ steps.determine-tag.outputs.image-tag }} > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Extract metadata
-        if: steps.check-image.outputs.exists == 'false'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ steps.determine-tag.outputs.image-name-with-branch }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.dockerfile-sha.outputs.sha }}
+            type=raw,value=${{ steps.determine-tag.outputs.version }}
 
       - name: Build and push Docker image
-        if: steps.check-image.outputs.exists == 'false'
         uses: docker/build-push-action@v5
         with:
           context: ./ci
