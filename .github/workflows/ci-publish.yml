@@ -1,4 +1,4 @@
-name: Publish
+name: CI Publish
 
 on:
   push:
@@ -9,7 +9,7 @@ env:
 
 jobs:
   tests:
-    name: Call Rust Tests
+    name: Rust Tests For Publish
     uses: ./.github/workflows/rust-tests-workflow.yml
 
 #  tests:
