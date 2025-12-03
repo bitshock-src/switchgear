@@ -216,9 +216,9 @@ pub async fn list_backends(
     client_configuration: &DiscoveryBackendManagementClientConfig,
 ) -> anyhow::Result<()> {
     let client = create_backend_client(client_configuration)?;
-    let backends = client.get_all().await?;
+    let backends = client.get_all(None).await?;
     println!("# Discovery Backends");
-    for backend in backends {
+    for backend in backends.backends.into_iter().flatten() {
         println!(
             r#"
 ## Address: {}
@@ -265,9 +265,11 @@ pub async fn get_backend(
             bail!("Backend {address} not found");
         }
     } else {
-        let backends = client.get_all().await?;
+        let backends = client.get_all(None).await?;
         let backends = backends
+            .backends
             .into_iter()
+            .flatten()
             .map(|backend| DiscoveryBackendRest {
                 location: backend.address.encoded(),
                 backend,

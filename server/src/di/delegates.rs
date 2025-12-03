@@ -13,6 +13,7 @@ use switchgear_pingora::PingoraBackendProvider;
 use switchgear_service::api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
+    DiscoveryBackends,
 };
 use switchgear_service::api::offer::Offer;
 use switchgear_service::api::offer::{OfferMetadataStore, OfferProvider, OfferStore};
@@ -211,8 +212,8 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
         delegate_to_discovery_store_variants!(self, get, addr).await
     }
 
-    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, get_all).await
+    async fn get_all(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        delegate_to_discovery_store_variants!(self, get_all, etag).await
     }
 
     async fn post(
@@ -242,8 +243,8 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
 impl PingoraBackendProvider for DiscoveryBackendStoreDelegate {
     type Error = PingoraLnError;
 
-    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, backends).await
+    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        delegate_to_discovery_store_variants!(self, backends, etag).await
     }
 }
 

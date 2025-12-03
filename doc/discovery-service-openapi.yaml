@@ -31,6 +31,14 @@ paths:
     get:
       summary: Get all backends
       description: Retrieves a list of all registered Lightning node backends.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: ETag value from a previous response. If it matches the current ETag, returns 304 Not Modified.
+          schema:
+            type: string
+          example: "12345"
       responses:
         '200':
           description: List of backends
@@ -47,12 +55,37 @@ paths:
               schema:
                 type: string
                 example: "no-cache"
+            ETag:
+              schema:
+                type: string
+              description: Current version of the backend list
+              example: "12345"
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/DiscoveryBackendRest'
+        '304':
+          description: Not Modified - backend list hasn't changed since the ETag provided in If-None-Match
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                example: "no-store, no-cache, must-revalidate"
+            Expires:
+              schema:
+                type: string
+                example: "Thu, 01 Jan 1970 00:00:00 GMT"
+            Pragma:
+              schema:
+                type: string
+                example: "no-cache"
+            ETag:
+              schema:
+                type: string
+              description: Current version of the backend list (same as the If-None-Match value)
+              example: "12345"
   /discovery/{addr_variant}/{addr_value}:
     get:
       summary: Get specific backend

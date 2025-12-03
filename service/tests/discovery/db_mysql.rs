@@ -93,3 +93,21 @@ async fn test_mysql_test_patch_missing_backend() {
     };
     discovery::test_patch_missing_backend(store).await;
 }
+
+#[tokio::test]
+async fn test_mysql_etag_changes_on_mutations_get_all() {
+    let (store, _guard) = match create_mysql_store().await {
+        None => return,
+        Some(v) => v,
+    };
+    discovery::test_etag_changes_on_mutations_get_all(store).await;
+}
+
+#[tokio::test]
+async fn test_mysql_etag_conditional_get_all() {
+    let (store, _guard) = match create_mysql_store().await {
+        None => return,
+        Some(v) => v,
+    };
+    discovery::test_etag_conditional_get_all(store).await;
+}

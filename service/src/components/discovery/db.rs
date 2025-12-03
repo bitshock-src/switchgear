@@ -1,6 +1,6 @@
 use crate::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendPatch, DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendPatch, DiscoveryBackendSparse, DiscoveryBackendStore, DiscoveryBackends,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -10,11 +10,11 @@ use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, FromJsonQueryResult,
-    QueryFilter, QuerySelect, Set,
+    QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use switchgear_migration::MigratorTrait;
+use switchgear_migration::{MigratorTrait, DISCOVERY_BACKEND_GET_ALL_ETAG_ID};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromJsonQueryResult)]
 pub struct DiscoveryBackendPartitions(BTreeSet<String>);
@@ -39,6 +39,23 @@ pub struct Model {
 pub enum Relation {}
 
 impl ActiveModelBehavior for ActiveModel {}
+
+pub mod etag {
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+    #[sea_orm(table_name = "discovery_backend_etag")]
+    pub struct Model {
+        #[sea_orm(primary_key, auto_increment = false)]
+        pub id: i32,
+        pub value: i64,
+    }
+
+    #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+    pub enum Relation {}
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
 
 #[derive(Clone, Debug)]
 pub struct DbDiscoveryBackendStore {
@@ -103,7 +120,7 @@ impl DbDiscoveryBackendStore {
     fn model_to_domain(model: Model) -> Result<DiscoveryBackend, DiscoveryBackendStoreError> {
         let address = Self::parse_address(&model.address, &model.address_type)?;
         let implementation: DiscoveryBackendImplementation =
-            serde_json::from_value(model.implementation.clone()).map_err(|e| {
+            serde_json::from_value(model.implementation).map_err(|e| {
                 DiscoveryBackendStoreError::json_serialization_error(
                     ServiceErrorSource::Internal,
                     "deserializing implementation from database",
@@ -167,7 +184,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let address_str = addr.to_string();
 
-        let result = Entity::find_by_id(address_str.clone())
+        let result = Entity::find_by_id(&address_str)
             .one(&self.db)
             .await
             .map_err(|e| {
@@ -184,20 +201,48 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         }
     }
 
-    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let models = Entity::find().all(&self.db).await.map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "fetching all backends",
-                e,
-            )
-        })?;
+    async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        let response_etag = etag::Entity::find_by_id(DISCOVERY_BACKEND_GET_ALL_ETAG_ID)
+            .one(&self.db)
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::from_db(
+                    ServiceErrorSource::Internal,
+                    "fetching etag value",
+                    e,
+                )
+            })?
+            .map(|e| e.value as u64)
+            .unwrap_or(0);
 
-        let backends = models
-            .into_iter()
-            .map(Self::model_to_domain)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(backends)
+        if request_etag == Some(response_etag) {
+            Ok(DiscoveryBackends {
+                etag: response_etag,
+                backends: None,
+            })
+        } else {
+            let models = Entity::find()
+                .order_by_asc(Column::CreatedAt)
+                .order_by_asc(Column::Address)
+                .all(&self.db)
+                .await
+                .map_err(|e| {
+                    DiscoveryBackendStoreError::from_db(
+                        ServiceErrorSource::Internal,
+                        "fetching all backends",
+                        e,
+                    )
+                })?;
+
+            let backends = models
+                .into_iter()
+                .map(Self::model_to_domain)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(DiscoveryBackends {
+                etag: response_etag,
+                backends: Some(backends),
+            })
+        }
     }
 
     async fn post(
@@ -219,7 +264,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let now = Utc::now();
         let active_model = ActiveModel {
             partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
-            address: Set(address_str.clone()),
+            address: Set(address_str),
             address_type: Set(address_type.to_string()),
             name: Set(backend.backend.name),
             weight: Set(backend.backend.weight as i32),
@@ -229,9 +274,46 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             updated_at: Set(now.into()),
         };
 
-        let result = active_model.insert(&self.db).await;
+        let (insert_result, etag_result) = self
+            .db
+            .transaction::<_, (Result<_, _>, Option<Result<_, _>>), sea_orm::DbErr>(|txn| {
+                Box::pin(async move {
+                    let insert = active_model.insert(txn).await;
+                    let etag = if insert.is_ok() {
+                        Some(
+                            etag::Entity::update_many()
+                                .col_expr(
+                                    etag::Column::Value,
+                                    Expr::col(etag::Column::Value).add(1),
+                                )
+                                .filter(etag::Column::Id.eq(DISCOVERY_BACKEND_GET_ALL_ETAG_ID))
+                                .exec(txn)
+                                .await,
+                        )
+                    } else {
+                        None
+                    };
+                    Ok((insert, etag))
+                })
+            })
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::from_tx(
+                    ServiceErrorSource::Internal,
+                    "post transaction",
+                    e,
+                )
+            })?;
 
-        match result {
+        etag_result.transpose().map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                "incrementing etag value",
+                e,
+            )
+        })?;
+
+        match insert_result {
             Ok(_) => Ok(Some(backend.address)),
             // PostgreSQL unique constraint violation
             Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
@@ -243,7 +325,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             )))) if db_err.is_unique_violation() => Ok(None),
             Err(e) => Err(DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("inserting backend for address {address_str}"),
+                format!("inserting backend for address {}", backend.address),
                 e,
             )),
         }
@@ -277,41 +359,91 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             updated_at: Set(now.into()),
         };
 
-        Entity::insert(active_model)
-            .on_conflict(
-                OnConflict::columns([Column::Address])
-                    .update_columns([
-                        Column::Name,
-                        Column::Weight,
-                        Column::Enabled,
-                        Column::Implementation,
-                    ])
-                    .value(Column::UpdatedAt, Expr::val(future_timestamp))
-                    .to_owned(),
+        let (upsert_result, fetch_result, etag_result) = self
+            .db
+            .transaction::<_, (Result<_, _>, Result<_, _>, Option<Result<_, _>>), sea_orm::DbErr>(
+                |txn| {
+                    Box::pin(async move {
+                        let upsert = Entity::insert(active_model)
+                            .on_conflict(
+                                OnConflict::columns([Column::Address])
+                                    .update_columns([
+                                        Column::Name,
+                                        Column::Weight,
+                                        Column::Enabled,
+                                        Column::Implementation,
+                                    ])
+                                    .value(Column::UpdatedAt, Expr::val(future_timestamp))
+                                    .to_owned(),
+                            )
+                            .exec(txn)
+                            .await;
+
+                        let timestamps = if upsert.is_ok() {
+                            Entity::find()
+                                .filter(Column::Address.eq(&address_str))
+                                .select_only()
+                                .column(Column::CreatedAt)
+                                .column(Column::UpdatedAt)
+                                .into_tuple::<(DateTimeWithTimeZone, DateTimeWithTimeZone)>()
+                                .one(txn)
+                                .await
+                        } else {
+                            Ok(None)
+                        };
+
+                        let etag = if timestamps.is_ok() {
+                            Some(
+                                etag::Entity::update_many()
+                                    .col_expr(
+                                        etag::Column::Value,
+                                        Expr::col(etag::Column::Value).add(1),
+                                    )
+                                    .filter(etag::Column::Id.eq(DISCOVERY_BACKEND_GET_ALL_ETAG_ID))
+                                    .exec(txn)
+                                    .await,
+                            )
+                        } else {
+                            None
+                        };
+
+                        Ok((upsert, timestamps, etag))
+                    })
+                },
             )
-            .exec(&self.db)
             .await
             .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
+                DiscoveryBackendStoreError::from_tx(
                     ServiceErrorSource::Internal,
-                    format!("upserting backend for address {address_str}"),
+                    "put transaction",
                     e,
                 )
             })?;
 
-        // Fetch only the timestamps to compare
-        let result = Entity::find()
-            .filter(Column::Address.eq(&address_str))
-            .select_only()
-            .column(Column::CreatedAt)
-            .column(Column::UpdatedAt)
-            .into_tuple::<(DateTimeWithTimeZone, DateTimeWithTimeZone)>()
-            .one(&self.db)
-            .await
+        upsert_result.map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                format!("upserting backend for address {}", backend.address),
+                e,
+            )
+        })?;
+
+        etag_result.transpose().map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                "incrementing etag value",
+                e,
+            )
+        })?;
+
+        let result = fetch_result
             .map_err(|e| {
                 DiscoveryBackendStoreError::from_db(
                     ServiceErrorSource::Internal,
-                    format!("fetching backend after upsert for address {address_str}"),
+                    format!(
+                        "fetching backend after upsert for address {}",
+                        backend.address
+                    ),
                     e,
                 )
             })?
@@ -350,7 +482,53 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         update = update.col_expr(Column::UpdatedAt, Expr::value(Utc::now()));
 
-        let result = update.exec(&self.db).await.map_err(|e| {
+        let (patch_result, etag_result) = self
+            .db
+            .transaction::<_, _, _>(|txn| {
+                Box::pin(async move {
+                    let patch = update.exec(txn).await;
+
+                    let etag = if patch
+                        .as_ref()
+                        .ok()
+                        .map(|r| r.rows_affected > 0)
+                        .unwrap_or(false)
+                    {
+                        Some(
+                            etag::Entity::update_many()
+                                .col_expr(
+                                    etag::Column::Value,
+                                    Expr::col(etag::Column::Value).add(1),
+                                )
+                                .filter(etag::Column::Id.eq(DISCOVERY_BACKEND_GET_ALL_ETAG_ID))
+                                .exec(txn)
+                                .await,
+                        )
+                    } else {
+                        None
+                    };
+
+                    Ok((patch, etag))
+                })
+            })
+            .await
+            .map_err(|e| {
+                DiscoveryBackendStoreError::from_tx(
+                    ServiceErrorSource::Internal,
+                    "patch transaction",
+                    e,
+                )
+            })?;
+
+        etag_result.transpose().map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                "incrementing etag value",
+                e,
+            )
+        })?;
+
+        let result = patch_result.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
                 format!("patching backend for address {address_str}"),
@@ -364,17 +542,60 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
     async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
         let address_str = addr.to_string();
 
-        let delete_result = Entity::delete_by_id(address_str.clone())
-            .exec(&self.db)
+        let (delete_result, etag_result) = self
+            .db
+            .transaction::<_, _, _>(|txn| {
+                Box::pin(async move {
+                    let delete = Entity::delete_by_id(&address_str).exec(txn).await;
+
+                    let etag = if delete
+                        .as_ref()
+                        .ok()
+                        .map(|r| r.rows_affected > 0)
+                        .unwrap_or(false)
+                    {
+                        Some(
+                            etag::Entity::update_many()
+                                .col_expr(
+                                    etag::Column::Value,
+                                    Expr::col(etag::Column::Value).add(1),
+                                )
+                                .filter(etag::Column::Id.eq(DISCOVERY_BACKEND_GET_ALL_ETAG_ID))
+                                .exec(txn)
+                                .await,
+                        )
+                    } else {
+                        None
+                    };
+
+                    Ok((delete, etag))
+                })
+            })
             .await
             .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
+                DiscoveryBackendStoreError::from_tx(
                     ServiceErrorSource::Internal,
-                    format!("deleting backend for address {address_str}",),
+                    "delete transaction",
                     e,
                 )
             })?;
 
-        Ok(delete_result.rows_affected > 0)
+        etag_result.transpose().map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                "incrementing etag value",
+                e,
+            )
+        })?;
+
+        let result = delete_result.map_err(|e| {
+            DiscoveryBackendStoreError::from_db(
+                ServiceErrorSource::Internal,
+                format!("deleting backend for address {addr}"),
+                e,
+            )
+        })?;
+
+        Ok(result.rows_affected > 0)
     }
 }

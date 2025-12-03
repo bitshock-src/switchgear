@@ -22,7 +22,7 @@ pub trait DiscoveryBackendStore {
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error>;
 
-    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error>;
+    async fn get_all(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error>;
 
     async fn post(
         &self,
@@ -39,6 +39,30 @@ pub trait DiscoveryBackendStore {
 #[async_trait]
 pub trait HttpDiscoveryBackendClient: DiscoveryBackendStore {
     async fn health(&self) -> Result<(), Self::Error>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiscoveryBackends {
+    pub etag: u64,
+    pub backends: Option<Vec<DiscoveryBackend>>,
+}
+
+impl DiscoveryBackends {
+    pub fn etag_from_str(etag: &str) -> io::Result<u64> {
+        let etag = hex::decode(etag).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        let etag: [u8; 8] = etag.try_into().map_err(|etag: Vec<u8>| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid etag size: {} bytes", etag.len()),
+            )
+        })?;
+        Ok(u64::from_be_bytes(etag))
+    }
+
+    pub fn etag_string(&self) -> String {
+        hex::encode(self.etag.to_be_bytes())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]

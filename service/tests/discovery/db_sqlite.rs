@@ -64,3 +64,17 @@ async fn test_sqlite_test_patch_missing_backend() {
     let store = create_sqlite_store(t.path()).await;
     discovery::test_patch_missing_backend(store).await;
 }
+
+#[tokio::test]
+async fn test_sqlite_etag_changes_on_mutations_get_all() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    discovery::test_etag_changes_on_mutations_get_all(store).await;
+}
+
+#[tokio::test]
+async fn test_sqlite_etag_conditional_get_all() {
+    let t = TempDir::new().unwrap();
+    let store = create_sqlite_store(t.path()).await;
+    discovery::test_etag_conditional_get_all(store).await;
+}

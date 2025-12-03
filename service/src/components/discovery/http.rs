@@ -1,6 +1,6 @@
 use crate::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
-    HttpDiscoveryBackendClient,
+    DiscoveryBackends, HttpDiscoveryBackendClient,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -157,9 +157,18 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         }
     }
 
-    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+    async fn get_all(&self, requested_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
         let url = &self.discovery_url;
-        let response = self.client.get(url).send().await.map_err(|e| {
+        let client = self.client.get(url);
+        let client = if let Some(requested_etag) = requested_etag {
+            client.header(
+                reqwest::header::IF_NONE_MATCH,
+                hex::encode(requested_etag.to_be_bytes()),
+            )
+        } else {
+            client
+        };
+        let response = client.send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
                 ServiceErrorSource::Upstream,
                 format!("get all backends {url}"),
@@ -167,18 +176,54 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
             )
         })?;
 
+        let response_etag = response
+            .headers()
+            .get(reqwest::header::ETAG)
+            .ok_or_else(|| {
+                DiscoveryBackendStoreError::internal_error(
+                    ServiceErrorSource::Upstream,
+                    format!("parsing etag header response from get all backends {url}"),
+                    "missing expected etag".to_string(),
+                )
+            })?
+            .to_str()
+            .map_err(|e| {
+                DiscoveryBackendStoreError::internal_error(
+                    ServiceErrorSource::Upstream,
+                    format!("parsing etag header response from get all backends {url}"),
+                    e.to_string(),
+                )
+            })?;
+
+        let response_etag = DiscoveryBackends::etag_from_str(response_etag).map_err(|e| {
+            DiscoveryBackendStoreError::internal_error(
+                ServiceErrorSource::Upstream,
+                format!(
+                    "parsing etag '{response_etag}' header response from get all backends {url}"
+                ),
+                e.to_string(),
+            )
+        })?;
+
         match response.status() {
             StatusCode::OK => {
-                let backends_response: Vec<DiscoveryBackend> =
-                    response.json().await.map_err(|e| {
-                        DiscoveryBackendStoreError::deserialization_error(
-                            ServiceErrorSource::Upstream,
-                            format!("parse all backends {url}"),
-                            e,
-                        )
-                    })?;
-                Ok(backends_response)
+                let backends: Vec<DiscoveryBackend> = response.json().await.map_err(|e| {
+                    DiscoveryBackendStoreError::deserialization_error(
+                        ServiceErrorSource::Upstream,
+                        format!("parse all backends {url}"),
+                        e,
+                    )
+                })?;
+
+                Ok(DiscoveryBackends {
+                    etag: response_etag,
+                    backends: Some(backends),
+                })
             }
+            StatusCode::NOT_MODIFIED => Ok(DiscoveryBackends {
+                etag: response_etag,
+                backends: None,
+            }),
             status => Err(Self::general_error(
                 status,
                 &format!("get all backends {url}"),
