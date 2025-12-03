@@ -1,13 +1,13 @@
 use crate::api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendRest,
-    DiscoveryBackendSparse, DiscoveryBackendStore,
+    DiscoveryBackendSparse, DiscoveryBackendStore, DiscoveryBackends,
 };
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
 use crate::axum::extract::address::DiscoveryBackendAddressParam;
 use crate::axum::header::no_cache_headers;
 use crate::discovery::state::DiscoveryState;
-use axum::http::HeaderValue;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::{extract::State, Json};
 
 pub struct DiscoveryHandlers;
@@ -38,28 +38,46 @@ impl DiscoveryHandlers {
     }
 
     pub async fn get_backends<S>(
+        headers: HeaderMap,
         State(state): State<DiscoveryState<S>>,
     ) -> Result<JsonCrudResponse<Vec<DiscoveryBackendRest>>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
+        let etag_request = headers
+            .get(http::header::IF_NONE_MATCH)
+            .map(|h| {
+                h.to_str()
+                    .map_err(|_| CrudError::bad())
+                    .and_then(|etag_str| {
+                        DiscoveryBackends::etag_from_str(etag_str).map_err(|_| CrudError::bad())
+                    })
+            })
+            .transpose()?;
+
         let backends = state
             .store()
-            .get_all()
+            .get_all(etag_request)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let headers = no_cache_headers();
+        let mut headers = no_cache_headers();
+        headers.insert(http::header::ETAG, backends.etag_string().try_into()?);
 
-        let backends = backends
-            .into_iter()
-            .map(|backend| DiscoveryBackendRest {
-                location: backend.address.encoded(),
-                backend,
-            })
-            .collect();
+        match backends.backends {
+            None => Ok(JsonCrudResponse::not_modified(headers)),
+            Some(backends) => {
+                let backends = backends
+                    .into_iter()
+                    .map(|backend| DiscoveryBackendRest {
+                        location: backend.address.encoded(),
+                        backend,
+                    })
+                    .collect();
 
-        Ok(JsonCrudResponse::ok(backends, headers))
+                Ok(JsonCrudResponse::ok(backends, headers))
+            }
+        }
     }
 
     pub async fn post_backend<S>(

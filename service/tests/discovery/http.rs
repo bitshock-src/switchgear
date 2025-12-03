@@ -75,6 +75,20 @@ async fn test_http_test_patch_missing_backend() {
 }
 
 #[tokio::test]
+async fn test_http_etag_changes_on_mutations_get_all() {
+    let (store, service) = create_http_store().await;
+    discovery::test_etag_changes_on_mutations_get_all(store).await;
+    service.shutdown().await;
+}
+
+#[tokio::test]
+async fn test_http_etag_conditional_get_all() {
+    let (store, service) = create_http_store().await;
+    discovery::test_etag_conditional_get_all(store).await;
+    service.shutdown().await;
+}
+
+#[tokio::test]
 async fn test_http_health() {
     let (store, service) = create_http_store().await;
     store.health().await.unwrap();

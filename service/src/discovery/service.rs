@@ -51,7 +51,7 @@ impl DiscoveryService {
 mod tests {
     use crate::api::discovery::{
         DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-        DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+        DiscoveryBackendPatchSparse, DiscoveryBackendRest, DiscoveryBackendSparse,
     };
     use crate::components::discovery::memory::MemoryDiscoveryBackendStore;
     use crate::discovery::auth::{DiscoveryAudience, DiscoveryClaims};
@@ -63,12 +63,18 @@ mod tests {
     use p256::ecdsa::SigningKey;
     use p256::pkcs8::EncodePrivateKey;
     use p256::pkcs8::EncodePublicKey;
-    use rand::thread_rng;
+    use rand::{thread_rng, Rng};
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn create_test_backend(partition: &str, address: &str) -> DiscoveryBackend {
+    fn create_test_backend(partition: &str) -> DiscoveryBackend {
+        let secp = Secp256k1::new();
+        let mut rng = thread_rng();
+        let secret_key = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
         DiscoveryBackend {
-            address: DiscoveryBackendAddress::Url(format!("https://{address}").parse().unwrap()),
+            address: DiscoveryBackendAddress::PublicKey(public_key),
             backend: DiscoveryBackendSparse {
                 name: None,
                 partitions: [partition.to_string()].into(),
@@ -157,7 +163,7 @@ mod tests {
     #[tokio::test]
     async fn post_backend_when_new_then_creates_and_returns_location() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         let response = server
             .server
@@ -167,14 +173,14 @@ mod tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::CREATED);
-        let location = response.header("location");
-        assert!(location.to_str().unwrap().contains("url/"));
+        let location = response.header("location").to_str().unwrap().to_string();
+        assert_eq!(location, backend.address.encoded());
     }
 
     #[tokio::test]
     async fn post_backend_when_duplicate_then_returns_conflict() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         // First POST should succeed
         let response1 = server
@@ -198,7 +204,7 @@ mod tests {
     #[tokio::test]
     async fn get_backend_when_exists_then_returns_backend() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         // First create the backend
         let response = server
@@ -243,7 +249,7 @@ mod tests {
     #[tokio::test]
     async fn put_backend_when_new_then_created() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         let response = server
             .server
@@ -258,7 +264,7 @@ mod tests {
     #[tokio::test]
     async fn put_backend_when_exists_then_updates_no_content() {
         let server = setup_test_server().await;
-        let mut backend = create_test_backend("default", "192.168.1.1:8080");
+        let mut backend = create_test_backend("default");
 
         // Create initial backend
         let response = server
@@ -295,7 +301,7 @@ mod tests {
     #[tokio::test]
     async fn patch_backend_then_no_content() {
         let server = setup_test_server().await;
-        let mut backend = create_test_backend("default", "192.168.1.1:8080");
+        let mut backend = create_test_backend("default");
 
         // Create initial backend
         let response = server
@@ -338,7 +344,7 @@ mod tests {
     #[tokio::test]
     async fn patch_missing_backend_then_not_found() {
         let server = setup_test_server().await;
-        let mut backend = create_test_backend("default", "192.168.1.1:8080");
+        let mut backend = create_test_backend("default");
 
         let location = backend.address.encoded();
 
@@ -363,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn delete_backend_when_exists_then_removes_and_returns_backend() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         // Create backend
         let response = server
@@ -411,24 +417,28 @@ mod tests {
     #[tokio::test]
     async fn get_backends_when_multiple_exist_then_returns_all() {
         let server = setup_test_server().await;
-        let backend1 = create_test_backend("default", "192.168.1.1:8080");
-        let backend2 = create_test_backend("default", "192.168.1.2:8080");
+        let backend1 = create_test_backend("default");
+        let backend2 = create_test_backend("default");
+
+        // Sort backends by address before posting
+        let mut backends = [backend1, backend2];
+        backends.sort_by(|a, b| a.address.to_string().cmp(&b.address.to_string()));
 
         // Create multiple backends
         server
             .server
             .post("/discovery")
             .authorization_bearer(server.authorization.clone())
-            .json(&backend1)
+            .json(&backends[0])
             .await;
         server
             .server
             .post("/discovery")
             .authorization_bearer(server.authorization.clone())
-            .json(&backend2)
+            .json(&backends[1])
             .await;
 
-        // Get all backends
+        // Get all backends (first request)
         let response = server
             .server
             .get("/discovery")
@@ -436,8 +446,31 @@ mod tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::OK);
-        let backends: Vec<DiscoveryBackend> = response.json();
-        assert_eq!(backends.len(), 2);
+        let response_backends: Vec<DiscoveryBackendRest> = response.json();
+
+        // Build expected backends from the sorted list
+        let expected: Vec<DiscoveryBackendRest> = backends
+            .iter()
+            .map(|b| DiscoveryBackendRest {
+                location: b.address.encoded(),
+                backend: b.clone(),
+            })
+            .collect();
+
+        assert_eq!(response_backends, expected);
+
+        // Collect etag from first response
+        let etag = response.header("etag");
+
+        // Get all backends with IF_NONE_MATCH (second request)
+        let response2 = server
+            .server
+            .get("/discovery")
+            .authorization_bearer(server.authorization.clone())
+            .add_header(http::header::IF_NONE_MATCH, etag)
+            .await;
+
+        assert_eq!(response2.status_code(), StatusCode::NOT_MODIFIED);
     }
 
     #[tokio::test]
@@ -483,7 +516,7 @@ mod tests {
     #[tokio::test]
     async fn unauthorized() {
         let server = setup_test_server().await;
-        let backend = create_test_backend("default", "192.168.1.1:8080");
+        let backend = create_test_backend("default");
 
         let response = server.server.post("/discovery").json(&backend).await;
 

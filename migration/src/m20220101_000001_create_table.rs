@@ -1,3 +1,4 @@
+use crate::DISCOVERY_BACKEND_GET_ALL_ETAG_ID;
 use sea_orm_migration::{prelude::*, schema::*};
 
 #[derive(DeriveMigrationName)]
@@ -31,10 +32,35 @@ impl MigrationTrait for DiscoveryBackendMigration {
                     .primary_key(Index::create().col(DiscoveryBackend::Address))
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(DiscoveryBackendEtag::Table)
+                    .if_not_exists()
+                    .col(integer(DiscoveryBackendEtag::Id).not_null())
+                    .col(big_integer(DiscoveryBackendEtag::Value).not_null())
+                    .primary_key(Index::create().col(DiscoveryBackendEtag::Id))
+                    .to_owned(),
+            )
+            .await?;
+
+        let insert_stmt = Query::insert()
+            .into_table(DiscoveryBackendEtag::Table)
+            .columns([DiscoveryBackendEtag::Id, DiscoveryBackendEtag::Value])
+            .values([DISCOVERY_BACKEND_GET_ALL_ETAG_ID.into(), 0.into()])
+            .map_err(|e| DbErr::Custom(e.to_string()))?
+            .to_owned();
+
+        manager.exec_stmt(insert_stmt).await
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(DiscoveryBackendEtag::Table).to_owned())
+            .await?;
+
         manager
             .drop_table(Table::drop().table(DiscoveryBackend::Table).to_owned())
             .await
@@ -53,4 +79,11 @@ enum DiscoveryBackend {
     Implementation,
     CreatedAt,
     UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum DiscoveryBackendEtag {
+    Table,
+    Id,
+    Value,
 }

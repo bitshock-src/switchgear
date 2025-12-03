@@ -1,15 +1,24 @@
 use crate::api::discovery::{
     DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
+    DiscoveryBackends,
 };
 use crate::components::discovery::error::DiscoveryBackendStoreError;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
+struct DiscoveryBackendTimestamped {
+    created: chrono::DateTime<chrono::Utc>,
+    backend: DiscoveryBackend,
+}
+
+#[derive(Clone, Debug)]
 pub struct MemoryDiscoveryBackendStore {
-    store: Arc<Mutex<HashMap<DiscoveryBackendAddress, DiscoveryBackend>>>,
+    store: Arc<Mutex<HashMap<DiscoveryBackendAddress, DiscoveryBackendTimestamped>>>,
+    etag: Arc<AtomicU64>,
 }
 
 impl Default for MemoryDiscoveryBackendStore {
@@ -22,6 +31,7 @@ impl MemoryDiscoveryBackendStore {
     pub fn new() -> Self {
         Self {
             store: Arc::new(Mutex::new(HashMap::new())),
+            etag: Arc::new(Default::default()),
         }
     }
 }
@@ -35,13 +45,33 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         addr: &DiscoveryBackendAddress,
     ) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;
-        Ok(store.get(addr).cloned())
+        Ok(store.get(addr).map(|b| b.backend.clone()))
     }
 
-    async fn get_all(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
+    async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
         let store = self.store.lock().await;
-        let backends: Vec<DiscoveryBackend> = store.values().cloned().collect();
-        Ok(backends)
+        let mut backends: Vec<DiscoveryBackendTimestamped> = store.values().cloned().collect();
+
+        backends.sort_by(|a, b| {
+            a.created
+                .cmp(&b.created)
+                .then_with(|| a.backend.address.cmp(&b.backend.address))
+        });
+
+        let response_etag = self.etag.load(Ordering::Relaxed);
+
+        if request_etag == Some(response_etag) {
+            Ok(DiscoveryBackends {
+                etag: response_etag,
+                backends: None,
+            })
+        } else {
+            let backends = backends.into_iter().map(|b| b.backend).collect();
+            Ok(DiscoveryBackends {
+                etag: response_etag,
+                backends: Some(backends),
+            })
+        }
     }
 
     async fn post(
@@ -54,14 +84,26 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
             return Ok(None);
         }
         let addr = backend.address.clone();
-        store.insert(key, backend);
+        store.insert(
+            key,
+            DiscoveryBackendTimestamped {
+                created: chrono::Utc::now(),
+                backend,
+            },
+        );
+        self.etag.fetch_add(1, Ordering::Relaxed);
         Ok(Some(addr))
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
         let key = backend.address.clone();
-        let was_new = store.insert(key, backend).is_none();
+        let (created, was_new) = match store.get(&key) {
+            Some(existing) => (existing.created, false),
+            None => (chrono::Utc::now(), true),
+        };
+        store.insert(key, DiscoveryBackendTimestamped { created, backend });
+        self.etag.fetch_add(1, Ordering::Relaxed);
         Ok(was_new)
     }
 
@@ -72,17 +114,18 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
             Some(entry) => entry,
         };
         if let Some(weight) = backend.backend.weight {
-            entry.backend.weight = weight;
+            entry.backend.backend.weight = weight;
         }
         if let Some(enabled) = backend.backend.enabled {
-            entry.backend.enabled = enabled;
+            entry.backend.backend.enabled = enabled;
         }
         if let Some(partitions) = backend.backend.partitions {
-            entry.backend.partitions = partitions;
+            entry.backend.backend.partitions = partitions;
         }
         if let Some(name) = backend.backend.name {
-            entry.backend.name = name;
+            entry.backend.backend.name = name;
         }
+        self.etag.fetch_add(1, Ordering::Relaxed);
         Ok(true)
     }
 
@@ -90,6 +133,9 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         let mut store = self.store.lock().await;
         let key = addr.clone();
         let was_found = store.remove(&key).is_some();
+        if was_found {
+            self.etag.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(was_found)
     }
 }

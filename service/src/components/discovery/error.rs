@@ -28,6 +28,8 @@ pub enum DiscoveryBackendStoreErrorSource {
     Sqlx(#[from] sqlx::Error),
     #[error("database error: {0}")]
     Database(#[from] sea_orm::DbErr),
+    #[error("database transaction error: {0}")]
+    Transaction(#[from] sea_orm::TransactionError<sea_orm::DbErr>),
     #[error("deserialization failed: {0}")]
     Deserialization(reqwest::Error),
     #[error("HTTP request failed: {0}")]
@@ -76,6 +78,18 @@ impl DiscoveryBackendStoreError {
     ) -> Self {
         Self {
             source: DiscoveryBackendStoreErrorSource::Database(db_error),
+            esource,
+            context: context.into(),
+        }
+    }
+
+    pub fn from_tx<C: Into<Cow<'static, str>>>(
+        esource: ServiceErrorSource,
+        context: C,
+        db_error: sea_orm::TransactionError<sea_orm::DbErr>,
+    ) -> Self {
+        Self {
+            source: DiscoveryBackendStoreErrorSource::Transaction(db_error),
             esource,
             context: context.into(),
         }

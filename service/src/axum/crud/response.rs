@@ -40,6 +40,14 @@ impl<T> JsonCrudResponse<T> {
             headers: Default::default(),
         }
     }
+
+    pub fn not_modified(headers: HeaderMap) -> Self {
+        JsonCrudResponse {
+            body: None,
+            status: StatusCode::NOT_MODIFIED,
+            headers,
+        }
+    }
 }
 
 impl<T> IntoResponse for JsonCrudResponse<T>

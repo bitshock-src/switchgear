@@ -1,5 +1,7 @@
 pub use sea_orm_migration::prelude::*;
 
+pub const DISCOVERY_BACKEND_GET_ALL_ETAG_ID: i32 = 1;
+
 mod m20220101_000001_create_table;
 mod m20250724_182058_create_table;
 

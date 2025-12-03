@@ -9,10 +9,10 @@ use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::Backend;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use switchgear_service::api::discovery::DiscoveryBackend;
 use switchgear_service::api::discovery::DiscoveryBackendStore;
+use switchgear_service::api::discovery::DiscoveryBackends;
 use switchgear_service::api::service::ServiceErrorSource;
 use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
 use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
@@ -24,7 +24,7 @@ pub struct DefaultPingoraLnDiscovery<B, P> {
     pool: P,
     partitions: BTreeSet<String>,
     pingora_backend_cache: ArcSwap<BTreeSet<Backend>>,
-    last_discovery_backend_hash: AtomicU64,
+    last_etag: AtomicU64,
 }
 
 impl<B, P> DefaultPingoraLnDiscovery<B, P> {
@@ -34,7 +34,7 @@ impl<B, P> DefaultPingoraLnDiscovery<B, P> {
             pool,
             partitions: partitions.into_iter().collect(),
             pingora_backend_cache: ArcSwap::new(Arc::new(BTreeSet::new())),
-            last_discovery_backend_hash: Default::default(),
+            last_etag: AtomicU64::new(0),
         }
     }
 }
@@ -46,29 +46,30 @@ where
     P: LnClientPool<Key = Backend> + Send + Sync,
 {
     async fn discover(&self) -> pingora_error::Result<(BTreeSet<Backend>, HashMap<u64, bool>)> {
-        let discovery_backends =
-            BTreeSet::from_iter(self.backend_provider.backends().await.map_err(|e| {
+        let etag = self.last_etag.load(Ordering::Relaxed);
+        let backends = self
+            .backend_provider
+            .backends(Some(etag))
+            .await
+            .map_err(|e| {
                 pingora_error::Error::because(
                     pingora_error::ErrorType::InternalError,
                     "getting all discovery backends",
                     e,
                 )
-            })?);
+            })?;
 
-        let mut hasher = DefaultHasher::new();
-        discovery_backends.hash(&mut hasher);
-        let latest_discovery_backend_hash = hasher.finish();
+        let discovery_backends = match backends.backends {
+            None => {
+                return Ok((
+                    (**self.pingora_backend_cache.load()).clone(),
+                    HashMap::new(),
+                ))
+            }
+            Some(backends) => BTreeSet::from_iter(backends),
+        };
 
-        if self.last_discovery_backend_hash.swap(
-            latest_discovery_backend_hash,
-            std::sync::atomic::Ordering::Relaxed,
-        ) == latest_discovery_backend_hash
-        {
-            return Ok((
-                (**self.pingora_backend_cache.load()).clone(),
-                HashMap::new(),
-            ));
-        }
+        self.last_etag.store(backends.etag, Ordering::Relaxed);
 
         let mut enablement = HashMap::new();
         let mut pingora_backends = BTreeSet::new();
@@ -113,8 +114,8 @@ where
 impl PingoraBackendProvider for MemoryDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all().await.map_err(|e| {
+    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        let backends = self.get_all(etag).await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -129,8 +130,8 @@ impl PingoraBackendProvider for MemoryDiscoveryBackendStore {
 impl PingoraBackendProvider for DbDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all().await.map_err(|e| {
+    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        let backends = self.get_all(etag).await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -145,8 +146,8 @@ impl PingoraBackendProvider for DbDiscoveryBackendStore {
 impl PingoraBackendProvider for HttpDiscoveryBackendStore {
     type Error = PingoraLnError;
 
-    async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-        let backends = self.get_all().await.map_err(|e| {
+    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        let backends = self.get_all(etag).await.map_err(|e| {
             PingoraLnError::from_discovery_backend_store_err(
                 ServiceErrorSource::Internal,
                 "getting all discovery backends",
@@ -170,7 +171,7 @@ mod tests {
     use std::sync::Arc;
     use switchgear_service::api::discovery::{
         DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-        DiscoveryBackendSparse,
+        DiscoveryBackendSparse, DiscoveryBackends,
     };
     use switchgear_service::api::offer::Offer;
     use switchgear_service::api::service::ServiceErrorSource;
@@ -188,8 +189,9 @@ mod tests {
     impl PingoraBackendProvider for MockBackendProvider {
         type Error = PingoraLnError;
 
-        async fn backends(&self) -> Result<Vec<DiscoveryBackend>, Self::Error> {
-            self.backends_to_return
+        async fn backends(&self, _etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+            let backends = self
+                .backends_to_return
                 .lock()
                 .await
                 .as_ref()
@@ -207,7 +209,11 @@ mod tests {
                         ServiceErrorSource::Internal,
                         "Mock BackendProvider forced error",
                     )
-                })
+                })?;
+            Ok(DiscoveryBackends {
+                etag: 0,
+                backends: Some(backends),
+            })
         }
     }
 
