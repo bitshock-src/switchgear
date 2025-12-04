@@ -1,6 +1,5 @@
 use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendSparse,
+    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendSparse,
 };
 use switchgear_service::components::pool::cln::grpc::config::{
     ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
@@ -37,8 +36,6 @@ pub fn try_create_cln_backend(
 
     let url = Url::parse(&format!("https://{}", cln_node.address))?;
 
-    let address = DiscoveryBackendAddress::PublicKey(cln_node.public_key);
-
     let implementation =
         DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
             url,
@@ -51,7 +48,7 @@ pub fn try_create_cln_backend(
         });
 
     let backend = DiscoveryBackend {
-        address,
+        public_key: cln_node.public_key,
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
@@ -82,8 +79,6 @@ pub fn try_create_lnd_backend(
         .next()
         .ok_or_else(|| anyhow::anyhow!("no lnd nodes available"))?;
 
-    let address = DiscoveryBackendAddress::PublicKey(lnd_node.public_key);
-
     let url = Url::parse(&format!("https://{}", lnd_node.address))?;
 
     let implementation =
@@ -98,7 +93,7 @@ pub fn try_create_lnd_backend(
         });
 
     let backend = DiscoveryBackend {
-        address: address.clone(),
+        public_key: lnd_node.public_key,
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),

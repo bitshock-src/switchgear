@@ -38,7 +38,6 @@ paths:
           description: ETag value from a previous response. If it matches the current ETag, returns 304 Not Modified.
           schema:
             type: string
-          example: "12345"
       responses:
         '200':
           description: List of backends
@@ -46,62 +45,49 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
             ETag:
               schema:
                 type: string
               description: Current version of the backend list
-              example: "12345"
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DiscoveryBackendRest'
+                  $ref: '#/components/schemas/DiscoveryBackend'
         '304':
           description: Not Modified - backend list hasn't changed since the ETag provided in If-None-Match
           headers:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
             ETag:
               schema:
                 type: string
               description: Current version of the backend list (same as the If-None-Match value)
-              example: "12345"
-  /discovery/{addr_variant}/{addr_value}:
+  /discovery/{public-key}:
     get:
       summary: Get specific backend
-      description: Retrieves detailed information about a specific Lightning node backend identified by its address.
+      description: Retrieves detailed information about a specific Lightning node backend identified by its public key.
       parameters:
-        - name: addr_variant
+        - name: public-key
           in: path
           required: true
           schema:
             type: string
-            enum: [pk, url]
-        - name: addr_value
-          in: path
-          required: true
-          schema:
-            type: string
+          description: Secp256k1 public key in hex format
       responses:
         '200':
           description: Backend details
@@ -109,36 +95,28 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DiscoveryBackendRest'
+                $ref: '#/components/schemas/DiscoveryBackend'
         '404':
           description: Backend not found
     put:
       summary: Create or update backend
-      description: Creates a new backend or updates an existing one with the provided configuration at the specified address.
+      description: Creates a new backend or updates an existing one with the provided configuration at the specified public key.
       parameters:
-        - name: addr_variant
+        - name: public-key
           in: path
           required: true
           schema:
             type: string
-            enum: [pk, url]
-        - name: addr_value
-          in: path
-          required: true
-          schema:
-            type: string
+          description: Secp256k1 public key in hex format
       requestBody:
         required: true
         content:
@@ -154,17 +132,12 @@ paths:
       summary: Partially update backend
       description: Updates specific fields of an existing Lightning node backend without requiring the full backend configuration.
       parameters:
-        - name: addr_variant
+        - name: public-key
           in: path
           required: true
           schema:
             type: string
-            enum: [pk, url]
-        - name: addr_value
-          in: path
-          required: true
-          schema:
-            type: string
+          description: Secp256k1 public key in hex format
       requestBody:
         required: true
         content:
@@ -180,17 +153,12 @@ paths:
       summary: Remove backend
       description: Removes a Lightning node backend from the discovery service, preventing it from receiving new traffic.
       parameters:
-        - name: addr_variant
+        - name: public-key
           in: path
           required: true
           schema:
             type: string
-            enum: [pk, url]
-        - name: addr_value
-          in: path
-          required: true
-          schema:
-            type: string
+          description: Secp256k1 public key in hex format
       responses:
         '204':
           description: Backend removed
@@ -213,81 +181,19 @@ components:
   schemas:
     DiscoveryBackend:
       type: object
+      description: Complete backend configuration with public key identifier
       required:
-        - address
+        - publicKey
         - partitions
         - weight
         - enabled
         - implementation
       properties:
-        address:
-          oneOf:
-            - type: object
-              required:
-                - publicKey
-              properties:
-                publicKey:
-                  type: string
-                  description: Lightning node public key
-            - type: object
-              required:
-                - url
-              properties:
-                url:
-                  type: string
-                  format: uri
-                  description: Backend URL
-        name:
+        publicKey:
           type: string
-          nullable: true
-          description: Optional human-readable name for the backend
-        partitions:
-          type: array
-          items:
-            type: string
-          description: Load balancing partitions
-        weight:
-          type: integer
-          minimum: 0
-          description: Load balancing weight
-        enabled:
-          type: boolean
-          description: Whether the backend is enabled
-        implementation:
-          $ref: '#/components/schemas/DiscoveryBackendImplementation'
-
-    DiscoveryBackendRest:
-      type: object
-      description: Backend response with location information
-      required:
-        - location
-        - address
-        - partitions
-        - weight
-        - enabled
-        - implementation
-      properties:
-        location:
-          type: string
-          description: Resource location path
-          example: "url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw"
-        address:
-          oneOf:
-            - type: object
-              required:
-                - publicKey
-              properties:
-                publicKey:
-                  type: string
-                  description: Lightning node public key
-            - type: object
-              required:
-                - url
-              properties:
-                url:
-                  type: string
-                  format: uri
-                  description: Backend URL
+          description: Secp256k1 public key in hex format (66 hex characters, 33 bytes)
+          pattern: '^[0-9a-fA-F]{66}$'
+          example: "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad"
         name:
           type: string
           nullable: true
@@ -360,13 +266,11 @@ components:
       oneOf:
         - $ref: '#/components/schemas/ClnGrpcImplementation'
         - $ref: '#/components/schemas/LndGrpcImplementation'
-        - $ref: '#/components/schemas/RemoteHttpImplementation'
       discriminator:
         propertyName: type
         mapping:
           clnGrpc: '#/components/schemas/ClnGrpcImplementation'
           lndGrpc: '#/components/schemas/LndGrpcImplementation'
-          remoteHttp: '#/components/schemas/RemoteHttpImplementation'
 
     ClnGrpcImplementation:
       type: object
@@ -455,13 +359,3 @@ components:
         macaroonPath:
           type: string
           description: Path to macaroon file
-
-    RemoteHttpImplementation:
-      type: object
-      description: Remote HTTP backend implementation
-      required:
-        - type
-      properties:
-        type:
-          type: string
-          enum: [remoteHttp]

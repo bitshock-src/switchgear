@@ -59,7 +59,7 @@ impl OfferService {
 mod tests {
     use crate::api::offer::{
         OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
-        OfferMetadataStore, OfferRecord, OfferRecordRest, OfferRecordSparse, OfferStore,
+        OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
     };
     use crate::components::offer::memory::MemoryOfferStore;
     use crate::offer::service::OfferService;
@@ -364,8 +364,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let all_offers: Vec<OfferRecordRest> = response.json();
-        let all_offers: Vec<OfferRecord> = all_offers.into_iter().map(|r| r.offer).collect();
+        let all_offers: Vec<OfferRecord> = response.json();
         assert_eq!(all_offers.as_slice(), expected_offers.as_slice());
 
         let response = server
@@ -374,8 +373,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let next_nine: Vec<OfferRecordRest> = response.json();
-        let next_nine: Vec<OfferRecord> = next_nine.into_iter().map(|r| r.offer).collect();
+        let next_nine: Vec<OfferRecord> = response.json();
         assert_eq!(next_nine.as_slice(), &expected_offers[1..]);
 
         let response = server
@@ -384,8 +382,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let first: Vec<OfferRecordRest> = response.json();
-        let first: Vec<OfferRecord> = first.into_iter().map(|r| r.offer).collect();
+        let first: Vec<OfferRecord> = response.json();
         assert_eq!(first.as_slice(), &expected_offers[0..1]);
 
         let response = server
@@ -394,8 +391,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let middle_offers: Vec<OfferRecordRest> = response.json();
-        let middle_offers: Vec<OfferRecord> = middle_offers.into_iter().map(|r| r.offer).collect();
+        let middle_offers: Vec<OfferRecord> = response.json();
         assert_eq!(middle_offers.as_slice(), &expected_offers[3..7]);
 
         let response = server
@@ -694,8 +690,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_all_metadata_when_exists_then_returns_list() {
-        use crate::api::offer::OfferMetadataRest;
-
         let mut expected_metadata = Vec::new();
         for i in 0..10 {
             let mut metadata = create_test_metadata();
@@ -711,9 +705,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let all_metadata: Vec<OfferMetadataRest> = response.json();
-        let all_metadata: Vec<OfferMetadata> =
-            all_metadata.into_iter().map(|r| r.metadata).collect();
+        let all_metadata: Vec<OfferMetadata> = response.json();
         assert_eq!(all_metadata.as_slice(), expected_metadata.as_slice());
 
         let response = server
@@ -722,8 +714,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let next_nine: Vec<OfferMetadataRest> = response.json();
-        let next_nine: Vec<OfferMetadata> = next_nine.into_iter().map(|r| r.metadata).collect();
+        let next_nine: Vec<OfferMetadata> = response.json();
         assert_eq!(next_nine.as_slice(), &expected_metadata[1..]);
 
         let response = server
@@ -732,8 +723,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let first: Vec<OfferMetadataRest> = response.json();
-        let first: Vec<OfferMetadata> = first.into_iter().map(|r| r.metadata).collect();
+        let first: Vec<OfferMetadata> = response.json();
         assert_eq!(first.as_slice(), &expected_metadata[0..1]);
 
         let response = server
@@ -742,9 +732,7 @@ mod tests {
             .authorization_bearer(server.authorization.clone())
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
-        let middle_metadata: Vec<OfferMetadataRest> = response.json();
-        let middle_metadata: Vec<OfferMetadata> =
-            middle_metadata.into_iter().map(|r| r.metadata).collect();
+        let middle_metadata: Vec<OfferMetadata> = response.json();
         assert_eq!(middle_metadata.as_slice(), &expected_metadata[3..7]);
 
         let response = server

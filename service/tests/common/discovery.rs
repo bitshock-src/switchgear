@@ -1,9 +1,11 @@
 use rand::Rng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
-    DiscoveryBackendStore,
+    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatch,
+    DiscoveryBackendPatchSparse, DiscoveryBackendSparse, DiscoveryBackendStore,
+};
+use switchgear_service::components::pool::lnd::grpc::config::{
+    LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
 };
 
 pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) {
@@ -19,43 +21,73 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
 
     // Create the two distinct backends
     let backend1 = DiscoveryBackend {
-        address: DiscoveryBackendAddress::PublicKey(public_key1),
+        public_key: public_key1,
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
-            implementation: DiscoveryBackendImplementation::RemoteHttp,
+            implementation: DiscoveryBackendImplementation::LndGrpc(
+                LndGrpcDiscoveryBackendImplementation {
+                    url: "https://localhost:9736".parse().unwrap(),
+                    domain: None,
+                    auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                        tls_cert_path: None,
+                        macaroon_path: "/path/to/macaroon_path".into(),
+                    }),
+                    amp_invoice: false,
+                },
+            ),
         },
     };
 
     let backend2 = DiscoveryBackend {
-        address: DiscoveryBackendAddress::PublicKey(public_key2),
+        public_key: public_key2,
         backend: DiscoveryBackendSparse {
             name: Some("new_backend2".to_string()),
             partitions: ["default".to_string()].into(),
             weight: 200,
             enabled: true,
-            implementation: DiscoveryBackendImplementation::RemoteHttp,
+            implementation: DiscoveryBackendImplementation::LndGrpc(
+                LndGrpcDiscoveryBackendImplementation {
+                    url: "https://localhost:9736".parse().unwrap(),
+                    domain: None,
+                    auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                        tls_cert_path: None,
+                        macaroon_path: "/path/to/macaroon_path".into(),
+                    }),
+                    amp_invoice: false,
+                },
+            ),
         },
     };
 
     // Sort the two backends by address string representation
     let mut backends = [backend1, backend2];
-    backends.sort_by(|a, b| a.address.to_string().cmp(&b.address.to_string()));
+    backends.sort_by(|a, b| a.public_key.to_string().cmp(&b.public_key.to_string()));
 
     let new_backend1 = backends[0].clone();
     let new_backend2 = backends[1].clone();
 
     // Create modified_backend2 with the same address as new_backend2
     let modified_backend2 = DiscoveryBackend {
-        address: new_backend2.address.clone(),
+        public_key: new_backend2.public_key,
         backend: DiscoveryBackendSparse {
             name: Some("new_backend2_modified".to_string()),
             partitions: ["default".to_string()].into(),
             weight: 10,
             enabled: false,
-            implementation: DiscoveryBackendImplementation::RemoteHttp,
+            implementation: DiscoveryBackendImplementation::LndGrpc(
+                LndGrpcDiscoveryBackendImplementation {
+                    url: "https://localhost:9736".parse().unwrap(),
+                    domain: None,
+                    auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                        tls_cert_path: None,
+                        macaroon_path: "/path/to/macaroon_path".into(),
+                    }),
+                    amp_invoice: false,
+                },
+            ),
         },
     };
 
@@ -71,10 +103,10 @@ where
 
     // Test posting new backends returns their addresses
     let addr = store.post(new_backend1.clone()).await.unwrap();
-    assert_eq!(addr, Some(new_backend1.address.clone()));
+    assert_eq!(addr, Some(new_backend1.public_key));
 
     let addr = store.post(new_backend2.clone()).await.unwrap();
-    assert_eq!(addr, Some(new_backend2.address.clone()));
+    assert_eq!(addr, Some(new_backend2.public_key));
 
     // Test posting duplicate returns None
     let addr = store.post(modified_backend2.clone()).await.unwrap();
@@ -93,15 +125,15 @@ where
     let _ = store.post(modified_backend2.clone()).await.unwrap();
 
     // Test individual gets
-    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend1.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
-    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend2.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend2);
 
     // Modified backend should not have been stored
     let backend = store
-        .get(&modified_backend2.address)
+        .get(&modified_backend2.public_key)
         .await
         .unwrap()
         .unwrap();
@@ -126,21 +158,21 @@ where
     let _ = store.post(modified_backend2.clone()).await.unwrap();
 
     // Delete and verify return values
-    let deleted = store.delete(&new_backend1.address).await.unwrap();
+    let deleted = store.delete(&new_backend1.public_key).await.unwrap();
     assert!(deleted);
 
-    let deleted = store.delete(&new_backend2.address).await.unwrap();
+    let deleted = store.delete(&new_backend2.public_key).await.unwrap();
     assert!(deleted);
 
     // Modified backend was never stored, so delete returns None
-    let deleted = store.delete(&modified_backend2.address).await.unwrap();
+    let deleted = store.delete(&modified_backend2.public_key).await.unwrap();
     assert!(!deleted);
 
     // Verify all backends are gone
-    assert!(store.get(&new_backend1.address).await.unwrap().is_none());
-    assert!(store.get(&new_backend2.address).await.unwrap().is_none());
+    assert!(store.get(&new_backend1.public_key).await.unwrap().is_none());
+    assert!(store.get(&new_backend2.public_key).await.unwrap().is_none());
     assert!(store
-        .get(&modified_backend2.address)
+        .get(&modified_backend2.public_key)
         .await
         .unwrap()
         .is_none());
@@ -173,10 +205,10 @@ where
     assert!(store.put(new_backend2.clone()).await.unwrap());
 
     // Verify initial state
-    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend1.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
-    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend2.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend2);
 
     let actual_backends = store.get_all(None).await.unwrap().backends.unwrap();
@@ -188,7 +220,7 @@ where
 
     // Verify update
     let backend = store
-        .get(&modified_backend2.address)
+        .get(&modified_backend2.public_key)
         .await
         .unwrap()
         .unwrap();
@@ -207,10 +239,10 @@ where
     assert!(store.put(new_backend2.clone()).await.unwrap());
 
     // Verify initial state
-    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend1.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
-    let backend = store.get(&new_backend2.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend2.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend2);
 
     let actual_backends = store.get_all(None).await.unwrap().backends.unwrap();
@@ -219,7 +251,7 @@ where
 
     // Patch backend2
     let backend_patch = DiscoveryBackendPatch {
-        address: modified_backend2.address.clone(),
+        public_key: modified_backend2.public_key,
         backend: DiscoveryBackendPatchSparse {
             name: Some(modified_backend2.backend.name.clone()),
             partitions: None,
@@ -232,7 +264,7 @@ where
 
     // Verify update
     let backend = store
-        .get(&modified_backend2.address)
+        .get(&modified_backend2.public_key)
         .await
         .unwrap()
         .unwrap();
@@ -250,7 +282,7 @@ where
     assert!(store.put(new_backend1.clone()).await.unwrap());
 
     // Verify initial state
-    let backend = store.get(&new_backend1.address).await.unwrap().unwrap();
+    let backend = store.get(&new_backend1.public_key).await.unwrap().unwrap();
     assert_eq!(backend, new_backend1);
 
     let actual_backends = store.get_all(None).await.unwrap().backends.unwrap();
@@ -259,7 +291,7 @@ where
 
     // Patch backend2
     let backend_patch = DiscoveryBackendPatch {
-        address: modified_backend2.address.clone(),
+        public_key: modified_backend2.public_key,
         backend: DiscoveryBackendPatchSparse {
             name: Some(modified_backend2.backend.name.clone()),
             partitions: None,
@@ -311,7 +343,7 @@ where
 
     // Modify backend using patch - etag should change
     let backend_patch = DiscoveryBackendPatch {
-        address: new_backend1.address.clone(),
+        public_key: new_backend1.public_key,
         backend: DiscoveryBackendPatchSparse {
             name: Some(Some("patched_backend1".to_string())),
             partitions: None,
@@ -329,7 +361,7 @@ where
 
     // Modify backend using put again - etag should change
     let another_modified_backend2 = DiscoveryBackend {
-        address: modified_backend2.address.clone(),
+        public_key: modified_backend2.public_key,
         backend: DiscoveryBackendSparse {
             name: Some("backend2_modified_again".to_string()),
             weight: 5,
@@ -345,7 +377,7 @@ where
     );
 
     // Delete a backend - etag should change
-    let _ = store.delete(&new_backend1.address).await.unwrap();
+    let _ = store.delete(&new_backend1.public_key).await.unwrap();
     let result_after_delete = store.get_all(None).await.unwrap();
     let etag_after_delete = result_after_delete.etag;
     assert_ne!(
@@ -447,7 +479,7 @@ where
     );
 
     // Delete a backend
-    let _ = store.delete(&new_backend1.address).await.unwrap();
+    let _ = store.delete(&new_backend1.public_key).await.unwrap();
     let result5 = store.get_all(None).await.unwrap();
     let etag5 = result5.etag;
 

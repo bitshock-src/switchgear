@@ -271,7 +271,7 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                     commands::discovery::backend::list_backends(&client).await
                 }
                 DiscoveryBackendManagementCommands::Get {
-                    address,
+                    public_key: address,
                     output,
                     client,
                 } => {
@@ -286,7 +286,7 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                     commands::discovery::backend::post_backend(input.as_deref(), &client).await
                 }
                 DiscoveryBackendManagementCommands::Put {
-                    address,
+                    public_key: address,
                     input,
                     client,
                 } => {
@@ -294,22 +294,25 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                         .await
                 }
                 DiscoveryBackendManagementCommands::Patch {
-                    address,
+                    public_key: address,
                     input,
                     client,
                 } => {
                     commands::discovery::backend::patch_backend(&address, input.as_deref(), &client)
                         .await
                 }
-                DiscoveryBackendManagementCommands::Enable { address, client } => {
-                    commands::discovery::backend::enable_backend(&address, true, &client).await
-                }
-                DiscoveryBackendManagementCommands::Disable { address, client } => {
-                    commands::discovery::backend::enable_backend(&address, false, &client).await
-                }
-                DiscoveryBackendManagementCommands::Delete { address, client } => {
-                    commands::discovery::backend::delete_backend(&address, &client).await
-                }
+                DiscoveryBackendManagementCommands::Enable {
+                    public_key: address,
+                    client,
+                } => commands::discovery::backend::enable_backend(&address, true, &client).await,
+                DiscoveryBackendManagementCommands::Disable {
+                    public_key: address,
+                    client,
+                } => commands::discovery::backend::enable_backend(&address, false, &client).await,
+                DiscoveryBackendManagementCommands::Delete {
+                    public_key: address,
+                    client,
+                } => commands::discovery::backend::delete_backend(&address, &client).await,
             },
         },
     }

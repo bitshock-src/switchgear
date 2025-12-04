@@ -1,6 +1,6 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
-    DiscoveryBackends, HttpDiscoveryBackendClient,
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
+    HttpDiscoveryBackendClient,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
 use rustls::pki_types::CertificateDer;
+use secp256k1::PublicKey;
 use std::time::Duration;
 use url::Url;
 
@@ -97,8 +98,8 @@ impl HttpDiscoveryBackendStore {
         })
     }
 
-    fn discovery_address_url(&self, addr: &DiscoveryBackendAddress) -> String {
-        format!("{}/{}", self.discovery_url, addr.encoded())
+    fn discovery_public_key_url(&self, public_key: &PublicKey) -> String {
+        format!("{}/{}", self.discovery_url, public_key)
     }
 
     fn general_error(status: StatusCode, context: &str) -> DiscoveryBackendStoreError {
@@ -127,11 +128,8 @@ impl HttpDiscoveryBackendStore {
 impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
     type Error = DiscoveryBackendStoreError;
 
-    async fn get(
-        &self,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<Option<DiscoveryBackend>, Self::Error> {
-        let url = self.discovery_address_url(addr);
+    async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
+        let url = self.discovery_public_key_url(public_key);
 
         let response = self.client.get(&url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
@@ -231,10 +229,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         }
     }
 
-    async fn post(
-        &self,
-        backend: DiscoveryBackend,
-    ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
+    async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let response = self
             .client
             .post(&self.discovery_url)
@@ -246,27 +241,27 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                     ServiceErrorSource::Upstream,
                     format!(
                         "post backend: {}, url: {}",
-                        backend.address, &self.discovery_url
+                        backend.public_key, &self.discovery_url
                     ),
                     e,
                 )
             })?;
 
         match response.status() {
-            StatusCode::CREATED => Ok(Some(backend.address)),
+            StatusCode::CREATED => Ok(Some(backend.public_key)),
             StatusCode::CONFLICT => Ok(None),
             status => Err(Self::general_error(
                 status,
                 &format!(
                     "post backend: {}, url: {}",
-                    backend.address, &self.discovery_url
+                    backend.public_key, &self.discovery_url
                 ),
             )),
         }
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
-        let url = self.discovery_address_url(&backend.address);
+        let url = self.discovery_public_key_url(&backend.public_key);
 
         let response = self
             .client
@@ -290,7 +285,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
     }
 
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
-        let url = self.discovery_address_url(&backend.address);
+        let url = self.discovery_public_key_url(&backend.public_key);
 
         let response = self
             .client
@@ -313,8 +308,8 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         }
     }
 
-    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
-        let url = self.discovery_address_url(addr);
+    async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
+        let url = self.discovery_public_key_url(public_key);
 
         let response = self.client.delete(&url).send().await.map_err(|e| {
             DiscoveryBackendStoreError::http_error(
@@ -363,9 +358,10 @@ impl HttpDiscoveryBackendClient for HttpDiscoveryBackendStore {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::discovery::DiscoveryBackendAddress;
     use crate::components::discovery::http::HttpDiscoveryBackendStore;
     use anyhow::anyhow;
+    use rand::Rng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use url::Url;
 
     #[test]
@@ -392,11 +388,16 @@ mod tests {
 
         assert_eq!(&client.health_check_url, "https://base.com/health");
 
-        let addr = DiscoveryBackendAddress::Url("https://remote.com/backend".parse().unwrap());
-        let discovery_partition_address_url = client.discovery_address_url(&addr);
+        let secp = Secp256k1::new();
+        let mut rng = rand::thread_rng();
+
+        let secret_key = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+
+        let discovery_partition_public_key_url = client.discovery_public_key_url(&public_key);
         assert_eq!(
-            format!("https://base.com/discovery/{}", addr.encoded()),
-            discovery_partition_address_url,
+            format!("https://base.com/discovery/{public_key}"),
+            discovery_partition_public_key_url,
         );
     }
 }

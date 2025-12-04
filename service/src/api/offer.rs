@@ -122,14 +122,6 @@ pub struct OfferRecord {
     pub offer: OfferRecordSparse,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OfferRecordRest {
-    pub location: String,
-    #[serde(flatten)]
-    pub offer: OfferRecord,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OfferMetadataSparse {
@@ -149,14 +141,6 @@ pub struct OfferMetadata {
     pub partition: String,
     #[serde(flatten)]
     pub metadata: OfferMetadataSparse,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OfferMetadataRest {
-    pub location: String,
-    #[serde(flatten)]
-    pub metadata: OfferMetadata,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

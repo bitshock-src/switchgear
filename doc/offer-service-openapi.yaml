@@ -66,21 +66,18 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/OfferRecordRest'
+                  $ref: '#/components/schemas/OfferRecord'
   /offers/{partition}/{id}:
     get:
       summary: Get specific offer
@@ -104,19 +101,16 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OfferRecordRest'
+                $ref: '#/components/schemas/OfferRecord'
         '404':
           description: Offer not found
     put:
@@ -223,21 +217,18 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/OfferMetadataRest'
+                  $ref: '#/components/schemas/OfferMetadata'
   /metadata/{partition}/{id}:
     get:
       summary: Get specific metadata
@@ -261,19 +252,16 @@ paths:
             Cache-Control:
               schema:
                 type: string
-                example: "no-store, no-cache, must-revalidate"
             Expires:
               schema:
                 type: string
-                example: "Thu, 01 Jan 1970 00:00:00 GMT"
             Pragma:
               schema:
                 type: string
-                example: "no-cache"
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OfferMetadataRest'
+                $ref: '#/components/schemas/OfferMetadata'
         '404':
           description: Metadata not found
     put:
@@ -341,7 +329,7 @@ components:
   schemas:
     OfferRecord:
       type: object
-      description: Offer request for POST endpoint
+      description: Complete offer configuration with partition and ID
       required:
         - partition
         - id
@@ -350,53 +338,6 @@ components:
         - metadataId
         - timestamp
       properties:
-        partition:
-          type: string
-          description: Partition name
-        id:
-          type: string
-          format: uuid
-          description: Unique offer identifier
-        maxSendable:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Maximum sendable amount in millisatoshis
-        minSendable:
-          type: integer
-          format: int64
-          minimum: 0
-          description: Minimum sendable amount in millisatoshis
-        metadataId:
-          type: string
-          format: uuid
-          description: Reference to offer metadata
-        timestamp:
-          type: string
-          format: date-time
-          description: Creation timestamp
-        expires:
-          type: string
-          format: date-time
-          nullable: true
-          description: Optional expiration timestamp
-
-    OfferRecordRest:
-      type: object
-      description: Offer response with location information
-      required:
-        - location
-        - partition
-        - id
-        - maxSendable
-        - minSendable
-        - metadataId
-        - timestamp
-      properties:
-        location:
-          type: string
-          description: Resource location path
-          example: "default/123e4567-e89b-12d3-a456-426614174000"
         partition:
           type: string
           description: Partition name
@@ -463,44 +404,12 @@ components:
 
     OfferMetadata:
       type: object
-      description: Metadata request for POST endpoint
+      description: Complete metadata configuration with partition and ID
       required:
         - id
         - partition
         - text
       properties:
-        id:
-          type: string
-          format: uuid
-          description: Unique metadata identifier
-        partition:
-          type: string
-          description: Partition name
-        text:
-          type: string
-          description: Short text description
-        longText:
-          type: string
-          nullable: true
-          description: Optional long text description
-        image:
-          $ref: '#/components/schemas/OfferMetadataImage'
-        identifier:
-          $ref: '#/components/schemas/OfferMetadataIdentifier'
-
-    OfferMetadataRest:
-      type: object
-      description: Metadata response with location information
-      required:
-        - location
-        - id
-        - partition
-        - text
-      properties:
-        location:
-          type: string
-          description: Resource location path
-          example: "default/123e4567-e89b-12d3-a456-426614174000"
         id:
           type: string
           format: uuid

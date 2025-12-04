@@ -15,13 +15,12 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::{StatusCode, Url};
-use std::str::FromStr;
+use secp256k1::PublicKey;
 use std::time::{Duration, SystemTime};
 use std::vec;
 use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
-    DiscoveryBackendStore,
+    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatch,
+    DiscoveryBackendPatchSparse, DiscoveryBackendSparse, DiscoveryBackendStore,
 };
 use switchgear_service::api::offer::{
     OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
@@ -431,8 +430,6 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
 
     let client = ctx.get_active_discovery_client()?;
 
-    let address = DiscoveryBackendAddress::PublicKey(*node.public_key());
-
     let url = Url::parse(&format!("https://{}", node.address()))?;
 
     let implementation = match &node {
@@ -469,7 +466,7 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
     };
 
     let backend = DiscoveryBackend {
-        address,
+        public_key: *node.public_key(),
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
@@ -709,8 +706,6 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
 
     let client = ctx.get_active_discovery_client()?;
 
-    let address = DiscoveryBackendAddress::PublicKey(*node.public_key());
-
     let url = Url::parse(&format!("https://{}", node.address()))?;
 
     let implementation = match &node {
@@ -739,7 +734,7 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
     };
 
     let backend = DiscoveryBackend {
-        address,
+        public_key: *node.public_key(),
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
@@ -917,11 +912,10 @@ pub async fn step_when_the_admin_disables_the_first_backend(ctx: &mut GlobalCont
     // Get LND backend location
     let lnd_payee = ctx
         .get_payee("lnd")
-        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?;
+        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
+        .clone();
 
-    let backend_location = DiscoveryBackendAddress::PublicKey(*lnd_payee.node.public_key());
-    let backend_location = backend_location.encoded();
-    enable_disable_backend(ctx, &backend_location, false).await?;
+    enable_disable_backend(ctx, lnd_payee.node.public_key(), false).await?;
 
     Ok(())
 }
@@ -945,11 +939,10 @@ pub async fn step_when_the_admin_disables_the_second_backend(
     // Get CLN backend location
     let cln_payee = ctx
         .get_payee("cln")
-        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?;
+        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
+        .clone();
 
-    let backend_location = DiscoveryBackendAddress::PublicKey(*cln_payee.node.public_key());
-    let backend_location = backend_location.encoded();
-    enable_disable_backend(ctx, &backend_location, false).await?;
+    enable_disable_backend(ctx, cln_payee.node.public_key(), false).await?;
 
     Ok(())
 }
@@ -1004,11 +997,10 @@ pub async fn step_when_the_admin_enables_any_backend(ctx: &mut GlobalContext) ->
     // Re-enable LND backend
     let lnd_payee = ctx
         .get_payee("lnd")
-        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?;
+        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
+        .clone();
 
-    let backend_location = DiscoveryBackendAddress::PublicKey(*lnd_payee.node.public_key());
-    let backend_location = backend_location.encoded();
-    enable_disable_backend(ctx, &backend_location, true).await?;
+    enable_disable_backend(ctx, lnd_payee.node.public_key(), true).await?;
 
     Ok(())
 }
@@ -1026,16 +1018,13 @@ pub async fn step_then_the_payer_can_again_generate_invoices(
 
 async fn enable_disable_backend(
     ctx: &mut GlobalContext,
-    location: &str,
+    public_key: &PublicKey,
     enabled: bool,
 ) -> Result<()> {
     let client = ctx.get_active_discovery_client()?;
 
-    // Parse the location to get the RawSocketAddress
-    let address = DiscoveryBackendAddress::from_str(location)?;
-
     let patch = DiscoveryBackendPatch {
-        address: address.clone(),
+        public_key: *public_key,
         backend: DiscoveryBackendPatchSparse {
             name: None,
             partitions: None,
@@ -1047,7 +1036,7 @@ async fn enable_disable_backend(
     // PATCH the backend
     let patched = client.patch(patch).await?;
     if !patched {
-        bail_log!("PATCH {address} failed");
+        bail_log!("PATCH {public_key} failed");
     }
 
     Ok(())
@@ -1059,11 +1048,10 @@ pub async fn step_when_the_admin_deletes_the_first_backend(ctx: &mut GlobalConte
     // Get LND backend location
     let lnd_payee = ctx
         .get_payee("lnd")
-        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?;
+        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
+        .clone();
 
-    let backend_location = DiscoveryBackendAddress::PublicKey(*lnd_payee.node.public_key());
-    let backend_location = backend_location.encoded();
-    delete_backend(ctx, &backend_location).await?;
+    delete_backend(ctx, lnd_payee.node.public_key()).await?;
 
     Ok(())
 }
@@ -1074,11 +1062,10 @@ pub async fn step_when_the_admin_deletes_the_second_backend(ctx: &mut GlobalCont
     // Get CLN backend location
     let cln_payee = ctx
         .get_payee("cln")
-        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?;
+        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
+        .clone();
 
-    let backend_location = DiscoveryBackendAddress::PublicKey(*cln_payee.node.public_key());
-    let backend_location = backend_location.encoded();
-    delete_backend(ctx, &backend_location).await?;
+    delete_backend(ctx, cln_payee.node.public_key()).await?;
 
     Ok(())
 }
@@ -1100,14 +1087,11 @@ pub async fn step_and_both_nodes_are_ready_to_be_registered_as_backends(
 }
 
 /// Helper function to delete backends via the discovery API
-async fn delete_backend(ctx: &mut GlobalContext, location: &str) -> Result<()> {
+async fn delete_backend(ctx: &mut GlobalContext, public_key: &PublicKey) -> Result<()> {
     let client = ctx.get_active_discovery_client()?;
 
-    // Parse the encoded location back to RawSocketAddress
-    let address: DiscoveryBackendAddress = location.parse()?;
-
     // Delete the backend
-    client.delete(&address).await?;
+    client.delete(public_key).await?;
 
     Ok(())
 }
@@ -1272,11 +1256,13 @@ pub async fn step_when_i_request_an_invoice_for_a_non_existent_offer(
 
 /// Step: "When I try to get a missing backend"
 /// Attempts to get a backend that doesn't exist to trigger error logging
-pub async fn step_when_i_try_to_get_a_missing_backend(ctx: &mut GlobalContext) -> Result<()> {
+pub async fn step_when_i_try_to_get_a_missing_backend(
+    ctx: &mut GlobalContext,
+    public_key: &PublicKey,
+) -> Result<()> {
     let client = ctx.get_active_discovery_client()?;
 
-    let address = DiscoveryBackendAddress::Url(Url::parse("http://fake.com")?);
-    let backend = client.get(&address).await?;
+    let backend = client.get(public_key).await?;
 
     if backend.is_some() {
         bail_log!("backend found unexpectedly")
@@ -1561,6 +1547,7 @@ pub async fn step_and_the_server_logs_should_contain_invalid_offer_error_respons
 /// Verifies that invalid backend get errors are logged
 pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
     ctx: &mut GlobalContext,
+    invalid_backend_patterns: &[&str],
 ) -> Result<()> {
     // Get captured server logs from stderr buffer
     let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
@@ -1575,14 +1562,8 @@ pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
 
     let server_logs = stderr_lines.join("\n");
 
-    let invalid_backend_patterns = [
-        "clf::discovery",
-        "GET /discovery/url/aHR0cDovL2Zha2UuY29tLw",
-        "HTTP/1.1 404",
-        " WARN ",
-    ];
     let expected_count = 1; // We make exactly 1 invalid backend GET request in the test
-    let invalid_backend_count = count_log_patterns(&server_logs, &invalid_backend_patterns);
+    let invalid_backend_count = count_log_patterns(&server_logs, invalid_backend_patterns);
 
     if invalid_backend_count == expected_count {
         Ok(())
@@ -2528,11 +2509,11 @@ pub async fn step_then_the_backend_json_file_should_exist(
     };
 
     // Verify expected values match
-    if backend.address.encoded() != expected_backend.address.encoded() {
+    if backend.public_key != expected_backend.public_key {
         bail_log!(
-            "Backend address mismatch. Expected: {}, Got: {}",
-            expected_backend.address.encoded(),
-            backend.address.encoded()
+            "Backend public key mismatch. Expected: {}, Got: {}",
+            expected_backend.public_key,
+            backend.public_key
         );
     }
 
@@ -2642,15 +2623,11 @@ pub async fn step_when_i_run_swgr_discovery_post(
     Ok(())
 }
 
-pub async fn extract_backend_address(cli_ctx: &CliContext) -> Result<String> {
+pub async fn extract_backend_public_key(cli_ctx: &CliContext) -> Result<PublicKey> {
     // Load the backend JSON to extract the address and partition
     let content = std::fs::read_to_string(&cli_ctx.backend_json_path)?;
     let backend: DiscoveryBackend = serde_json::from_str(&content)?;
-
-    // Use the encoded() method to get the properly formatted address string
-    let address = backend.address.encoded();
-
-    Ok(address)
+    Ok(backend.public_key)
 }
 
 /// Extract backend information from the CLI context's backend JSON
@@ -2751,10 +2728,10 @@ pub async fn step_then_backend_list_should_be_output(
 
     for expected in expected_backends {
         let entry = format!(
-            "## Address: {}  * name: {} * location: {} * enabled: {} * weight: {}",
-            expected.address,
+            "## Public key: {}  * name: {} * location: {} * enabled: {} * weight: {}",
+            expected.public_key,
             expected.backend.name.as_deref().unwrap_or("[null]"),
-            expected.address.encoded(),
+            expected.public_key,
             expected.backend.enabled,
             expected.backend.weight
         );
@@ -2881,11 +2858,11 @@ pub async fn step_then_backend_details_should_be_output(
     };
 
     // Verify expected values match
-    if backend.address.encoded() != expected_backend.address.encoded() {
+    if backend.public_key != expected_backend.public_key {
         bail_log!(
             "Backend address mismatch. Expected: {}, Got: {}",
-            expected_backend.address.encoded(),
-            backend.address.encoded()
+            expected_backend.public_key,
+            backend.public_key
         );
     }
 
@@ -2934,7 +2911,7 @@ pub async fn step_then_all_backends_should_be_output(
 
     // Verify the expected backend is in the array
     let found = backends.iter().any(|backend| {
-        backend.address.encoded() == expected_backend.address.encoded()
+        backend.public_key == expected_backend.public_key
             && backend.backend.weight == expected_backend.backend.weight
             && backend.backend.enabled == expected_backend.backend.enabled
     });
@@ -2942,7 +2919,7 @@ pub async fn step_then_all_backends_should_be_output(
     if !found {
         bail_log!(
             "Expected backend with address {} not found in output. Got {} backends",
-            expected_backend.address.encoded(),
+            expected_backend.public_key,
             backends.len()
         );
     }
@@ -3279,8 +3256,8 @@ pub async fn step_when_i_run_swgr_discovery_get_for_non_existent_backend(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
 ) -> Result<()> {
-    let non_existent_address =
-        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let non_existent_public_key =
+        "03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -3299,7 +3276,7 @@ pub async fn step_when_i_run_swgr_discovery_get_for_non_existent_backend(
     let args = vec![
         "discovery",
         "get",
-        non_existent_address,
+        non_existent_public_key,
         "--base-url",
         &base_url,
         "--trusted-roots",
@@ -3319,8 +3296,8 @@ pub async fn step_when_i_run_swgr_discovery_patch_for_non_existent_backend(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
 ) -> Result<()> {
-    let non_existent_address =
-        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let non_existent_public_key =
+        "03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -3340,7 +3317,7 @@ pub async fn step_when_i_run_swgr_discovery_patch_for_non_existent_backend(
     let args = vec![
         "discovery",
         "patch",
-        non_existent_address,
+        non_existent_public_key,
         "--base-url",
         &base_url,
         "--trusted-roots",
@@ -3362,8 +3339,8 @@ pub async fn step_when_i_run_swgr_discovery_enable_for_non_existent_backend(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
 ) -> Result<()> {
-    let non_existent_address =
-        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let non_existent_public_key =
+        "03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -3382,7 +3359,7 @@ pub async fn step_when_i_run_swgr_discovery_enable_for_non_existent_backend(
     let args = vec![
         "discovery",
         "enable",
-        non_existent_address,
+        non_existent_public_key,
         "--base-url",
         &base_url,
         "--trusted-roots",
@@ -3402,8 +3379,8 @@ pub async fn step_when_i_run_swgr_discovery_disable_for_non_existent_backend(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
 ) -> Result<()> {
-    let non_existent_address =
-        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let non_existent_public_key =
+        "03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -3422,7 +3399,7 @@ pub async fn step_when_i_run_swgr_discovery_disable_for_non_existent_backend(
     let args = vec![
         "discovery",
         "disable",
-        non_existent_address,
+        non_existent_public_key,
         "--base-url",
         &base_url,
         "--trusted-roots",
@@ -3442,8 +3419,8 @@ pub async fn step_when_i_run_swgr_discovery_delete_for_non_existent_backend(
     ctx: &mut GlobalContext,
     cli_ctx: &mut CliContext,
 ) -> Result<()> {
-    let non_existent_address =
-        "pk/03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let non_existent_public_key =
+        "03eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
 
     let discovery_profile = ctx.get_active_discovery_service_profile()?;
     let base_url = format!(
@@ -3462,7 +3439,7 @@ pub async fn step_when_i_run_swgr_discovery_delete_for_non_existent_backend(
     let args = vec![
         "discovery",
         "delete",
-        non_existent_address,
+        non_existent_public_key,
         "--base-url",
         &base_url,
         "--trusted-roots",

@@ -1,14 +1,15 @@
 use crate::error::PingoraLnError;
-use crate::socket::IntoPingoraSocketAddr;
 use crate::{PingoraBackendProvider, PingoraLnBackendExtension};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::http::Extensions;
 use log::error;
+use pingora_core::protocols::l4::socket::SocketAddr;
 use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::Backend;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::net::{Ipv6Addr, SocketAddrV6};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use switchgear_service::api::discovery::DiscoveryBackendStore;
@@ -85,8 +86,17 @@ where
             ext.insert(PingoraLnBackendExtension {
                 partitions: discovery_backend.backend.partitions.clone(),
             });
+
+            let addr = discovery_backend.public_key.serialize();
+            let mut hasher = DefaultHasher::new();
+            addr.hash(&mut hasher);
+            let addr = hasher.finish();
+            // 👍
+            let addr = Ipv6Addr::from_bits(addr as u128);
+            let addr = SocketAddr::Inet(SocketAddrV6::new(addr, 1, 0, 0).into());
+
             let pingora_backend = Backend {
-                addr: discovery_backend.address.as_pingora_socket_addr(),
+                addr,
                 weight: discovery_backend.backend.weight,
                 ext,
             };
@@ -166,20 +176,23 @@ mod tests {
     use async_trait::async_trait;
     use pingora_load_balancing::discovery::ServiceDiscovery;
     use pingora_load_balancing::Backend;
+    use rand::Rng;
+    use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::collections::{BTreeSet, HashSet};
     use std::hash::{DefaultHasher, Hash, Hasher};
     use std::sync::Arc;
     use switchgear_service::api::discovery::{
-        DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-        DiscoveryBackendSparse, DiscoveryBackends,
+        DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendSparse, DiscoveryBackends,
     };
     use switchgear_service::api::offer::Offer;
     use switchgear_service::api::service::ServiceErrorSource;
     use switchgear_service::components::pool::error::LnPoolError;
+    use switchgear_service::components::pool::lnd::grpc::config::{
+        LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
+    };
     use switchgear_service::components::pool::LnClientPool;
     use switchgear_service::components::pool::LnMetrics;
     use tokio::sync::Mutex;
-    use url::Url;
 
     struct MockBackendProvider {
         backends_to_return: Arc<Mutex<Option<BTreeSet<DiscoveryBackend>>>>,
@@ -259,22 +272,31 @@ mod tests {
         }
     }
 
-    fn create_discovery_backend(
-        partition: &str,
-        address: &str,
-        weight: usize,
-        enabled: bool,
-    ) -> DiscoveryBackend {
+    fn create_discovery_backend(partition: &str, weight: usize, enabled: bool) -> DiscoveryBackend {
+        let secp = Secp256k1::new();
+        let mut rng = rand::thread_rng();
+
+        let backend_secret_key = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+        let backend_public_key = PublicKey::from_secret_key(&secp, &backend_secret_key);
+
         DiscoveryBackend {
-            address: DiscoveryBackendAddress::Url(
-                Url::parse(&format!("https://{address}")).unwrap(),
-            ),
+            public_key: backend_public_key,
             backend: DiscoveryBackendSparse {
                 name: None,
                 partitions: [partition.to_string()].into(),
                 weight,
                 enabled,
-                implementation: DiscoveryBackendImplementation::RemoteHttp,
+                implementation: DiscoveryBackendImplementation::LndGrpc(
+                    LndGrpcDiscoveryBackendImplementation {
+                        url: "https://localhost:9736".parse().unwrap(),
+                        domain: None,
+                        auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                            tls_cert_path: None,
+                            macaroon_path: "/path/to/macaroon_path".into(),
+                        }),
+                        amp_invoice: false,
+                    },
+                ),
             },
         }
     }
@@ -300,8 +322,8 @@ mod tests {
 
     #[tokio::test]
     async fn discover_when_new_backends_exist_then_creates_pingora_backends() {
-        let backend1 = create_discovery_backend("default", "127.0.0.1:8001", 100, true);
-        let backend2 = create_discovery_backend("default", "127.0.0.1:8002", 200, false); // Disabled backend
+        let backend1 = create_discovery_backend("default", 100, true);
+        let backend2 = create_discovery_backend("default", 200, false);
 
         let mock_backend_provider = MockBackendProvider {
             backends_to_return: Arc::new(Mutex::new(Some(BTreeSet::from([
@@ -309,6 +331,7 @@ mod tests {
                 backend2.clone(),
             ])))),
         };
+
         let mock_ln_client_pool = MockLnClientPool {
             should_fail_connect: false,
         };
@@ -321,28 +344,26 @@ mod tests {
         let (pingora_backends, enablement) = discovery.discover().await.unwrap();
 
         assert_eq!(pingora_backends.len(), 2);
+        assert_eq!(enablement.len(), 2);
 
-        let pingora_backends_vec = pingora_backends.iter().collect::<Vec<_>>();
-
-        // prove pingora_backends_vec order is what we expect
-        assert_eq!(pingora_backends_vec[0].weight, 200);
-        assert_eq!(pingora_backends_vec[1].weight, 100);
+        let pingora_backend1 = pingora_backends.iter().find(|b| b.weight == 100).unwrap();
+        let pingora_backend2 = pingora_backends.iter().find(|b| b.weight == 200).unwrap();
 
         let mut hasher = DefaultHasher::new();
-        pingora_backends_vec[0].hash(&mut hasher);
+        pingora_backend1.hash(&mut hasher);
         let pingora_backend1_hash = hasher.finish();
 
         let mut hasher = DefaultHasher::new();
-        pingora_backends_vec[1].hash(&mut hasher);
+        pingora_backend2.hash(&mut hasher);
         let pingora_backend2_hash = hasher.finish();
 
         assert!(
-            enablement.get(&pingora_backend2_hash).unwrap(),
-            "backend 2 enabled"
+            enablement.get(&pingora_backend1_hash).unwrap(),
+            "backend 1 enabled"
         );
         assert!(
-            !enablement.get(&pingora_backend1_hash).unwrap(),
-            "backend 1 disabled"
+            !enablement.get(&pingora_backend2_hash).unwrap(),
+            "backend 2 disabled"
         );
     }
 
@@ -373,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn discover_when_pool_connect_fails_then_returns_empty_backends() {
-        let backend1 = create_discovery_backend("default", "127.0.0.1:8001", 100, true);
+        let backend1 = create_discovery_backend("default", 100, true);
         let mock_backend_provider = MockBackendProvider {
             backends_to_return: Arc::new(Mutex::new(Some(BTreeSet::from([backend1.clone()])))),
         };
@@ -396,9 +417,9 @@ mod tests {
 
     #[tokio::test]
     async fn discover_when_some_backends_fail_then_returns_successful_backends() {
-        let backend1 = create_discovery_backend("default", "127.0.0.1:8001", 100, true);
-        let backend2 = create_discovery_backend("default", "127.0.0.1:8002", 200, true);
-        let backend3 = create_discovery_backend("default", "127.0.0.1:8003", 300, true);
+        let backend1 = create_discovery_backend("default", 100, true);
+        let backend2 = create_discovery_backend("default", 200, true);
+        let backend3 = create_discovery_backend("default", 300, true);
 
         let mock_backend_provider = MockBackendProvider {
             backends_to_return: Arc::new(Mutex::new(Some(BTreeSet::from([
@@ -437,11 +458,11 @@ mod tests {
                 _key: Self::Key,
                 backend: &DiscoveryBackend,
             ) -> Result<(), Self::Error> {
-                let addr_str = format!("{:?}", backend.address);
+                let addr_str = backend.public_key.to_string();
                 if self
                     .fail_addresses
                     .iter()
-                    .any(|fail_addr| addr_str.contains(fail_addr))
+                    .any(|fail_addr| addr_str.as_str() == fail_addr.as_str())
                 {
                     Err(PingoraLnError::new(
                         crate::error::PingoraLnErrorSourceKind::PoolError(
@@ -461,7 +482,7 @@ mod tests {
         }
 
         let mock_ln_client_pool = SelectiveMockLnClientPool {
-            fail_addresses: vec!["8002".to_string()], // Fail only the second backend
+            fail_addresses: vec![backend2.public_key.to_string()],
         };
 
         let discovery = DefaultPingoraLnDiscovery::new(
@@ -481,54 +502,5 @@ mod tests {
         assert!(backend_weights.contains(&100)); // First backend
         assert!(backend_weights.contains(&300)); // Third backend
         assert!(!backend_weights.contains(&200)); // Second backend should be missing
-    }
-
-    #[tokio::test]
-    async fn discover_when_backend_disabled_then_adds_to_enablement_map() {
-        let backend1 = create_discovery_backend("default", "127.0.0.1:8001", 100, false); // Disabled
-        let backend2 = create_discovery_backend("default", "127.0.0.1:8002", 200, true); // Enabled
-
-        let mock_backend_provider = MockBackendProvider {
-            backends_to_return: Arc::new(Mutex::new(Some(BTreeSet::from([
-                backend1.clone(),
-                backend2.clone(),
-            ])))),
-        };
-
-        let mock_ln_client_pool = MockLnClientPool {
-            should_fail_connect: false,
-        };
-        let discovery = DefaultPingoraLnDiscovery::new(
-            mock_backend_provider,
-            mock_ln_client_pool,
-            HashSet::from(["default".to_string()]),
-        );
-
-        let (pingora_backends, enablement) = discovery.discover().await.unwrap();
-
-        let pingora_backends_vec = pingora_backends.iter().collect::<Vec<_>>();
-
-        // prove pingora_backends_vec order is what we expect
-        assert_eq!(pingora_backends_vec[0].weight, 200);
-        assert_eq!(pingora_backends_vec[1].weight, 100);
-
-        let mut hasher = DefaultHasher::new();
-        pingora_backends_vec[0].hash(&mut hasher);
-        let pingora_backend1_hash = hasher.finish();
-
-        let mut hasher = DefaultHasher::new();
-        pingora_backends_vec[1].hash(&mut hasher);
-        let pingora_backend2_hash = hasher.finish();
-
-        assert_eq!(pingora_backends.len(), 2);
-
-        assert!(
-            !enablement.get(&pingora_backend2_hash).unwrap(),
-            "backend 2 disabled"
-        );
-        assert!(
-            enablement.get(&pingora_backend1_hash).unwrap(),
-            "backend 1 enabled"
-        );
     }
 }

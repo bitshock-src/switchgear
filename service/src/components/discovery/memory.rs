@@ -1,9 +1,9 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
-    DiscoveryBackends,
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
 };
 use crate::components::discovery::error::DiscoveryBackendStoreError;
 use async_trait::async_trait;
+use secp256k1::PublicKey;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -17,7 +17,7 @@ struct DiscoveryBackendTimestamped {
 
 #[derive(Clone, Debug)]
 pub struct MemoryDiscoveryBackendStore {
-    store: Arc<Mutex<HashMap<DiscoveryBackendAddress, DiscoveryBackendTimestamped>>>,
+    store: Arc<Mutex<HashMap<PublicKey, DiscoveryBackendTimestamped>>>,
     etag: Arc<AtomicU64>,
 }
 
@@ -40,12 +40,9 @@ impl MemoryDiscoveryBackendStore {
 impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
     type Error = DiscoveryBackendStoreError;
 
-    async fn get(
-        &self,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<Option<DiscoveryBackend>, Self::Error> {
+    async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;
-        Ok(store.get(addr).map(|b| b.backend.clone()))
+        Ok(store.get(public_key).map(|b| b.backend.clone()))
     }
 
     async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
@@ -55,7 +52,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         backends.sort_by(|a, b| {
             a.created
                 .cmp(&b.created)
-                .then_with(|| a.backend.address.cmp(&b.backend.address))
+                .then_with(|| a.backend.public_key.cmp(&b.backend.public_key))
         });
 
         let response_etag = self.etag.load(Ordering::Relaxed);
@@ -74,30 +71,26 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         }
     }
 
-    async fn post(
-        &self,
-        backend: DiscoveryBackend,
-    ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
+    async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = backend.address.clone();
-        if store.contains_key(&key) {
+        if store.contains_key(&backend.public_key) {
             return Ok(None);
         }
-        let addr = backend.address.clone();
+        let key = backend.public_key;
         store.insert(
-            key,
+            backend.public_key,
             DiscoveryBackendTimestamped {
                 created: chrono::Utc::now(),
                 backend,
             },
         );
         self.etag.fetch_add(1, Ordering::Relaxed);
-        Ok(Some(addr))
+        Ok(Some(key))
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = backend.address.clone();
+        let key = backend.public_key;
         let (created, was_new) = match store.get(&key) {
             Some(existing) => (existing.created, false),
             None => (chrono::Utc::now(), true),
@@ -109,7 +102,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
 
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
-        let entry = match store.get_mut(&backend.address) {
+        let entry = match store.get_mut(&backend.public_key) {
             None => return Ok(false),
             Some(entry) => entry,
         };
@@ -129,10 +122,9 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         Ok(true)
     }
 
-    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
+    async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
-        let key = addr.clone();
-        let was_found = store.remove(&key).is_some();
+        let was_found = store.remove(public_key).is_some();
         if was_found {
             self.etag.fetch_add(1, Ordering::Relaxed);
         }

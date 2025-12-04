@@ -2,6 +2,8 @@ use crate::common::context::global::GlobalContext;
 use crate::common::context::Protocol;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
+use rand::Rng;
+use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::path::PathBuf;
 use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
@@ -199,7 +201,16 @@ async fn test_error_conditions_are_properly_logged() {
     step_when_i_request_an_invoice_for_a_non_existent_offer(&mut ctx)
         .await
         .expect("assert");
-    step_when_i_try_to_get_a_missing_backend(&mut ctx)
+
+    let secp = Secp256k1::new();
+    let mut rng = rand::thread_rng();
+
+    let missing_backend_private_key =
+        SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).expect("assert");
+    let missing_backend_public_key =
+        PublicKey::from_secret_key(&secp, &missing_backend_private_key);
+
+    step_when_i_try_to_get_a_missing_backend(&mut ctx, &missing_backend_public_key)
         .await
         .expect("assert");
 
@@ -218,9 +229,18 @@ async fn test_error_conditions_are_properly_logged() {
     step_and_the_server_logs_should_contain_invalid_offer_error_responses(&mut ctx)
         .await
         .expect("assert");
-    step_and_the_server_logs_should_contain_invalid_backend_get_errors(&mut ctx)
-        .await
-        .expect("assert");
+    let invalid_backend_patterns = [
+        "clf::discovery",
+        &format!("GET /discovery/{}", missing_backend_public_key),
+        "HTTP/1.1 404",
+        " WARN ",
+    ];
+    step_and_the_server_logs_should_contain_invalid_backend_get_errors(
+        &mut ctx,
+        &invalid_backend_patterns,
+    )
+    .await
+    .expect("assert");
 
     ctx.stop_all_servers().expect("assert");
 }

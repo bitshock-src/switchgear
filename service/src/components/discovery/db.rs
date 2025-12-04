@@ -1,6 +1,6 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-    DiscoveryBackendPatch, DiscoveryBackendSparse, DiscoveryBackendStore, DiscoveryBackends,
+    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatch,
+    DiscoveryBackendSparse, DiscoveryBackendStore, DiscoveryBackends,
 };
 use crate::api::service::ServiceErrorSource;
 use crate::components::discovery::error::DiscoveryBackendStoreError;
@@ -12,6 +12,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, FromJsonQueryResult,
     QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
 };
+use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use switchgear_migration::{MigratorTrait, DISCOVERY_BACKEND_GET_ALL_ETAG_ID};
@@ -25,8 +26,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub partitions: DiscoveryBackendPartitions,
     #[sea_orm(primary_key, auto_increment = false)]
-    pub address: String,
-    pub address_type: String,
+    pub id: Vec<u8>,
     pub name: Option<String>,
     pub weight: i32,
     pub enabled: bool,
@@ -69,7 +69,7 @@ impl DbDiscoveryBackendStore {
     ) -> Result<Self, DiscoveryBackendStoreError> {
         let mut opt = sea_orm::ConnectOptions::new(uri);
         opt.max_connections(max_connections);
-        let db = Database::connect(opt.clone()).await.map_err(|e| {
+        let db = Database::connect(opt).await.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
                 "connecting to discovery backend database",
@@ -110,15 +110,7 @@ impl DbDiscoveryBackendStore {
         Self { db }
     }
 
-    fn address_type_from_address(address: &DiscoveryBackendAddress) -> &'static str {
-        match address {
-            DiscoveryBackendAddress::PublicKey(_) => "publicKey",
-            DiscoveryBackendAddress::Url(_) => "url",
-        }
-    }
-
     fn model_to_domain(model: Model) -> Result<DiscoveryBackend, DiscoveryBackendStoreError> {
-        let address = Self::parse_address(&model.address, &model.address_type)?;
         let implementation: DiscoveryBackendImplementation =
             serde_json::from_value(model.implementation).map_err(|e| {
                 DiscoveryBackendStoreError::json_serialization_error(
@@ -129,7 +121,13 @@ impl DbDiscoveryBackendStore {
             })?;
 
         Ok(DiscoveryBackend {
-            address,
+            public_key: PublicKey::from_slice(&model.id).map_err(|e| {
+                DiscoveryBackendStoreError::internal_error(
+                    ServiceErrorSource::Internal,
+                    format!("deserializing public key {:?} from database", model.id),
+                    format!("deserializing failure: {e}"),
+                )
+            })?,
             backend: DiscoveryBackendSparse {
                 name: model.name,
                 partitions: model.partitions.0,
@@ -139,58 +137,20 @@ impl DbDiscoveryBackendStore {
             },
         })
     }
-
-    fn parse_address(
-        address_str: &str,
-        address_type: &str,
-    ) -> Result<DiscoveryBackendAddress, DiscoveryBackendStoreError> {
-        match address_type {
-            "publicKey" => address_str
-                .parse()
-                .map(DiscoveryBackendAddress::PublicKey)
-                .map_err(|e| {
-                    DiscoveryBackendStoreError::internal_error(
-                        ServiceErrorSource::Internal,
-                        "parsing public key from database",
-                        format!("Invalid public key: {e}"),
-                    )
-                }),
-            "url" => address_str
-                .parse()
-                .map(DiscoveryBackendAddress::Url)
-                .map_err(|e| {
-                    DiscoveryBackendStoreError::internal_error(
-                        ServiceErrorSource::Internal,
-                        "parsing URL from database",
-                        format!("Invalid URL: {e}"),
-                    )
-                }),
-            _ => Err(DiscoveryBackendStoreError::internal_error(
-                ServiceErrorSource::Internal,
-                "parsing address from database",
-                format!("Unknown address type: {address_type}"),
-            )),
-        }
-    }
 }
 
 #[async_trait]
 impl DiscoveryBackendStore for DbDiscoveryBackendStore {
     type Error = DiscoveryBackendStoreError;
 
-    async fn get(
-        &self,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<Option<DiscoveryBackend>, Self::Error> {
-        let address_str = addr.to_string();
-
-        let result = Entity::find_by_id(&address_str)
+    async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
+        let result = Entity::find_by_id(public_key.serialize())
             .one(&self.db)
             .await
             .map_err(|e| {
                 DiscoveryBackendStoreError::from_db(
                     ServiceErrorSource::Internal,
-                    format!("fetching backend for address {address_str}",),
+                    format!("fetching backend for public key {public_key}",),
                     e,
                 )
             })?;
@@ -223,7 +183,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         } else {
             let models = Entity::find()
                 .order_by_asc(Column::CreatedAt)
-                .order_by_asc(Column::Address)
+                .order_by_asc(Column::Id)
                 .all(&self.db)
                 .await
                 .map_err(|e| {
@@ -245,13 +205,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         }
     }
 
-    async fn post(
-        &self,
-        backend: DiscoveryBackend,
-    ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
-        let address_str = backend.address.to_string();
-        let address_type = Self::address_type_from_address(&backend.address);
-
+    async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let implementation_json =
             serde_json::to_value(&backend.backend.implementation).map_err(|e| {
                 DiscoveryBackendStoreError::json_serialization_error(
@@ -264,8 +218,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let now = Utc::now();
         let active_model = ActiveModel {
             partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
-            address: Set(address_str),
-            address_type: Set(address_type.to_string()),
+            id: Set(backend.public_key.serialize().to_vec()),
             name: Set(backend.backend.name),
             weight: Set(backend.backend.weight as i32),
             enabled: Set(backend.backend.enabled),
@@ -314,7 +267,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         })?;
 
         match insert_result {
-            Ok(_) => Ok(Some(backend.address)),
+            Ok(_) => Ok(Some(backend.public_key)),
             // PostgreSQL unique constraint violation
             Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
                 db_err,
@@ -325,16 +278,13 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             )))) if db_err.is_unique_violation() => Ok(None),
             Err(e) => Err(DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("inserting backend for address {}", backend.address),
+                format!("inserting backend for public key {}", backend.public_key),
                 e,
             )),
         }
     }
 
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
-        let address_str = backend.address.to_string();
-        let address_type = Self::address_type_from_address(&backend.address);
-
         let implementation_json =
             serde_json::to_value(&backend.backend.implementation).map_err(|e| {
                 DiscoveryBackendStoreError::json_serialization_error(
@@ -347,10 +297,10 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let now = Utc::now();
         let future_timestamp = now + chrono::Duration::seconds(1);
 
+        let id = backend.public_key.serialize();
         let active_model = ActiveModel {
             partitions: Set(DiscoveryBackendPartitions(backend.backend.partitions)),
-            address: Set(address_str.clone()),
-            address_type: Set(address_type.to_string()),
+            id: Set(id.to_vec()),
             name: Set(backend.backend.name),
             weight: Set(backend.backend.weight as i32),
             enabled: Set(backend.backend.enabled),
@@ -366,7 +316,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                     Box::pin(async move {
                         let upsert = Entity::insert(active_model)
                             .on_conflict(
-                                OnConflict::columns([Column::Address])
+                                OnConflict::columns([Column::Id])
                                     .update_columns([
                                         Column::Name,
                                         Column::Weight,
@@ -381,7 +331,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
                         let timestamps = if upsert.is_ok() {
                             Entity::find()
-                                .filter(Column::Address.eq(&address_str))
+                                .filter(Column::Id.eq(id.as_slice()))
                                 .select_only()
                                 .column(Column::CreatedAt)
                                 .column(Column::UpdatedAt)
@@ -423,7 +373,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         upsert_result.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("upserting backend for address {}", backend.address),
+                format!("upserting backend for public key {}", backend.public_key),
                 e,
             )
         })?;
@@ -441,8 +391,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 DiscoveryBackendStoreError::from_db(
                     ServiceErrorSource::Internal,
                     format!(
-                        "fetching backend after upsert for address {}",
-                        backend.address
+                        "fetching backend after upsert for public key {}",
+                        backend.public_key
                     ),
                     e,
                 )
@@ -460,9 +410,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
     }
 
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
-        let address_str = backend.address.to_string();
-
-        let mut update = Entity::update_many().filter(Column::Address.eq(&address_str));
+        let mut update =
+            Entity::update_many().filter(Column::Id.eq(backend.public_key.serialize().as_slice()));
 
         if let Some(name) = backend.backend.name {
             update = update.col_expr(Column::Name, Expr::value(name));
@@ -531,7 +480,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let result = patch_result.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("patching backend for address {address_str}"),
+                format!("patching backend for public key {}", backend.public_key),
                 e,
             )
         })?;
@@ -539,14 +488,14 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         Ok(result.rows_affected > 0)
     }
 
-    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
-        let address_str = addr.to_string();
+    async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
+        let id = public_key.serialize();
 
         let (delete_result, etag_result) = self
             .db
             .transaction::<_, _, _>(|txn| {
                 Box::pin(async move {
-                    let delete = Entity::delete_by_id(&address_str).exec(txn).await;
+                    let delete = Entity::delete_by_id(id).exec(txn).await;
 
                     let etag = if delete
                         .as_ref()
@@ -591,7 +540,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         let result = delete_result.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("deleting backend for address {addr}"),
+                format!("deleting backend for public key {public_key}"),
                 e,
             )
         })?;

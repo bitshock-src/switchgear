@@ -467,9 +467,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin_hashes"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb18c03d0db0247e147a21a6faafd5a7eb851c743db062de72018b6b7e8e4d16"
+checksum = "26ec84b80c482df901772e931a9a681e26a1b9ee2302edeff23cb30328745c8b"
 dependencies = [
  "bitcoin-io",
  "hex-conservative",
@@ -2201,9 +2201,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69d83b0086dc8ecf3ce9ae2874b2d1290252e2a30720bea58a5c6639b0092873"
+checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
 dependencies = [
  "libc",
  "wasi",
@@ -4156,11 +4156,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.20"
+version = "0.1.22"
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -4168,7 +4168,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4179,6 +4179,8 @@ dependencies = [
  "pingora-core",
  "pingora-error",
  "pingora-load-balancing",
+ "rand 0.8.5",
+ "secp256k1 0.31.1",
  "switchgear-service",
  "thiserror 2.0.17",
  "tokio",
@@ -4188,7 +4190,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4211,6 +4213,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pemfile",
+ "secp256k1 0.31.1",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -4232,7 +4235,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4287,7 +4290,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "dotenvy",

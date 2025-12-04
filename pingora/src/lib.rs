@@ -7,7 +7,6 @@ pub mod balance;
 pub mod discovery;
 pub mod error;
 pub mod health;
-mod socket;
 
 #[derive(Debug, Clone)]
 pub struct PingoraLnBackendExtension {

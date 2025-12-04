@@ -17,8 +17,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
                             .json_binary()
                             .not_null(),
                     )
-                    .col(string(DiscoveryBackend::Address).not_null())
-                    .col(string(DiscoveryBackend::AddressType).not_null())
+                    .col(binary_len(DiscoveryBackend::Id, 33).not_null())
                     .col(string_null(DiscoveryBackend::Name))
                     .col(integer(DiscoveryBackend::Weight).not_null())
                     .col(boolean(DiscoveryBackend::Enabled).not_null())
@@ -29,7 +28,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
                     )
                     .col(timestamp_with_time_zone(DiscoveryBackend::CreatedAt).not_null())
                     .col(timestamp_with_time_zone(DiscoveryBackend::UpdatedAt).not_null())
-                    .primary_key(Index::create().col(DiscoveryBackend::Address))
+                    .primary_key(Index::create().col(DiscoveryBackend::Id))
                     .to_owned(),
             )
             .await?;
@@ -71,8 +70,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
 enum DiscoveryBackend {
     Table,
     Partitions,
-    Address,
-    AddressType,
+    Id,
     Name,
     Weight,
     Enabled,

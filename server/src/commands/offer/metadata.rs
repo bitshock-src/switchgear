@@ -4,9 +4,7 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
-use switchgear_service::api::offer::{
-    OfferMetadata, OfferMetadataRest, OfferMetadataSparse, OfferMetadataStore,
-};
+use switchgear_service::api::offer::{OfferMetadata, OfferMetadataSparse, OfferMetadataStore};
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]
@@ -117,10 +115,6 @@ pub async fn get_metadata(
     let client = create_offer_client(client_configuration)?;
     if let Some(id) = id {
         if let Some(metadata) = client.get_metadata(partition, id).await? {
-            let metadata = OfferMetadataRest {
-                location: format!("{}/{}", metadata.partition, metadata.id),
-                metadata,
-            };
             let metadata = serde_json::to_string_pretty(&metadata)
                 .with_context(|| format!("serializing metadata {id}"))?;
             cli_write_all(output, metadata.as_bytes()).with_context(|| {
@@ -135,13 +129,6 @@ pub async fn get_metadata(
         }
     } else {
         let metadata = client.get_all_metadata(partition, start, count).await?;
-        let metadata = metadata
-            .into_iter()
-            .map(|metadata| OfferMetadataRest {
-                location: format!("{}/{}", metadata.partition, metadata.id),
-                metadata,
-            })
-            .collect::<Vec<_>>();
         let metadata = serde_json::to_string_pretty(&metadata)
             .with_context(|| format!("serializing metadata for {partition}"))?;
         cli_write_all(output, metadata.as_bytes()).with_context(|| {
