@@ -757,11 +757,9 @@ curl -X POST http://localhost:3001/discovery \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "partitions": ["default"],
-    "address": {
-      "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-    },
+    "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     "name": "CLN Node 1",
+    "partitions": ["default"],
     "weight": 100,
     "enabled": true,
     "implementation": {
@@ -782,11 +780,9 @@ curl -X POST http://localhost:3001/discovery \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "partitions": ["default", "us", "eu"],
-    "address": {
-      "url": "https://lnd-node.example.com"
-    },
+    "publicKey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
     "name": "LND Node 1",
+    "partitions": ["default", "us", "eu"],
     "weight": 50,
     "enabled": true,
     "implementation": {
@@ -814,21 +810,18 @@ curl -X GET http://localhost:3001/discovery \
 
 ```shell
 # By public key
-curl -X GET "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-
-# By URL (base64 encoded)
-curl -X GET "http://localhost:3001/discovery/url/aHR0cHM6Ly9sbmQtbm9kZS5leGFtcGxlLmNvbS8" \
+curl -X GET "http://localhost:3001/discovery/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
 #### Update A Backend
 
 ```shell
-curl -X PUT "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
+curl -X PUT "http://localhost:3001/discovery/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
+    "name": "CLN Node 1 Updated",
     "partitions": ["default", "us"],
     "weight": 200,
     "enabled": false,
@@ -849,7 +842,7 @@ curl -X PUT "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b
 #### Delete A Backend
 
 ```shell
-curl -X DELETE "http://localhost:3001/discovery/pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
+curl -X DELETE "http://localhost:3001/discovery/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798" \
   -H "Authorization: Bearer $AUTH_TOKEN"
 ```
 
@@ -895,7 +888,7 @@ swgr discovery ls
 
 
 # Get backend details (JSON output)
-swgr discovery get pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --output backend-details.json
+swgr discovery get 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --output backend-details.json
 
 # Get all backends (JSON output)
 swgr discovery get
@@ -904,19 +897,19 @@ swgr discovery get
 swgr discovery post --input cln-backend.json
 
 # Update an existing backend
-swgr discovery put pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
+swgr discovery put 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input updated-backend.json
 
 # Patch an existing backend
-swgr discovery patch pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input backend-patch.json
+swgr discovery patch 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 --input backend-patch.json
 
 # Enable an existing backend
-swgr discovery enable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+swgr discovery enable 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 
 # Disable an existing backend
-swgr discovery disable pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 
+swgr discovery disable 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 
 # Delete a backend
-swgr discovery delete pk/0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+swgr discovery delete 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 ```
 
 ### Discovery Data Model
@@ -926,11 +919,9 @@ Discovery OpenAPI schema: [doc/discovery-service-openapi.yaml](https://github.co
 Example CLN backend configuration:
 ```json
 {
-  "partitions": ["default"],
-  "address": {
-    "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-  },
+  "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
   "name": "CLN Node 1",
+  "partitions": ["default"],
   "weight": 1,
   "enabled": true,
   "implementation": {
@@ -950,11 +941,9 @@ Example CLN backend configuration:
 Example LND backend configuration:
 ```json
 {
-  "partitions": ["default", "us", "eu"],
-  "address": {
-    "publicKey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
-  },
+  "publicKey": "02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
   "name": "LND Node 1",
+  "partitions": ["default", "us", "eu"],
   "weight": 1,
   "enabled": true,
   "implementation": {

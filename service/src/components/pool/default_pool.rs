@@ -125,13 +125,6 @@ where
                     c.clone(),
                     &self.trusted_roots,
                 )?),
-                DiscoveryBackendImplementation::RemoteHttp => {
-                    return Err(LnPoolError::from_invalid_configuration(
-                        "RemoteHttp backends not available".to_string(),
-                        ServiceErrorSource::Internal,
-                        format!("connecting ln client {key:?}"),
-                    ));
-                }
             };
 
         let mut pool = self.pool.lock().map_err(|e| {

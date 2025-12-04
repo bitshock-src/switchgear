@@ -341,7 +341,7 @@ async fn test_discovery_get() {
         step_when_i_run_swgr_discovery_get(
             &mut ctx,
             &mut cli_ctx,
-            &expected_backend.address.encoded(),
+            &expected_backend.public_key.to_string(),
             root_location,
         )
         .await
@@ -475,7 +475,7 @@ async fn test_discovery_put() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
+    let backend_address = extract_backend_public_key(&cli_ctx).await.expect("assert");
     step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
@@ -487,7 +487,7 @@ async fn test_discovery_put() {
         .expect("assert");
 
     // Scenario steps
-    step_when_i_run_swgr_discovery_put(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_put(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -496,7 +496,7 @@ async fn test_discovery_put() {
     step_when_i_run_swgr_discovery_get(
         &mut ctx,
         &mut cli_ctx,
-        &backend_address,
+        &backend_address.to_string(),
         CertificateLocation::Arg,
     )
     .await
@@ -559,7 +559,7 @@ async fn test_discovery_delete() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
+    let backend_address = extract_backend_public_key(&cli_ctx).await.expect("assert");
     step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
@@ -568,7 +568,7 @@ async fn test_discovery_delete() {
         .expect("assert");
 
     // Scenario steps
-    step_when_i_run_swgr_discovery_delete(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_delete(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -577,7 +577,7 @@ async fn test_discovery_delete() {
     step_when_i_run_swgr_discovery_get(
         &mut ctx,
         &mut cli_ctx,
-        &backend_address,
+        &backend_address.to_string(),
         CertificateLocation::Arg,
     )
     .await
@@ -640,7 +640,7 @@ async fn test_discovery_patch() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
+    let backend_address = extract_backend_public_key(&cli_ctx).await.expect("assert");
     step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
@@ -652,7 +652,7 @@ async fn test_discovery_patch() {
         .expect("assert");
 
     // Scenario steps
-    step_when_i_run_swgr_discovery_patch(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_patch(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -661,7 +661,7 @@ async fn test_discovery_patch() {
     step_when_i_run_swgr_discovery_get(
         &mut ctx,
         &mut cli_ctx,
-        &backend_address,
+        &backend_address.to_string(),
         CertificateLocation::Arg,
     )
     .await
@@ -724,7 +724,7 @@ async fn test_discovery_enable() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
+    let backend_address = extract_backend_public_key(&cli_ctx).await.expect("assert");
     step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
@@ -733,13 +733,13 @@ async fn test_discovery_enable() {
         .expect("assert");
 
     // Scenario steps - disable first then enable
-    step_when_i_run_swgr_discovery_disable(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_disable(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
         .await
         .expect("assert");
-    step_when_i_run_swgr_discovery_enable(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_enable(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -748,7 +748,7 @@ async fn test_discovery_enable() {
     step_when_i_run_swgr_discovery_get(
         &mut ctx,
         &mut cli_ctx,
-        &backend_address,
+        &backend_address.to_string(),
         CertificateLocation::Arg,
     )
     .await
@@ -811,7 +811,7 @@ async fn test_discovery_disable() {
     step_given_a_valid_backend_json_exists(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
-    let backend_address = extract_backend_address(&cli_ctx).await.expect("assert");
+    let backend_address = extract_backend_public_key(&cli_ctx).await.expect("assert");
     step_when_i_run_swgr_discovery_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
         .await
         .expect("assert");
@@ -820,7 +820,7 @@ async fn test_discovery_disable() {
         .expect("assert");
 
     // Scenario steps
-    step_when_i_run_swgr_discovery_disable(&mut ctx, &mut cli_ctx, &backend_address)
+    step_when_i_run_swgr_discovery_disable(&mut ctx, &mut cli_ctx, &backend_address.to_string())
         .await
         .expect("assert");
     step_then_the_command_should_succeed(&mut cli_ctx)
@@ -829,7 +829,7 @@ async fn test_discovery_disable() {
     step_when_i_run_swgr_discovery_get(
         &mut ctx,
         &mut cli_ctx,
-        &backend_address,
+        &backend_address.to_string(),
         CertificateLocation::Arg,
     )
     .await

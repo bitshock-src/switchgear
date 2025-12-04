@@ -1,12 +1,12 @@
 use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendRest,
-    DiscoveryBackendSparse, DiscoveryBackendStore, DiscoveryBackends,
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore, DiscoveryBackends,
 };
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
-use crate::axum::extract::address::DiscoveryBackendAddressParam;
 use crate::axum::header::no_cache_headers;
 use crate::discovery::state::DiscoveryState;
+use axum::extract::Path;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::{extract::State, Json};
 
@@ -14,23 +14,20 @@ pub struct DiscoveryHandlers;
 
 impl DiscoveryHandlers {
     pub async fn get_backend<S>(
-        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
+        Path(public_key): Path<String>,
         State(state): State<DiscoveryState<S>>,
-    ) -> Result<JsonCrudResponse<DiscoveryBackendRest>, CrudError>
+    ) -> Result<JsonCrudResponse<DiscoveryBackend>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
+        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+
         let backend = state
             .store()
-            .get(&address)
+            .get(&public_key)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?
             .ok_or(CrudError::not_found())?;
-
-        let backend = DiscoveryBackendRest {
-            location: backend.address.encoded(),
-            backend,
-        };
 
         let headers = no_cache_headers();
 
@@ -40,7 +37,7 @@ impl DiscoveryHandlers {
     pub async fn get_backends<S>(
         headers: HeaderMap,
         State(state): State<DiscoveryState<S>>,
-    ) -> Result<JsonCrudResponse<Vec<DiscoveryBackendRest>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<DiscoveryBackend>>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
@@ -66,17 +63,7 @@ impl DiscoveryHandlers {
 
         match backends.backends {
             None => Ok(JsonCrudResponse::not_modified(headers)),
-            Some(backends) => {
-                let backends = backends
-                    .into_iter()
-                    .map(|backend| DiscoveryBackendRest {
-                        location: backend.address.encoded(),
-                        backend,
-                    })
-                    .collect();
-
-                Ok(JsonCrudResponse::ok(backends, headers))
-            }
+            Some(backends) => Ok(JsonCrudResponse::ok(backends, headers)),
         }
     }
 
@@ -93,7 +80,7 @@ impl DiscoveryHandlers {
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let location = backend.address.encoded();
+        let location = backend.public_key.to_string();
         let location = HeaderValue::from_str(&location)?;
 
         match result {
@@ -104,13 +91,18 @@ impl DiscoveryHandlers {
 
     pub async fn put_backend<S>(
         State(state): State<DiscoveryState<S>>,
-        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
+        Path(public_key): Path<String>,
         Json(backend): Json<DiscoveryBackendSparse>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let backend = DiscoveryBackend { address, backend };
+        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+
+        let backend = DiscoveryBackend {
+            public_key,
+            backend,
+        };
 
         let was_created = state
             .store()
@@ -127,13 +119,18 @@ impl DiscoveryHandlers {
 
     pub async fn patch_backend<S>(
         State(state): State<DiscoveryState<S>>,
-        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
+        Path(public_key): Path<String>,
         Json(backend): Json<DiscoveryBackendPatchSparse>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let backend = DiscoveryBackendPatch { address, backend };
+        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+
+        let backend = DiscoveryBackendPatch {
+            public_key,
+            backend,
+        };
 
         let patched = state
             .store()
@@ -149,15 +146,17 @@ impl DiscoveryHandlers {
     }
 
     pub async fn delete_backend<S>(
-        DiscoveryBackendAddressParam { address }: DiscoveryBackendAddressParam,
+        Path(public_key): Path<String>,
         State(state): State<DiscoveryState<S>>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
         S: DiscoveryBackendStore,
     {
+        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+
         if state
             .store()
-            .delete(&address)
+            .delete(&public_key)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?
         {

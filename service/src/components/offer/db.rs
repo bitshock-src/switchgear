@@ -26,7 +26,7 @@ impl DbOfferStore {
     pub async fn connect(uri: &str, max_connections: u32) -> Result<Self, OfferStoreError> {
         let mut opt = sea_orm::ConnectOptions::new(uri);
         opt.max_connections(max_connections);
-        let db = Database::connect(opt.clone()).await.map_err(|e| {
+        let db = Database::connect(opt).await.map_err(|e| {
             OfferStoreError::from_db(
                 ServiceErrorSource::Internal,
                 "connecting to offer database",

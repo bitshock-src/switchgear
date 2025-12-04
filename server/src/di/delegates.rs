@@ -5,6 +5,7 @@ use crate::di::macros::{
 use anyhow::Result;
 use async_trait::async_trait;
 use pingora_load_balancing::selection::{Consistent, Random, RoundRobin};
+use secp256k1::PublicKey;
 use switchgear_pingora::balance::{
     ConsistentMaxIterations, RandomMaxIterations, RoundRobinMaxIterations,
 };
@@ -12,8 +13,7 @@ use switchgear_pingora::error::PingoraLnError;
 use switchgear_pingora::PingoraBackendProvider;
 use switchgear_service::api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendPatch, DiscoveryBackendStore,
-    DiscoveryBackends,
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
 };
 use switchgear_service::api::offer::Offer;
 use switchgear_service::api::offer::{OfferMetadataStore, OfferProvider, OfferStore};
@@ -205,21 +205,15 @@ pub enum DiscoveryBackendStoreDelegate {
 impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
     type Error = DiscoveryBackendStoreError;
 
-    async fn get(
-        &self,
-        addr: &DiscoveryBackendAddress,
-    ) -> Result<Option<DiscoveryBackend>, Self::Error> {
-        delegate_to_discovery_store_variants!(self, get, addr).await
+    async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
+        delegate_to_discovery_store_variants!(self, get, public_key).await
     }
 
     async fn get_all(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
         delegate_to_discovery_store_variants!(self, get_all, etag).await
     }
 
-    async fn post(
-        &self,
-        backend: DiscoveryBackend,
-    ) -> Result<Option<DiscoveryBackendAddress>, Self::Error> {
+    async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         delegate_to_discovery_store_variants!(self, post, backend).await
     }
 
@@ -234,8 +228,8 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
         delegate_to_discovery_store_variants!(self, patch, backend).await
     }
 
-    async fn delete(&self, addr: &DiscoveryBackendAddress) -> Result<bool, Self::Error> {
-        delegate_to_discovery_store_variants!(self, delete, addr).await
+    async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
+        delegate_to_discovery_store_variants!(self, delete, public_key).await
     }
 }
 

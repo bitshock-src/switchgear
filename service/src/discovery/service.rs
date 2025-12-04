@@ -17,19 +17,19 @@ impl DiscoveryService {
     {
         Router::new()
             .route(
-                "/discovery/{addr_variant}/{addr_value}",
+                "/discovery/{public_key}",
                 get(DiscoveryHandlers::get_backend),
             )
             .route(
-                "/discovery/{addr_variant}/{addr_value}",
+                "/discovery/{public_key}",
                 put(DiscoveryHandlers::put_backend),
             )
             .route(
-                "/discovery/{addr_variant}/{addr_value}",
+                "/discovery/{public_key}",
                 patch(DiscoveryHandlers::patch_backend),
             )
             .route(
-                "/discovery/{addr_variant}/{addr_value}",
+                "/discovery/{public_key}",
                 delete(DiscoveryHandlers::delete_backend),
             )
             .route("/discovery", get(DiscoveryHandlers::get_backends))
@@ -50,10 +50,13 @@ impl DiscoveryService {
 #[cfg(test)]
 mod tests {
     use crate::api::discovery::{
-        DiscoveryBackend, DiscoveryBackendAddress, DiscoveryBackendImplementation,
-        DiscoveryBackendPatchSparse, DiscoveryBackendRest, DiscoveryBackendSparse,
+        DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatchSparse,
+        DiscoveryBackendSparse,
     };
     use crate::components::discovery::memory::MemoryDiscoveryBackendStore;
+    use crate::components::pool::lnd::grpc::config::{
+        LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
+    };
     use crate::discovery::auth::{DiscoveryAudience, DiscoveryClaims};
     use crate::discovery::service::DiscoveryService;
     use crate::discovery::state::DiscoveryState;
@@ -74,13 +77,23 @@ mod tests {
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
         DiscoveryBackend {
-            address: DiscoveryBackendAddress::PublicKey(public_key),
+            public_key,
             backend: DiscoveryBackendSparse {
                 name: None,
                 partitions: [partition.to_string()].into(),
                 weight: 100,
                 enabled: true,
-                implementation: DiscoveryBackendImplementation::RemoteHttp,
+                implementation: DiscoveryBackendImplementation::LndGrpc(
+                    LndGrpcDiscoveryBackendImplementation {
+                        url: "https://localhost:9736".parse().unwrap(),
+                        domain: None,
+                        auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                            tls_cert_path: None,
+                            macaroon_path: "/path/to/macaroon_path".into(),
+                        }),
+                        amp_invoice: false,
+                    },
+                ),
             },
         }
     }
@@ -174,7 +187,7 @@ mod tests {
 
         assert_eq!(response.status_code(), StatusCode::CREATED);
         let location = response.header("location").to_str().unwrap().to_string();
-        assert_eq!(location, backend.address.encoded());
+        assert_eq!(location, backend.public_key.to_string());
     }
 
     #[tokio::test]
@@ -228,9 +241,17 @@ mod tests {
         let retrieved: DiscoveryBackend = response.json();
         assert_eq!(
             retrieved.backend.implementation,
-            DiscoveryBackendImplementation::RemoteHttp
+            DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
+                url: "https://localhost:9736".parse().unwrap(),
+                domain: None,
+                auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                    tls_cert_path: None,
+                    macaroon_path: "/path/to/macaroon_path".into(),
+                }),
+                amp_invoice: false,
+            }),
         );
-        assert_eq!(retrieved.address, backend.address);
+        assert_eq!(retrieved.public_key, backend.public_key);
     }
 
     #[tokio::test]
@@ -253,7 +274,7 @@ mod tests {
 
         let response = server
             .server
-            .put("/discovery/url/aHR0cHM6Ly8xOTIuMTY4LjEuMTo4MDgwLw")
+            .put(&format!("/discovery/{}", backend.public_key))
             .authorization_bearer(server.authorization.clone())
             .json(&backend.backend)
             .await;
@@ -346,7 +367,7 @@ mod tests {
         let server = setup_test_server().await;
         let mut backend = create_test_backend("default");
 
-        let location = backend.address.encoded();
+        let location = backend.public_key.to_string();
 
         let patch = DiscoveryBackendPatchSparse {
             name: None,
@@ -421,21 +442,21 @@ mod tests {
         let backend2 = create_test_backend("default");
 
         // Sort backends by address before posting
-        let mut backends = [backend1, backend2];
-        backends.sort_by(|a, b| a.address.to_string().cmp(&b.address.to_string()));
+        let mut expected_backends = [backend1, backend2];
+        expected_backends.sort_by(|a, b| a.public_key.to_string().cmp(&b.public_key.to_string()));
 
         // Create multiple backends
         server
             .server
             .post("/discovery")
             .authorization_bearer(server.authorization.clone())
-            .json(&backends[0])
+            .json(&expected_backends[0])
             .await;
         server
             .server
             .post("/discovery")
             .authorization_bearer(server.authorization.clone())
-            .json(&backends[1])
+            .json(&expected_backends[1])
             .await;
 
         // Get all backends (first request)
@@ -446,18 +467,9 @@ mod tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::OK);
-        let response_backends: Vec<DiscoveryBackendRest> = response.json();
+        let response_backends: Vec<DiscoveryBackend> = response.json();
 
-        // Build expected backends from the sorted list
-        let expected: Vec<DiscoveryBackendRest> = backends
-            .iter()
-            .map(|b| DiscoveryBackendRest {
-                location: b.address.encoded(),
-                backend: b.clone(),
-            })
-            .collect();
-
-        assert_eq!(response_backends, expected);
+        assert_eq!(response_backends, expected_backends);
 
         // Collect etag from first response
         let etag = response.header("etag");

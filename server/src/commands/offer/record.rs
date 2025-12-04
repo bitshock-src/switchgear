@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
-use switchgear_service::api::offer::{OfferRecord, OfferRecordRest, OfferRecordSparse, OfferStore};
+use switchgear_service::api::offer::{OfferRecord, OfferRecordSparse, OfferStore};
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]
@@ -122,10 +122,6 @@ pub async fn get_offer(
     let client = create_offer_client(client_configuration)?;
     if let Some(id) = id {
         if let Some(offer) = client.get_offer(partition, id).await? {
-            let offer = OfferRecordRest {
-                location: format!("{}/{}", offer.partition, offer.id),
-                offer,
-            };
             let offer = serde_json::to_string_pretty(&offer)
                 .with_context(|| format!("serializing offer {id}"))?;
             cli_write_all(output, offer.as_bytes()).with_context(|| {
@@ -140,13 +136,6 @@ pub async fn get_offer(
         }
     } else {
         let offers = client.get_offers(partition, start, count).await?;
-        let offers = offers
-            .into_iter()
-            .map(|offer| OfferRecordRest {
-                location: format!("{}/{}", offer.partition, offer.id),
-                offer,
-            })
-            .collect::<Vec<_>>();
         let offers = serde_json::to_string_pretty(&offers)
             .with_context(|| format!("serializing offer for {partition}"))?;
         cli_write_all(output, offers.as_bytes()).with_context(|| {

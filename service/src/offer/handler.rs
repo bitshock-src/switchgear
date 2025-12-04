@@ -1,6 +1,6 @@
 use crate::api::offer::{
-    OfferMetadata, OfferMetadataRest, OfferMetadataSparse, OfferMetadataStore, OfferRecord,
-    OfferRecordRest, OfferRecordSparse, OfferStore,
+    OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
+    OfferStore,
 };
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
@@ -30,7 +30,7 @@ impl OfferHandlers {
     pub async fn get_offer<S, M>(
         UuidParam { partition, id }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<OfferRecordRest>, CrudError>
+    ) -> Result<JsonCrudResponse<OfferRecord>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -44,11 +44,6 @@ impl OfferHandlers {
 
         let headers = no_cache_headers();
 
-        let offer = OfferRecordRest {
-            location: format!("{partition}/{}", offer.id),
-            offer,
-        };
-
         Ok(JsonCrudResponse::ok(offer, headers))
     }
 
@@ -56,7 +51,7 @@ impl OfferHandlers {
         axum::extract::Path(partition): axum::extract::Path<String>,
         Query(params): Query<GetAllOffersQueryParameters>,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<Vec<OfferRecordRest>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<OfferRecord>>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -72,14 +67,6 @@ impl OfferHandlers {
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
         let headers = no_cache_headers();
-
-        let offers = offers
-            .into_iter()
-            .map(|offer| OfferRecordRest {
-                location: format!("{partition}/{}", offer.id),
-                offer,
-            })
-            .collect();
 
         Ok(JsonCrudResponse::ok(offers, headers))
     }
@@ -158,7 +145,7 @@ impl OfferHandlers {
     pub async fn get_metadata<S, M>(
         UuidParam { partition, id }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<OfferMetadataRest>, CrudError>
+    ) -> Result<JsonCrudResponse<OfferMetadata>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -172,11 +159,6 @@ impl OfferHandlers {
 
         let headers = no_cache_headers();
 
-        let metadata = OfferMetadataRest {
-            location: format!("{partition}/{}", metadata.id),
-            metadata,
-        };
-
         Ok(JsonCrudResponse::ok(metadata, headers))
     }
 
@@ -184,7 +166,7 @@ impl OfferHandlers {
         axum::extract::Path(partition): axum::extract::Path<String>,
         Query(params): Query<GetAllMetadataQueryParameters>,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<Vec<OfferMetadataRest>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<OfferMetadata>>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -198,14 +180,6 @@ impl OfferHandlers {
             .get_all_metadata(&partition, params.start.unwrap_or(0), count)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
-
-        let metadata = metadata
-            .into_iter()
-            .map(|metadata| OfferMetadataRest {
-                location: format!("{partition}/{}", metadata.id),
-                metadata,
-            })
-            .collect();
 
         let headers = no_cache_headers();
 
