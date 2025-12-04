@@ -9,7 +9,7 @@ Feature: Server resumes state after restart
     And the server is not already running
 
   @persistence @backend-recovery @offer-recovery @full-lifecycle
-  Scenario Outline: Complete persistence lifecycle across multiple server restarts with <database>/<ssl> storage
+  Scenario Outline: Complete persistence lifecycle across multiple server restarts with <database>/<ssl>/<secrets> storage
     Given a valid configuration file exists with <backend_store> backend storage and <offer_store> offer storage
     # First server instance: Create and persist data
     When I start the LNURL server with the configuration
@@ -60,14 +60,15 @@ Feature: Server resumes state after restart
     Then the server should exit with code 0
 
     Examples: Current storage combinations
-      | database | ssl    |
-      | sqlite   | none   |
-      | postgres | none   |
-      | postgres | param  |
-      | postgres | native |
-      | mysql    | none   |
-      | mysql    | param  |
-      | mysql    | native |
+      | database       | ssl    | secrets |
+      | sqlite         | none   | no      |
+      | postgres       | none   | no      |
+      | postgres       | param  | no      |
+      | postgres       | native | no      |
+      | mysql          | none   | no      |
+      | mysql          | param  | no      |
+      | mysql          | native | no      |
+      | postgres+mysql | none   | yes     |
 
   @persistence @selective-cleanup @backend-only
   Scenario Outline: Backend data loss with offer persistence using <backend_store>/<offer_store> storage
@@ -101,4 +102,4 @@ Feature: Server resumes state after restart
     Examples: Current storage combinations
       | backend_store | offer_store |
       | sqlite        | sqlite      |
-      
+

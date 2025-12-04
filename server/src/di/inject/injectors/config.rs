@@ -1,7 +1,8 @@
 use crate::config::ServerConfig;
 use crate::ServiceEnablement;
-use anyhow::Context;
-use log::info;
+use anyhow::{anyhow, Context};
+use log::{info, warn};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -42,6 +43,7 @@ impl ServiceEnablementInjector {
 #[derive(Clone, Debug)]
 pub struct ServerConfigInjector {
     config: Arc<ServerConfig>,
+    secrets: Arc<HashMap<String, String>>,
 }
 
 impl ServerConfigInjector {
@@ -71,12 +73,48 @@ impl ServerConfigInjector {
 
         info!("configuration loaded successfully: {config:?}");
 
+        let secrets = match &config.secrets {
+            None => {
+                warn!("no secrets file in config, skipping secret loading");
+                HashMap::new()
+            }
+            Some(secrets_path) => {
+                let secrets_iter =
+                    dotenvy::from_filename_iter(secrets_path.iter()).map_err(|_| {
+                        anyhow!(
+                            "error reading secrets file {}",
+                            secrets_path.to_string_lossy()
+                        )
+                    })?;
+                let mut secrets: HashMap<String, String> = HashMap::new();
+                for secret in secrets_iter {
+                    let (n, v) = secret.map_err(|_| {
+                        anyhow!(
+                            "error parsing secrets file {}",
+                            secrets_path.to_string_lossy()
+                        )
+                    })?;
+                    secrets.insert(format!("secret.{n}"), v);
+                }
+                info!(
+                    "secrets loaded successfully from: {}",
+                    secrets_path.to_string_lossy()
+                );
+                secrets
+            }
+        };
+
         Ok(Self {
             config: Arc::new(config),
+            secrets: Arc::new(secrets),
         })
     }
 
     pub fn get(&self) -> &ServerConfig {
         self.config.as_ref()
+    }
+
+    pub fn secrets(&self) -> &HashMap<String, String> {
+        self.secrets.as_ref()
     }
 }

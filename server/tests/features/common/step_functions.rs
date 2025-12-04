@@ -11,7 +11,7 @@ use crate::common::helpers::{
     verify_exit_code, verify_single_service_status,
 };
 use crate::{anyhow_log, bail_log};
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::{StatusCode, Url};
@@ -182,35 +182,45 @@ pub async fn step_then_the_server_should_fail_to_start(ctx: &mut GlobalContext) 
 }
 
 /// Step: "Then an error message should be displayed"
-/// Verifies that an error message was captured in stdout/stderr
-pub async fn step_then_an_error_message_should_be_displayed(ctx: &mut GlobalContext) -> Result<()> {
-    // Check stderr buffer for configuration parsing errors
-    if let Ok(stderr_buf) = ctx.get_active_stderr_buffer()?.lock() {
-        if !stderr_buf.is_empty() {
-            let stderr_content = stderr_buf.join("\n");
+/// Verifies that an error message was captured in stderr
+pub async fn step_then_an_error_message_should_be_displayed(
+    ctx: &mut GlobalContext,
+    error: &str,
+) -> Result<()> {
+    let stderr_buf = ctx.get_active_stderr_buffer()?;
+    let stderr_buf = stderr_buf
+        .lock()
+        .map_err(|e| anyhow!("memory error: {e}"))?;
 
-            // For invalid configuration tests, assert on specific error content
-            if stderr_content.contains("parsing YAML configuration") {
-                return Ok(());
-            }
-
-            if stderr_content.contains("server terminated with error") {
-                return Ok(());
-            }
-        }
-
-        // Any stderr content indicates an error was displayed
-        return Ok(());
-    }
-
+    let stderr_content = stderr_buf.join("\n");
     let exit_code = ctx.wait_active_exit_code()?;
 
-    if exit_code != 0 {
-        // Non-zero exit code indicates error was displayed
+    if exit_code != 0 && stderr_content.contains(error) {
         return Ok(());
     }
 
-    bail_log!("No error message was captured and no error exit code was recorded")
+    bail_log!("No error message was captured or no error exit code was recorded")
+}
+
+/// Step: "Then a success log should be displayed"
+/// Verifies that a log message was captured in stderr
+pub async fn step_then_a_success_log_should_be_displayed(
+    ctx: &mut GlobalContext,
+    error: &str,
+) -> Result<()> {
+    let stderr_buf = ctx.get_active_stderr_buffer()?;
+    let stderr_buf = stderr_buf
+        .lock()
+        .map_err(|e| anyhow!("memory error: {e}"))?;
+
+    let stderr_content = stderr_buf.join("\n");
+    let exit_code = ctx.wait_active_exit_code()?;
+
+    if exit_code == 0 && stderr_content.contains(error) {
+        return Ok(());
+    }
+
+    bail_log!("No log message was captured or no success exit code was recorded")
 }
 
 /// Step: "Then the error message should contain configuration parsing details"

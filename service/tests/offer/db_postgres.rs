@@ -17,7 +17,7 @@ async fn create_postgres_store() -> Option<(DbOfferStore, TestPostgresDatabase)>
         None => return None,
         Some(v) => v,
     };
-    let db = TestPostgresDatabase::new(db_name, postgres, false, None);
+    let db = TestPostgresDatabase::new("postgres", &db_name, postgres, false, None);
 
     let store = DbOfferStore::connect(db.connection_url(), 5).await.unwrap();
     store.migrate_up().await.unwrap();

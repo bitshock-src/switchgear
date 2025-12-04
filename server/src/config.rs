@@ -10,6 +10,7 @@ pub struct ServerConfig {
     pub discovery_service: Option<DiscoveryServiceConfig>,
     pub offer_service: Option<OfferServiceConfig>,
     pub store: Option<ServerStoreConfig>,
+    pub secrets: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +88,7 @@ pub struct ServerStoreConfig {
 pub enum OfferStoreConfig {
     #[serde(rename_all = "kebab-case")]
     Database {
-        database_url: String,
+        database_uri: String,
         max_connections: u32,
     },
     Memory,
@@ -106,7 +107,7 @@ pub enum OfferStoreConfig {
 pub enum DiscoveryStoreConfig {
     #[serde(rename_all = "kebab-case")]
     Database {
-        database_url: String,
+        database_uri: String,
         max_connections: u32,
     },
     Memory,

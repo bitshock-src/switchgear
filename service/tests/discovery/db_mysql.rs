@@ -20,7 +20,7 @@ async fn create_mysql_store() -> Option<(DbDiscoveryBackendStore, TestMysqlDatab
         None => return None,
         Some(v) => v,
     };
-    let db = TestMysqlDatabase::new(db_name, mysql, false, None);
+    let db = TestMysqlDatabase::new("root", &db_name, mysql, false, None);
 
     let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)
         .await
