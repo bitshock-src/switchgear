@@ -46,11 +46,18 @@ impl DiscoveryStoreInjector {
 
         let store = match store_config {
             DiscoveryStoreConfig::Database {
-                database_url,
+                database_uri,
                 max_connections,
             } => {
+                let database_uri = strfmt::strfmt(database_uri, self.config.secrets()).map_err(|_| {
+                    anyhow!(
+                        "Error while inserting secrets for discovery database connection uri. Invalid uri or missing secrets in: {}",
+                        database_uri
+                    )
+                })?;
+
                 let store =
-                    DbDiscoveryBackendStore::connect(database_url, *max_connections).await?;
+                    DbDiscoveryBackendStore::connect(&database_uri, *max_connections).await?;
                 store.migrate_up().await?;
                 DiscoveryBackendStoreDelegate::Database(store)
             }

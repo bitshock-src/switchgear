@@ -199,6 +199,9 @@ offer-service:
   
 # Persistence Settings for Discovery and Offer data  
 store:
+
+# Optional secrets file to replace tokens in specific configuration fields
+secrets:
 ```
 
 See the service entries below for complete configuration manual.
@@ -239,6 +242,39 @@ The configuration would be parsed as:
 lnurl-service:
   address: "127.0.0.1:8080"
 ```
+
+#### Secrets Expansion
+
+Secrets are read from a secrets file, and can be used to replace tokens in a configuration file.
+
+The secrets file format is a standard dot file:
+
+```shell
+NAME="value"
+```
+
+Example:
+
+```shell
+MYSQL_USERNAME=root
+MYSQL_PASSWORD=mysql
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=postgres
+```
+
+Secrets expansion works the same way as env var expansion, but with the different template syntax:
+
+```
+{secret.SECRET_NAME}
+```
+
+Example:
+
+```yaml
+    database-uri: "postgres://{secret.POSTGRES_USERNAME}:{secret.POSTGRES_PASSWORD}@localhost:5432/discovery"
+```
+
+Unlike env var expansion, secret expansion is selective. Only specific configuration fields have access to secrets.
 
 ## Liquidity Bias
 
@@ -439,7 +475,7 @@ lnurl-service:
   # QR light gray level
   bech32-qr-light: 255
   # QR dark gray level
-  bech32-qr-dark: 0
+  bech32-qr-dark: 0 
 ```
 
 ### Consistent Backend-Selection
@@ -555,13 +591,14 @@ Both Discovery and Offer stores support these storage backends:
 store:
   discover:  # or 'offer'
     type: "database"
-    # Database connection URL (SQLite/MySQL/PostgreSQL)
-    database-url: "connection-url"
+    # Database connection URI (SQLite/MySQL/PostgreSQL)
+    # Supports secrets expansion
+    database-uri: "connection-url" 
     # Maximum number of concurrent database connections
     max-connections: 5
 ```
 
-For `database-url` formats, see [Database Connection URLs](#database-connection-urls).
+For `database-uri` formats, see [Database Connection URLs](#database-connection-urls).
 
 #### HTTP Storage (Remote Service)
 
@@ -602,13 +639,13 @@ store:
   # Discovery backend storage
   discover:
     type: "database"
-    database-url: "postgres://user:password@localhost:5432/switchgear"
+    database-uri: "postgres://{secret.POSTGRES_USERNAME}:{secret.POSTGRES_PASSWORD}@localhost:5432/switchgear"
     max-connections: 5
   
   # Offer storage (sharing same database)
   offer:
     type: "database"
-    database-url: "postgres://user:password@localhost:5432/switchgear"
+    database-uri: "postgres://{secret.POSTGRES_USERNAME}:{secret.POSTGRES_PASSWORD}@localhost:5432/switchgear"
     max-connections: 10
 ```
 
@@ -623,7 +660,7 @@ store:
   # Database storage for Offers
   offer:
     type: "database"
-    database-url: "sqlite:///var/lib/switchgear/offers.db?mode=rwc"
+    database-uri: "sqlite:///var/lib/switchgear/offers.db?mode=rwc"
     max-connections: 5
 ```
 
@@ -643,13 +680,13 @@ store:
   # Local database for Offers
   offer:
     type: "database"
-    database-url: "sqlite:///data/offers.db?mode=rwc"
+    database-uri: "sqlite:///data/offers.db?mode=rwc"
     max-connections: 10
 ```
 
 ### Database Connection URLs
 
-Both Discovery and Offer data stores have a `database-url` field to configure the database.
+Both Discovery and Offer data stores have a `database-uri` field to configure the database.
 
 ### Sqlite
 

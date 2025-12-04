@@ -12,6 +12,7 @@ mod http_remote_stores;
 mod invalid_configuration_rejection;
 mod lnurl_pay_invoice_generation;
 mod lnurl_pay_multi_backend_invoice_generation;
+mod secrets;
 mod server_lifecycle_with_graceful_shutdown;
 mod server_persistence;
 mod service_enablement;

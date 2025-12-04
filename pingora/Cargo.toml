@@ -13,7 +13,7 @@ categories = ["network-programming", "web-programming"]
 publish = true
 
 [dependencies]
-arc-swap = "1.7"
+arc-swap = "1"
 async-trait = "0.1"
 axum = {  version = "0.8", features = ["macros"] }
 backoff = { version = "0.4", features = ["tokio"] }
@@ -23,12 +23,12 @@ log = "0.4"
 pingora-core = { version = "0.6", default-features = false }
 pingora-error = { version = "0.6", default-features = false }
 pingora-load-balancing = { version = "0.6", default-features = false }
-thiserror = "2.0"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
-uuid = { version = "1.18", features = ["v4", "serde"] }
-url = "2.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+url = "2"
 
 [dev-dependencies]
 chrono = "0.4"
 tokio = { version = "1", features = ["full"] }
-uuid = "1.18"
+uuid = "1"

@@ -29,9 +29,9 @@ strip = true
 
 [patch.crates-io]
 sqlx = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
-sqlx-core ={ git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
-sqlx-macros = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
-sqlx-macros-core = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
-sqlx-mysql = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
-sqlx-postgres = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
-sqlx-sqlite = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs"  }
+sqlx-core = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-macros = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-macros-core = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-mysql = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-postgres = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }
+sqlx-sqlite = { git = "https://github.com/bitshock-src/sqlx.git", tag = "rustls-native-certs-aws-lc-rs" }

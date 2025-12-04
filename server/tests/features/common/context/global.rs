@@ -321,7 +321,7 @@ impl GlobalContext {
         Ok(())
     }
 
-    pub fn set_discovery_store_database_url(
+    pub fn set_discovery_store_database_uri(
         &mut self,
         server_key_id: &str,
         database_url: String,
@@ -331,7 +331,7 @@ impl GlobalContext {
             .get_mut(server_key_id)
             .ok_or_else(|| anyhow!("server not found"))?;
 
-        server.set_discovery_store_database_url(database_url);
+        server.set_discovery_store_database_uri(database_url);
 
         Ok(())
     }
@@ -418,17 +418,17 @@ impl GlobalContext {
         Ok(())
     }
 
-    pub fn set_offer_store_database_url(
+    pub fn set_offer_store_database_uri(
         &mut self,
         server_key_id: &str,
-        database_url: String,
+        database_uri: String,
     ) -> anyhow::Result<()> {
         let server = self
             .servers
             .get_mut(server_key_id)
             .ok_or_else(|| anyhow!("server not found"))?;
 
-        server.set_offer_store_database_url(database_url);
+        server.set_offer_store_database_uri(database_uri);
 
         Ok(())
     }
@@ -455,6 +455,20 @@ impl GlobalContext {
             profile.domain,
             profile.address.port(),
         )
+    }
+
+    pub fn set_secrets_path(
+        &mut self,
+        server_key_id: &str,
+        secrets_path: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_secrets_path(secrets_path);
+        Ok(())
     }
 }
 

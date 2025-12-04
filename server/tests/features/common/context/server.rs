@@ -43,8 +43,10 @@ pub struct ServerContext {
     offer_store_url: Option<String>,
     discovery_store_url: Option<String>,
 
-    offer_store_database_url: String,
-    discovery_store_database_url: String,
+    offer_store_database_uri: String,
+    discovery_store_database_uri: String,
+
+    secrets_path: Option<PathBuf>,
 
     discovery_store_authorization: Option<PathBuf>,
     offer_store_authorization: Option<PathBuf>,
@@ -171,12 +173,13 @@ impl ServerContext {
             offer_store_url: None,
             discovery_store_url: None,
 
-            discovery_store_database_url: format!(
+            discovery_store_database_uri: format!(
                 "sqlite://{}?mode=rwc",
                 discovery_store_dir.join("discovery.db").to_string_lossy()
             ),
+            secrets_path: None,
 
-            offer_store_database_url: format!(
+            offer_store_database_uri: format!(
                 "sqlite://{}?mode=rwc",
                 offer_store_dir.join("offers.db").to_string_lossy()
             ),
@@ -461,10 +464,10 @@ impl ServerContext {
 
         command
             .env(
-                "DISCOVERY_STORE_DATABASE_URL",
-                &self.discovery_store_database_url,
+                "DISCOVERY_STORE_DATABASE_URI",
+                &self.discovery_store_database_uri,
             )
-            .env("OFFER_STORE_DATABASE_URL", &self.offer_store_database_url)
+            .env("OFFER_STORE_DATABASE_URI", &self.offer_store_database_uri)
             .env(
                 "DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH",
                 &self.discovery_authority,
@@ -479,6 +482,10 @@ impl ServerContext {
 
         for arg in start_services {
             command.arg(arg);
+        }
+
+        if let Some(discovery_store_database_secrets_path) = &self.secrets_path {
+            command.env("SECRETS_PATH", discovery_store_database_secrets_path);
         }
 
         if let Some(tls) = &lnurl_svc.tls {
@@ -693,15 +700,19 @@ impl ServerContext {
         self.certificate_location = certificate_location;
     }
 
-    pub fn set_offer_store_database_url(&mut self, offer_store_database_url: String) {
-        self.offer_store_database_url = offer_store_database_url;
+    pub fn set_offer_store_database_uri(&mut self, offer_store_database_uri: String) {
+        self.offer_store_database_uri = offer_store_database_uri;
     }
 
-    pub fn set_discovery_store_database_url(&mut self, discovery_store_database_url: String) {
-        self.discovery_store_database_url = discovery_store_database_url;
+    pub fn set_discovery_store_database_uri(&mut self, discovery_store_database_uri: String) {
+        self.discovery_store_database_uri = discovery_store_database_uri;
     }
 
     pub fn set_ln_trusted_roots_path(&mut self, ln_trusted_roots_path: Option<PathBuf>) {
         self.ln_trusted_roots_path = ln_trusted_roots_path;
+    }
+
+    pub fn set_secrets_path(&mut self, secrets_path: Option<PathBuf>) {
+        self.secrets_path = secrets_path;
     }
 }

@@ -64,15 +64,15 @@ pub struct DbDiscoveryBackendStore {
 
 impl DbDiscoveryBackendStore {
     pub async fn connect(
-        url: &str,
+        uri: &str,
         max_connections: u32,
     ) -> Result<Self, DiscoveryBackendStoreError> {
-        let mut opt = sea_orm::ConnectOptions::new(url);
+        let mut opt = sea_orm::ConnectOptions::new(uri);
         opt.max_connections(max_connections);
         let db = Database::connect(opt.clone()).await.map_err(|e| {
             DiscoveryBackendStoreError::from_db(
                 ServiceErrorSource::Internal,
-                format!("connecting to database with {opt:?}",),
+                "connecting to discovery backend database",
                 e,
             )
         })?;

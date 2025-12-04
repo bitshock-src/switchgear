@@ -56,7 +56,7 @@ async fn test_configuration_validation_invalid_scenario() {
     step_then_the_server_should_fail_to_start(&mut ctx)
         .await
         .expect("assert");
-    step_then_an_error_message_should_be_displayed(&mut ctx)
+    step_then_an_error_message_should_be_displayed(&mut ctx, "parsing YAML configuration")
         .await
         .expect("assert");
     step_then_the_error_message_should_contain_configuration_parsing_details(&mut ctx)

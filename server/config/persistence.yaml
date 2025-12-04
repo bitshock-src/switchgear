@@ -44,9 +44,9 @@ offer-service:
 store:
   offer:
     type: "database"
-    database-url: "${OFFER_STORE_DATABASE_URL:-sqlite:///data/offer_store.db?mode=rwc}"
+    database-uri: "${OFFER_STORE_DATABASE_URI:-sqlite:///data/offer_store.db?mode=rwc}"
     max-connections: 5
   discover:
     type: "database"
-    database-url: "${DISCOVERY_STORE_DATABASE_URL:-sqlite:///data/discovery_store.db?mode=rwc}"
+    database-uri: "${DISCOVERY_STORE_DATABASE_URI:-sqlite:///data/discovery_store.db?mode=rwc}"
     max-connections: 5

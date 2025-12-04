@@ -46,10 +46,17 @@ impl OfferStoreInjector {
 
         let store = match store_config {
             OfferStoreConfig::Database {
-                database_url,
+                database_uri,
                 max_connections,
             } => {
-                let store = DbOfferStore::connect(database_url, *max_connections).await?;
+                let database_uri = strfmt::strfmt(database_uri, self.config.secrets()).map_err(|_| {
+                    anyhow!(
+                        "Error while inserting secrets for offer database connection uri. Invalid uri or missing secrets in: {}",
+                        database_uri
+                    )
+                })?;
+
+                let store = DbOfferStore::connect(&database_uri, *max_connections).await?;
                 store.migrate_up().await?;
                 OfferStoreDelegate::Database(store)
             }
