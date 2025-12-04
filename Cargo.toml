@@ -11,13 +11,13 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.20"
+version = "0.1.21"
 
 [workspace.dependencies]
-switchgear-pingora = { version = "0.1.20", path = "pingora" }
-switchgear-service = { version = "0.1.20", path = "service" }
-switchgear-migration = { version = "0.1.20", path = "migration" }
-switchgear-testing = { version = "0.1.20", path = "testing" }
+switchgear-pingora = { version = "0.1.21", path = "pingora" }
+switchgear-service = { version = "0.1.21", path = "service" }
+switchgear-migration = { version = "0.1.21", path = "migration" }
+switchgear-testing = { version = "0.1.21", path = "testing" }
 
 
 [profile.release]
