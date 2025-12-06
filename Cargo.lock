@@ -2073,9 +2073,9 @@ dependencies = [
 
 [[package]]
 name = "lightning-invoice"
-version = "0.33.2"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11209f386879b97198b2bfc9e9c1e5d42870825c6bd4376f17f95357244d6600"
+checksum = "b85e5e14bcdb30d746e9785b04f27938292e8944f78f26517e01e91691f6b3f2"
 dependencies = [
  "bech32",
  "bitcoin",
@@ -2085,9 +2085,9 @@ dependencies = [
 
 [[package]]
 name = "lightning-types"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2cd84d4e71472035903e43caded8ecc123066ce466329ccd5ae537a8d5488c7"
+checksum = "5681708d3075bdff3a1b4daa400590e2703e7871bdc14e94ee7334fb6314ae40"
 dependencies = [
  "bitcoin",
 ]
@@ -4156,11 +4156,52 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.22"
+version = "0.1.23"
+
+[[package]]
+name = "switchgear-components"
+version = "0.1.23"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "bitcoin_hashes",
+ "chrono",
+ "client-ip",
+ "hex",
+ "jsonwebtoken",
+ "lightning-invoice",
+ "log",
+ "p256",
+ "pkcs8",
+ "prost",
+ "rand 0.8.5",
+ "reqwest",
+ "rustls",
+ "sea-orm",
+ "secp256k1 0.31.1",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "switchgear-migration",
+ "switchgear-service-api",
+ "switchgear-testing",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -4168,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4181,16 +4222,15 @@ dependencies = [
  "pingora-load-balancing",
  "rand 0.8.5",
  "secp256k1 0.31.1",
- "switchgear-service",
+ "switchgear-service-api",
  "thiserror 2.0.17",
  "tokio",
- "url",
  "uuid",
 ]
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4222,8 +4262,10 @@ dependencies = [
  "signal-hook-tokio",
  "simplelog",
  "strfmt",
+ "switchgear-components",
  "switchgear-pingora",
  "switchgear-service",
+ "switchgear-service-api",
  "switchgear-testing",
  "sysinfo",
  "tempfile",
@@ -4235,62 +4277,61 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
- "anyhow",
  "async-trait",
  "axum",
  "axum-extra",
  "axum-test",
- "backoff",
- "base64",
  "bech32",
- "bitcoin_hashes",
  "chrono",
- "client-ip",
- "email_address",
- "hex",
  "http",
- "hyper-rustls",
- "hyper-timeout",
- "hyper-util",
  "image",
  "jsonwebtoken",
- "lightning-invoice",
  "log",
  "p256",
  "pkcs8",
  "png",
- "prost",
  "qrcode",
  "rand 0.8.5",
- "reqwest",
  "rqrr",
- "rustls",
- "rustls-pemfile",
- "sea-orm",
- "secp256k1 0.29.1",
  "secp256k1 0.31.1",
  "serde",
  "serde_json",
- "sha2",
  "sqlx",
- "switchgear-migration",
- "switchgear-testing",
- "tempfile",
+ "switchgear-components",
+ "switchgear-service-api",
  "thiserror 2.0.17",
  "tokio",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
  "tower",
  "url",
  "uuid",
 ]
 
 [[package]]
+name = "switchgear-service-api"
+version = "0.1.23"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "bitcoin_hashes",
+ "chrono",
+ "email_address",
+ "hex",
+ "lightning-invoice",
+ "secp256k1 0.29.1",
+ "secp256k1 0.31.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "switchgear-testing"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "anyhow",
  "dotenvy",

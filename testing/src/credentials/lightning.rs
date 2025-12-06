@@ -1,6 +1,6 @@
 use crate::credentials::download_credentials;
 use crate::services::{IntegrationTestServices, LightningIntegrationTestServices};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use secp256k1::PublicKey;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,80 +24,42 @@ pub struct LndRegTestLnNode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RegTestLnNode {
-    Cln(ClnRegTestLnNode),
-    Lnd(LndRegTestLnNode),
-}
-
-impl RegTestLnNode {
-    pub fn public_key(&self) -> &PublicKey {
-        match self {
-            RegTestLnNode::Cln(cln) => &cln.public_key,
-            RegTestLnNode::Lnd(lnd) => &lnd.public_key,
-        }
-    }
-
-    pub fn address(&self) -> &str {
-        match self {
-            RegTestLnNode::Cln(cln) => &cln.address,
-            RegTestLnNode::Lnd(lnd) => &lnd.address,
-        }
-    }
-
-    pub fn kind(&self) -> &'static str {
-        match self {
-            RegTestLnNode::Cln(_) => "cln",
-            RegTestLnNode::Lnd(_) => "lnd",
-        }
-    }
+pub struct RegTestLnNodes {
+    pub cln: ClnRegTestLnNode,
+    pub lnd: LndRegTestLnNode,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum RegTestLnNodeType {
+enum RegTestLnNodeType {
     Cln,
     Lnd,
 }
 
 pub struct LnCredentials {
-    inner: Option<LnCredentialsInner>,
-}
-
-struct LnCredentialsInner {
     credentials_dir: TempDir,
     lightning: LightningIntegrationTestServices,
 }
 
 impl LnCredentials {
     pub fn create() -> anyhow::Result<Self> {
-        let services = IntegrationTestServices::create()?;
-        let inner = match (services.credentials(), services.lightning()) {
-            (Some(credentials), Some(lightning)) => {
-                let credentials_dir = TempDir::new()?;
-                download_credentials(credentials_dir.path(), credentials)?;
-                Some(LnCredentialsInner {
-                    credentials_dir,
-                    lightning: lightning.clone(),
-                })
-            }
-            _ => None,
-        };
-        Ok(Self { inner })
+        let services = IntegrationTestServices::new();
+        let credentials_dir = TempDir::new()?;
+        download_credentials(credentials_dir.path(), services.credentials())?;
+        Ok(Self {
+            credentials_dir,
+            lightning: services.lightning().clone(),
+        })
     }
 
-    pub fn get_backends(&self) -> anyhow::Result<Vec<RegTestLnNode>> {
-        let inner = match &self.inner {
-            None => return Ok(vec![]),
-            Some(inner) => inner,
-        };
-
-        let credentials = inner.credentials_dir.path().join("credentials");
+    pub fn get_backends(&self) -> anyhow::Result<RegTestLnNodes> {
+        let credentials = self.credentials_dir.path().join("credentials");
         let base_path = credentials.as_path();
 
         let entries = fs::read_dir(base_path)
             .with_context(|| format!("reading directory {}", base_path.display()))?;
 
-        let mut backends = Vec::new();
-
+        let mut cln = None;
+        let mut lnd = None;
         for entry in entries {
             let entry = entry
                 .with_context(|| format!("reading directory entry in {}", base_path.display(),))?;
@@ -136,23 +98,42 @@ impl LnCredentials {
                 format!("parsing {} public key from bytes", node_id_path.display(),)
             })?;
 
-            let node = match node_type {
-                RegTestLnNodeType::Cln => RegTestLnNode::Cln(Self::build_cln_node(
-                    public_key,
-                    &inner.lightning.cln,
-                    &path,
-                )?),
-                RegTestLnNodeType::Lnd => RegTestLnNode::Lnd(Self::build_lnd_node(
-                    public_key,
-                    &inner.lightning.lnd,
-                    &path,
-                )?),
-            };
+            match node_type {
+                RegTestLnNodeType::Cln => {
+                    cln = Some(Self::build_cln_node(
+                        public_key,
+                        &self.lightning.cln,
+                        &path,
+                    )?);
+                }
+                RegTestLnNodeType::Lnd => {
+                    lnd = Some(Self::build_lnd_node(
+                        public_key,
+                        &self.lightning.lnd,
+                        &path,
+                    )?);
+                }
+            }
 
-            backends.push(node);
+            if cln.is_some() && lnd.is_some() {
+                break;
+            }
         }
 
-        Ok(backends)
+        Ok(RegTestLnNodes {
+            cln: cln.ok_or_else(|| {
+                anyhow!(
+                    "cln credentials not found in {}",
+                    credentials.to_string_lossy()
+                )
+            })?,
+            lnd: lnd.ok_or_else(|| {
+                anyhow!(
+                    "lnd credentials not found in {}",
+                    credentials.to_string_lossy()
+                )
+            })?,
+        })
     }
 
     fn build_cln_node(

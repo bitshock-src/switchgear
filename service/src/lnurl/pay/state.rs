@@ -1,9 +1,9 @@
-use crate::api::balance::LnBalancer;
-use crate::api::offer::OfferProvider;
 use crate::axum::extract::host::AllowedHosts;
 use crate::axum::extract::scheme::Scheme;
 use axum::extract::FromRef;
 use std::collections::HashSet;
+use switchgear_service_api::balance::LnBalancer;
+use switchgear_service_api::offer::OfferProvider;
 
 #[derive(Debug, Clone)]
 pub struct LnUrlPayState<O, B> {

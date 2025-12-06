@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use switchgear_service::api::lnurl::LnUrlOffer;
-use switchgear_testing::credentials::lightning::RegTestLnNode;
+use switchgear_service_api::lnurl::LnUrlOffer;
+use switchgear_testing::credentials::lightning::RegTestLnNodes;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -30,14 +30,16 @@ impl OfferRequest {
 
 #[derive(Clone)]
 pub struct PayeeContext {
-    pub node: RegTestLnNode,
+    pub ln_nodes: RegTestLnNodes,
+    pub target_ln_node: String,
     pub offer_requests: HashMap<String, OfferRequest>,
 }
 
 impl PayeeContext {
-    pub fn new(node: RegTestLnNode) -> Self {
+    pub fn new(node: RegTestLnNodes, target_ln_node: String) -> Self {
         Self {
-            node,
+            ln_nodes: node,
+            target_ln_node,
             offer_requests: HashMap::new(),
         }
     }

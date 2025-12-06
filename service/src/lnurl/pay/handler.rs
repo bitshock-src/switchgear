@@ -1,6 +1,3 @@
-use crate::api::balance::LnBalancer;
-use crate::api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferTag};
-use crate::api::offer::{Offer, OfferProvider};
 use crate::axum::extract::host::ValidatedHost;
 use crate::axum::extract::scheme::Scheme;
 use crate::axum::extract::uuid::UuidParam;
@@ -17,6 +14,9 @@ use qrcode::QrCode;
 use serde::Deserialize;
 use sqlx::types::JsonValue;
 use std::io::{self, Cursor};
+use switchgear_service_api::balance::LnBalancer;
+use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferTag};
+use switchgear_service_api::offer::{Offer, OfferProvider};
 use url::Url;
 use uuid::Uuid;
 

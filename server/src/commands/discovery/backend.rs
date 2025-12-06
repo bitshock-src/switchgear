@@ -8,16 +8,17 @@ use std::fmt::{Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{env, fs};
-use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatch,
-    DiscoveryBackendPatchSparse, DiscoveryBackendSparse, DiscoveryBackendStore,
-};
-use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
-use switchgear_service::components::pool::cln::grpc::config::{
+use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
+use switchgear_components::pool::cln::grpc::config::{
     ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
 };
-use switchgear_service::components::pool::lnd::grpc::config::{
+use switchgear_components::pool::lnd::grpc::config::{
     LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
+};
+use switchgear_components::pool::DiscoveryBackendImplementation;
+use switchgear_service_api::discovery::{
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore,
 };
 use url::Url;
 
@@ -194,7 +195,7 @@ pub fn new_backend(
             partitions: [partition.to_string()].into(),
             weight: 1,
             enabled: false,
-            implementation,
+            implementation: serde_json::to_vec(&implementation)?,
         },
     };
     let backend = serde_json::to_string_pretty(&backend).with_context(|| "serializing backend")?;

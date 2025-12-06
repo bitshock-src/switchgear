@@ -1,16 +1,12 @@
 use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
-use switchgear_service::api::service::{HasServiceErrorSource, ServiceErrorSource};
-use switchgear_service::components::discovery::error::DiscoveryBackendStoreError;
-use switchgear_service::components::pool::error::LnPoolError;
+use switchgear_service_api::service::{HasServiceErrorSource, ServiceErrorSource};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum PingoraLnErrorSourceKind {
     #[error("{0}")]
-    PoolError(LnPoolError),
-    #[error("{0}")]
-    DiscoveryBackendStoreError(DiscoveryBackendStoreError),
+    Error(String),
     #[error("no available lightning nodes")]
     NoAvailableNodes,
     #[error("{0}")]
@@ -49,30 +45,6 @@ impl PingoraLnError {
         }
     }
 
-    pub fn from_pool_err<C: Into<Cow<'static, str>>>(
-        esource: ServiceErrorSource,
-        context: C,
-        error: LnPoolError,
-    ) -> Self {
-        Self {
-            context: context.into(),
-            source: PingoraLnErrorSourceKind::PoolError(error),
-            esource,
-        }
-    }
-
-    pub fn from_discovery_backend_store_err<C: Into<Cow<'static, str>>>(
-        esource: ServiceErrorSource,
-        context: C,
-        error: DiscoveryBackendStoreError,
-    ) -> Self {
-        Self {
-            context: context.into(),
-            source: PingoraLnErrorSourceKind::DiscoveryBackendStoreError(error),
-            esource,
-        }
-    }
-
     pub fn no_available_nodes<C: Into<Cow<'static, str>>>(
         esource: ServiceErrorSource,
         context: C,
@@ -92,6 +64,18 @@ impl PingoraLnError {
         Self {
             context: context.into(),
             source: PingoraLnErrorSourceKind::IoError(error),
+            esource,
+        }
+    }
+
+    pub fn general_error<C: Into<Cow<'static, str>>>(
+        esource: ServiceErrorSource,
+        context: C,
+        error: String,
+    ) -> Self {
+        Self {
+            context: context.into(),
+            source: PingoraLnErrorSourceKind::Error(error),
             esource,
         }
     }

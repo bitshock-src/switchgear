@@ -11,31 +11,30 @@ use crate::common::helpers::{
     verify_exit_code, verify_single_service_status,
 };
 use crate::{anyhow_log, bail_log};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::{StatusCode, Url};
 use secp256k1::PublicKey;
 use std::time::{Duration, SystemTime};
 use std::vec;
-use switchgear_service::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatch,
-    DiscoveryBackendPatchSparse, DiscoveryBackendSparse, DiscoveryBackendStore,
+use switchgear_components::pool::cln::grpc::config::{
+    ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
 };
-use switchgear_service::api::offer::{
+use switchgear_components::pool::lnd::grpc::config::{
+    LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
+};
+use switchgear_components::pool::DiscoveryBackendImplementation;
+use switchgear_service_api::discovery::{
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore,
+};
+use switchgear_service_api::offer::{
     OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
     OfferStore,
 };
-use switchgear_service::components::pool::cln::grpc::config::{
-    ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
-};
-use switchgear_service::components::pool::lnd::grpc::config::{
-    LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
-};
-use switchgear_testing::credentials::lightning::{RegTestLnNode, RegTestLnNodeType};
 use tokio::time::sleep as tokio_sleep;
 use uuid::Uuid;
-
 // =============================================================================
 // STEP FUNCTIONS - Mapped to Gherkin steps in feature files
 // =============================================================================
@@ -326,13 +325,9 @@ pub async fn step_then_no_error_logs_should_be_present(ctx: &mut GlobalContext) 
 /// Sets up the specific lightning node backend type for the test
 pub async fn step_given_the_payee_has_a_lightning_node_available(
     ctx: &mut GlobalContext,
-    backend_type: RegTestLnNodeType,
+    node_target: &str,
 ) -> Result<()> {
-    let node = match backend_type {
-        RegTestLnNodeType::Cln => RegTestLnNode::Cln(ctx.get_first_cln_node()?.clone()),
-        RegTestLnNodeType::Lnd => RegTestLnNode::Lnd(ctx.get_first_lnd_node()?.clone()),
-    };
-    ctx.add_payee("single", node.clone());
+    ctx.add_payee("single", ctx.get_ln_nodes().clone(), node_target);
     Ok(())
 }
 
@@ -344,7 +339,6 @@ pub async fn step_when_the_payee_creates_an_offer_for_their_lightning_node(
 ) -> Result<()> {
     // Use the selected node from context
     let payee = get_payee_from_context(ctx, payee_id)?;
-    let node = payee.node.clone();
 
     let client = ctx.get_active_offer_client()?;
 
@@ -378,9 +372,10 @@ pub async fn step_when_the_payee_creates_an_offer_for_their_lightning_node(
 
     // Create offer record with different limits based on node type
     let offer_id = Uuid::new_v4();
-    let (max_sendable, min_sendable) = match node {
-        RegTestLnNode::Cln(_) => (1_000_000_000, 1_000),
-        RegTestLnNode::Lnd(_) => (2_000_000_000, 1_000),
+    let (max_sendable, min_sendable) = match payee.target_ln_node.as_str() {
+        "cln" => (1_000_000_000, 1_000),
+        "lnd" => (1_000_000_000, 1_000),
+        _ => bail!("Invalid target ln_node"),
     };
 
     let now = Utc::now();
@@ -424,55 +419,54 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
     payee_id: &str,
     include_ca: bool,
 ) -> Result<()> {
-    // Use the selected node from context
     let payee = get_payee_from_context(ctx, payee_id)?;
-    let node = payee.node.clone();
 
     let client = ctx.get_active_discovery_client()?;
 
-    let url = Url::parse(&format!("https://{}", node.address()))?;
-
-    let implementation = match &node {
-        RegTestLnNode::Cln(cln) => {
+    let (public_key, implementation) = match payee.target_ln_node.as_str() {
+        "cln" => (
+            payee.ln_nodes.cln.public_key,
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
-                url,
+                url: format!("https://{}", payee.ln_nodes.cln.address).parse()?,
                 auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
                     ca_cert_path: if include_ca {
-                        cln.ca_cert_path.clone().into()
+                        payee.ln_nodes.cln.ca_cert_path.clone().into()
                     } else {
                         None
                     },
-                    client_cert_path: cln.client_cert_path.clone(),
-                    client_key_path: cln.client_key_path.clone(),
+                    client_cert_path: payee.ln_nodes.cln.client_cert_path.clone(),
+                    client_key_path: payee.ln_nodes.cln.client_key_path.clone(),
                 }),
                 domain: None,
-            })
-        }
-        RegTestLnNode::Lnd(lnd) => {
+            }),
+        ),
+        "lnd" => (
+            payee.ln_nodes.lnd.public_key,
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
-                url,
+                url: format!("https://{}", payee.ln_nodes.lnd.address).parse()?,
                 auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
                     tls_cert_path: if include_ca {
-                        lnd.tls_cert_path.clone().into()
+                        payee.ln_nodes.lnd.tls_cert_path.clone().into()
                     } else {
                         None
                     },
-                    macaroon_path: lnd.macaroon_path.clone(),
+                    macaroon_path: payee.ln_nodes.lnd.macaroon_path.clone(),
                 }),
                 amp_invoice: false,
                 domain: None,
-            })
-        }
+            }),
+        ),
+        _ => bail!("Invalid target ln_node"),
     };
 
     let backend = DiscoveryBackend {
-        public_key: *node.public_key(),
+        public_key,
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
             enabled: true,
-            implementation,
+            implementation: serde_json::to_vec(&implementation)?,
         },
     };
 
@@ -674,12 +668,8 @@ pub async fn step_then_the_invoice_description_hash_should_match_the_metadata_ha
 pub async fn step_given_two_payees_each_have_their_own_lightning_node(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    let cln_node = ctx.get_first_cln_node()?;
-    ctx.add_payee("first", RegTestLnNode::Cln(cln_node.clone()));
-
-    let lnd_node = ctx.get_first_lnd_node()?;
-    ctx.add_payee("second", RegTestLnNode::Lnd(lnd_node.clone()));
-
+    ctx.add_payee("first", ctx.get_ln_nodes().clone(), "cln");
+    ctx.add_payee("second", ctx.get_ln_nodes().clone(), "lnd");
     Ok(())
 }
 
@@ -702,44 +692,44 @@ pub async fn step_and_both_nodes_are_registered_as_separate_backends(
 /// Generic function to register a payee's node as a backend
 pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &str) -> Result<()> {
     let payee = get_payee_from_context(ctx, payee_id)?;
-    let node = payee.node.clone();
 
     let client = ctx.get_active_discovery_client()?;
 
-    let url = Url::parse(&format!("https://{}", node.address()))?;
-
-    let implementation = match &node {
-        RegTestLnNode::Cln(cln) => {
+    let (public_key, implementation) = match payee.target_ln_node.as_str() {
+        "cln" => (
+            payee.ln_nodes.cln.public_key,
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
-                url,
+                url: format!("https://{}", payee.ln_nodes.cln.address).parse()?,
                 auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
-                    ca_cert_path: cln.ca_cert_path.clone().into(),
-                    client_cert_path: cln.client_cert_path.clone(),
-                    client_key_path: cln.client_key_path.clone(),
+                    ca_cert_path: payee.ln_nodes.cln.ca_cert_path.clone().into(),
+                    client_cert_path: payee.ln_nodes.cln.client_cert_path.clone(),
+                    client_key_path: payee.ln_nodes.cln.client_key_path.clone(),
                 }),
                 domain: None,
-            })
-        }
-        RegTestLnNode::Lnd(lnd) => {
+            }),
+        ),
+        "lnd" => (
+            payee.ln_nodes.lnd.public_key,
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
-                url,
+                url: format!("https://{}", payee.ln_nodes.lnd.address).parse()?,
                 auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                    tls_cert_path: lnd.tls_cert_path.clone().into(),
-                    macaroon_path: lnd.macaroon_path.clone(),
+                    tls_cert_path: payee.ln_nodes.lnd.tls_cert_path.clone().into(),
+                    macaroon_path: payee.ln_nodes.lnd.macaroon_path.clone(),
                 }),
                 amp_invoice: false,
                 domain: None,
-            })
-        }
+            }),
+        ),
+        _ => bail!("Invalid target ln_node"),
     };
 
     let backend = DiscoveryBackend {
-        public_key: *node.public_key(),
+        public_key,
         backend: DiscoveryBackendSparse {
             name: None,
             partitions: ["default".to_string()].into(),
             weight: 100,
-            implementation,
+            implementation: serde_json::to_vec(&implementation)?,
             enabled: true,
         },
     };
@@ -752,21 +742,11 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
 /// Generic function to set up two payees with specific node types
 pub async fn setup_two_payees_with_node_types(
     ctx: &mut GlobalContext,
-    first_node_type: RegTestLnNodeType,
-    second_node_type: RegTestLnNodeType,
+    first_node_type: &str,
+    second_node_type: &str,
 ) -> Result<()> {
-    let first_node = match first_node_type {
-        RegTestLnNodeType::Cln => RegTestLnNode::Cln(ctx.get_first_cln_node()?.clone()),
-        RegTestLnNodeType::Lnd => RegTestLnNode::Lnd(ctx.get_first_lnd_node()?.clone()),
-    };
-    ctx.add_payee("first", first_node);
-
-    let second_node = match second_node_type {
-        RegTestLnNodeType::Cln => RegTestLnNode::Cln(ctx.get_first_cln_node()?.clone()),
-        RegTestLnNodeType::Lnd => RegTestLnNode::Lnd(ctx.get_first_lnd_node()?.clone()),
-    };
-    ctx.add_payee("second", second_node);
-
+    ctx.add_payee("first", ctx.get_ln_nodes().clone(), first_node_type);
+    ctx.add_payee("second", ctx.get_ln_nodes().clone(), second_node_type);
     Ok(())
 }
 
@@ -810,8 +790,8 @@ pub async fn step_but_when_the_payer_requests_an_invoice_for_100_sats_using_the_
 pub async fn step_given_the_payee_has_access_to_both_cln_and_lnd_lightning_nodes(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    ctx.add_payee("cln", RegTestLnNode::Cln(ctx.get_first_cln_node()?.clone()));
-    ctx.add_payee("lnd", RegTestLnNode::Lnd(ctx.get_first_lnd_node()?.clone()));
+    ctx.add_payee("cln", ctx.get_ln_nodes().clone(), "cln");
+    ctx.add_payee("lnd", ctx.get_ln_nodes().clone(), "lnd");
 
     Ok(())
 }
@@ -915,7 +895,7 @@ pub async fn step_when_the_admin_disables_the_first_backend(ctx: &mut GlobalCont
         .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
         .clone();
 
-    enable_disable_backend(ctx, lnd_payee.node.public_key(), false).await?;
+    enable_disable_backend(ctx, &lnd_payee.ln_nodes.lnd.public_key, false).await?;
 
     Ok(())
 }
@@ -942,7 +922,7 @@ pub async fn step_when_the_admin_disables_the_second_backend(
         .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
         .clone();
 
-    enable_disable_backend(ctx, cln_payee.node.public_key(), false).await?;
+    enable_disable_backend(ctx, &cln_payee.ln_nodes.cln.public_key, false).await?;
 
     Ok(())
 }
@@ -1000,7 +980,7 @@ pub async fn step_when_the_admin_enables_any_backend(ctx: &mut GlobalContext) ->
         .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
         .clone();
 
-    enable_disable_backend(ctx, lnd_payee.node.public_key(), true).await?;
+    enable_disable_backend(ctx, &lnd_payee.ln_nodes.lnd.public_key, true).await?;
 
     Ok(())
 }
@@ -1051,7 +1031,7 @@ pub async fn step_when_the_admin_deletes_the_first_backend(ctx: &mut GlobalConte
         .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
         .clone();
 
-    delete_backend(ctx, lnd_payee.node.public_key()).await?;
+    delete_backend(ctx, &lnd_payee.ln_nodes.lnd.public_key).await?;
 
     Ok(())
 }
@@ -1065,7 +1045,7 @@ pub async fn step_when_the_admin_deletes_the_second_backend(ctx: &mut GlobalCont
         .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
         .clone();
 
-    delete_backend(ctx, cln_payee.node.public_key()).await?;
+    delete_backend(ctx, &cln_payee.ln_nodes.cln.public_key).await?;
 
     Ok(())
 }

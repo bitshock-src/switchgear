@@ -1,11 +1,11 @@
-use crate::api::offer::{OfferMetadataStore, OfferStore};
-use crate::api::service::StatusCode;
 use crate::axum::auth::BearerTokenAuthLayer;
 use crate::offer::auth::OfferBearerTokenValidator;
 use crate::offer::handler::OfferHandlers;
 use crate::offer::state::OfferState;
 use axum::routing::{delete, get, post, put};
 use axum::Router;
+use switchgear_service_api::offer::{OfferMetadataStore, OfferStore};
+use switchgear_service_api::service::StatusCode;
 
 #[derive(Debug)]
 pub struct OfferService;
@@ -57,11 +57,6 @@ impl OfferService {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::offer::{
-        OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
-        OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
-    };
-    use crate::components::offer::memory::MemoryOfferStore;
     use crate::offer::service::OfferService;
     use crate::offer::state::OfferState;
     use crate::{OfferAudience, OfferClaims};
@@ -74,6 +69,11 @@ mod tests {
     use p256::pkcs8::EncodePublicKey;
     use rand::thread_rng;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use switchgear_components::offer::memory::MemoryOfferStore;
+    use switchgear_service_api::offer::{
+        OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
+        OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
+    };
     use uuid::Uuid;
 
     fn create_test_offer_with_metadata_id(metadata_id: Uuid) -> OfferRecord {

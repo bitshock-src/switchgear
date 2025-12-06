@@ -7,9 +7,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Duration;
-use switchgear_service::components::offer::db::DbOfferStore;
-use switchgear_service::components::offer::http::HttpOfferStore;
-use switchgear_service::components::offer::memory::MemoryOfferStore;
+use switchgear_components::offer::db::DbOfferStore;
+use switchgear_components::offer::http::HttpOfferStore;
+use switchgear_components::offer::memory::MemoryOfferStore;
 
 #[derive(Clone)]
 pub struct OfferStoreInjector {

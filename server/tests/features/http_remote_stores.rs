@@ -3,7 +3,6 @@ use crate::common::context::Protocol;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
-use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
 use crate::common::context::server::CertificateLocation;
 
@@ -14,10 +13,7 @@ async fn test_complete_http_remote_stores_workflow_with_distributed_services() {
     for certificate_location in certificate_locations {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-        let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-            Some(ctx) => ctx,
-            None => return,
-        };
+        let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
         let server1 = "server1";
         let config_path = manifest_dir.join("config/memory-basic.yaml");
         ctx.add_server(
@@ -56,7 +52,7 @@ async fn test_complete_http_remote_stores_workflow_with_distributed_services() {
         ctx.activate_server(server1);
 
         // Background
-        step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+        step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
             .await
             .expect("assert");
         step_given_the_server_is_not_already_running(&mut ctx)

@@ -83,10 +83,7 @@ async fn test_discovery_new_with_output() {
 async fn test_discovery_post() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -141,10 +138,7 @@ async fn test_discovery_post() {
 async fn test_discovery_post_conflict() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -210,10 +204,7 @@ async fn test_discovery_post_conflict() {
 async fn test_discovery_ls() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -287,11 +278,7 @@ async fn test_discovery_get() {
     for root_location in root_locations {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-        let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-            Some(ctx) => ctx,
-            None => return,
-        };
-
+        let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
         let server1 = "server1";
         let config_path = manifest_dir.join("config/memory-basic.yaml");
         ctx.add_server(
@@ -363,10 +350,7 @@ async fn test_discovery_get() {
 async fn test_discovery_get_all() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -433,10 +417,7 @@ async fn test_discovery_get_all() {
 async fn test_discovery_put() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -517,10 +498,7 @@ async fn test_discovery_put() {
 async fn test_discovery_delete() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -598,10 +576,7 @@ async fn test_discovery_delete() {
 async fn test_discovery_patch() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -682,10 +657,7 @@ async fn test_discovery_patch() {
 async fn test_discovery_enable() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -769,10 +741,7 @@ async fn test_discovery_enable() {
 async fn test_discovery_disable() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -850,10 +819,7 @@ async fn test_discovery_disable() {
 async fn test_discovery_get_error() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -908,10 +874,7 @@ async fn test_discovery_get_error() {
 async fn test_discovery_patch_error() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -971,10 +934,7 @@ async fn test_discovery_patch_error() {
 async fn test_discovery_enable_error() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -1029,10 +989,7 @@ async fn test_discovery_enable_error() {
 async fn test_discovery_disable_error() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -1087,10 +1044,7 @@ async fn test_discovery_disable_error() {
 async fn test_discovery_delete_error() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");

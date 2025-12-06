@@ -8,7 +8,7 @@ use log::{info, warn};
 use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
-use switchgear_service::components::axum::middleware::logger::ClfLogger;
+use switchgear_components::axum::middleware::logger::ClfLogger;
 use switchgear_service::{OfferService, OfferState};
 
 pub struct OfferServiceInjector {

@@ -14,9 +14,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
+use switchgear_components::offer::http::HttpOfferStore;
 use switchgear_server::config::TlsConfig;
-use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
-use switchgear_service::components::offer::http::HttpOfferStore;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]

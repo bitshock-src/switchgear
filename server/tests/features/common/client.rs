@@ -2,7 +2,7 @@ use anyhow::{bail, Context};
 use reqwest::{Certificate, Client, ClientBuilder, Url};
 use std::net::SocketAddr;
 use std::time::Duration;
-use switchgear_service::api::lnurl::{LnUrlInvoice, LnUrlOffer};
+use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use uuid::Uuid;

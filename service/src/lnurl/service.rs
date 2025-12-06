@@ -1,5 +1,3 @@
-use crate::api::balance::LnBalancer;
-use crate::api::offer::OfferProvider;
 use crate::axum::partitions::PartitionsLayer;
 use crate::lnurl::pay::handler::LnUrlPayHandlers;
 use crate::lnurl::pay::state::LnUrlPayState;
@@ -7,6 +5,8 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
 use std::sync::Arc;
+use switchgear_service_api::balance::LnBalancer;
+use switchgear_service_api::offer::OfferProvider;
 
 #[derive(Debug)]
 pub struct LnUrlBalancerService;
@@ -44,15 +44,7 @@ impl LnUrlBalancerService {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::balance::LnBalancer;
-    use crate::api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata};
-    use crate::api::offer::{
-        Offer, OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord,
-        OfferRecordSparse, OfferStore,
-    };
-    use crate::api::service::HasServiceErrorSource;
     use crate::axum::extract::scheme::Scheme;
-    use crate::components::offer::memory::MemoryOfferStore;
     use crate::lnurl::pay::state::LnUrlPayState;
     use crate::lnurl::service::LnUrlBalancerService;
     use async_trait::async_trait;
@@ -60,6 +52,14 @@ mod tests {
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use std::collections::HashSet;
+    use switchgear_components::offer::memory::MemoryOfferStore;
+    use switchgear_service_api::balance::LnBalancer;
+    use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata};
+    use switchgear_service_api::offer::{
+        Offer, OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord,
+        OfferRecordSparse, OfferStore,
+    };
+    use switchgear_service_api::service::HasServiceErrorSource;
     use uuid::Uuid;
 
     // Mock LnBalancer implementation
@@ -113,13 +113,13 @@ mod tests {
     }
 
     impl HasServiceErrorSource for MockLnBalancerCombinedError {
-        fn get_service_error_source(&self) -> crate::api::service::ServiceErrorSource {
+        fn get_service_error_source(&self) -> switchgear_service_api::service::ServiceErrorSource {
             match self {
                 MockLnBalancerCombinedError::Internal => {
-                    crate::api::service::ServiceErrorSource::Internal
+                    switchgear_service_api::service::ServiceErrorSource::Internal
                 }
                 MockLnBalancerCombinedError::Upstream => {
-                    crate::api::service::ServiceErrorSource::Upstream
+                    switchgear_service_api::service::ServiceErrorSource::Upstream
                 }
             }
         }

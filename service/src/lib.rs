@@ -1,6 +1,4 @@
-pub mod api;
 pub(crate) mod axum;
-pub mod components;
 pub(crate) mod discovery;
 pub(crate) mod lnurl;
 pub(crate) mod offer;

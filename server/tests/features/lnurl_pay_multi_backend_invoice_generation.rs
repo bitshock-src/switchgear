@@ -3,16 +3,12 @@ use crate::common::context::Protocol;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
-use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
 #[tokio::test]
 async fn test_no_backends_no_invoices_for_either_offer() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
     ctx.add_server(
@@ -86,10 +82,7 @@ async fn test_no_backends_no_invoices_for_either_offer() {
 async fn test_two_backends_both_offers_generate_invoices() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
     ctx.add_server(
@@ -106,7 +99,7 @@ async fn test_two_backends_both_offers_generate_invoices() {
     step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
         .await
         .expect("assert");
-    setup_two_payees_with_node_types(&mut ctx, RegTestLnNodeType::Lnd, RegTestLnNodeType::Cln)
+    setup_two_payees_with_node_types(&mut ctx, "lnd", "cln")
         .await
         .expect("assert");
 

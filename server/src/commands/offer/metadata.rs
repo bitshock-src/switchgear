@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
-use switchgear_service::api::offer::{OfferMetadata, OfferMetadataSparse, OfferMetadataStore};
+use switchgear_service_api::offer::{OfferMetadata, OfferMetadataSparse, OfferMetadataStore};
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]

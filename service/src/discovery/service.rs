@@ -1,11 +1,11 @@
-use crate::api::discovery::DiscoveryBackendStore;
-use crate::api::service::StatusCode;
 use crate::axum::auth::BearerTokenAuthLayer;
 use crate::discovery::auth::DiscoveryBearerTokenValidator;
 use crate::discovery::handler::DiscoveryHandlers;
 use crate::discovery::state::DiscoveryState;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
+use switchgear_service_api::discovery::DiscoveryBackendStore;
+use switchgear_service_api::service::StatusCode;
 
 #[derive(Debug)]
 pub struct DiscoveryService;
@@ -49,14 +49,6 @@ impl DiscoveryService {
 
 #[cfg(test)]
 mod tests {
-    use crate::api::discovery::{
-        DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendPatchSparse,
-        DiscoveryBackendSparse,
-    };
-    use crate::components::discovery::memory::MemoryDiscoveryBackendStore;
-    use crate::components::pool::lnd::grpc::config::{
-        LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
-    };
     use crate::discovery::auth::{DiscoveryAudience, DiscoveryClaims};
     use crate::discovery::service::DiscoveryService;
     use crate::discovery::state::DiscoveryState;
@@ -69,6 +61,10 @@ mod tests {
     use rand::{thread_rng, Rng};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::time::{SystemTime, UNIX_EPOCH};
+    use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
+    use switchgear_service_api::discovery::{
+        DiscoveryBackend, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    };
 
     fn create_test_backend(partition: &str) -> DiscoveryBackend {
         let secp = Secp256k1::new();
@@ -83,17 +79,7 @@ mod tests {
                 partitions: [partition.to_string()].into(),
                 weight: 100,
                 enabled: true,
-                implementation: DiscoveryBackendImplementation::LndGrpc(
-                    LndGrpcDiscoveryBackendImplementation {
-                        url: "https://localhost:9736".parse().unwrap(),
-                        domain: None,
-                        auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                            tls_cert_path: None,
-                            macaroon_path: "/path/to/macaroon_path".into(),
-                        }),
-                        amp_invoice: false,
-                    },
-                ),
+                implementation: "{}".as_bytes().to_vec(),
             },
         }
     }
@@ -239,18 +225,6 @@ mod tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let retrieved: DiscoveryBackend = response.json();
-        assert_eq!(
-            retrieved.backend.implementation,
-            DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
-                url: "https://localhost:9736".parse().unwrap(),
-                domain: None,
-                auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                    tls_cert_path: None,
-                    macaroon_path: "/path/to/macaroon_path".into(),
-                }),
-                amp_invoice: false,
-            }),
-        );
         assert_eq!(retrieved.public_key, backend.public_key);
     }
 

@@ -1,5 +1,5 @@
 use crate::config::{BackendSelectionConfig, BackoffConfig, LnUrlBalancerServiceConfig};
-use crate::di::delegates::{BackoffProviderDelegate, LnBalancerDelegate};
+use crate::di::delegates::{BackoffProviderDelegate, LnBalancerDelegate, LnClientPoolDelegate};
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 use crate::di::inject::injectors::store::discovery::DiscoveryStoreInjector;
 use anyhow::{anyhow, Context};
@@ -12,13 +12,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
+use switchgear_components::pool::LnClientPool;
+use switchgear_pingora::backoff::{ExponentialBackoffProvider, StopBackoffProvider};
 use switchgear_pingora::balance::{
     ConsistentMaxIterations, PingoraLnBalancer, RandomMaxIterations, RoundRobinMaxIterations,
 };
-use switchgear_pingora::discovery::DefaultPingoraLnDiscovery;
+use switchgear_pingora::discovery::LnServiceDiscovery;
 use switchgear_pingora::health::PingoraLnHealthCheck;
-use switchgear_service::components::backoff::{ExponentialBackoffProvider, StopBackoffProvider};
-use switchgear_service::components::pool::default_pool::DefaultLnClientPool;
 
 #[derive(Clone)]
 pub struct BalancerInjector {
@@ -105,16 +105,15 @@ impl BalancerInjector {
             vec![]
         };
 
-        let pool = DefaultLnClientPool::new(
+        let pool = LnClientPool::new(
             Duration::from_secs_f64(lnurl_config.ln_client_timeout_secs),
             trusted_roots,
         );
 
-        let discovery = DefaultPingoraLnDiscovery::new(
-            discovery,
-            pool.clone(),
-            lnurl_config.partitions.clone(),
-        );
+        let pool = LnClientPoolDelegate::Default(pool);
+
+        let discovery =
+            LnServiceDiscovery::new(discovery, pool.clone(), lnurl_config.partitions.clone());
 
         let health = PingoraLnHealthCheck::new(
             pool.clone(),

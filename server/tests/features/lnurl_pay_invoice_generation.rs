@@ -4,8 +4,8 @@ use crate::common::context::Protocol;
 use crate::common::helpers::get_payee_from_context;
 use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
+use anyhow::bail;
 use std::path::PathBuf;
-use switchgear_testing::credentials::lightning::{RegTestLnNode, RegTestLnNodeType};
 
 enum LnTrustRootsLocation {
     Credentials,
@@ -17,7 +17,7 @@ enum LnTrustRootsLocation {
 async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_http_creds() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Http,
-        RegTestLnNodeType::Cln,
+        "cln",
         LnTrustRootsLocation::Credentials,
     )
     .await
@@ -28,7 +28,7 @@ async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_http_c
 async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_creds() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Cln,
+        "cln",
         LnTrustRootsLocation::Credentials,
     )
     .await
@@ -39,7 +39,7 @@ async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_
 async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_config() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Cln,
+        "cln",
         LnTrustRootsLocation::Configuration,
     )
     .await
@@ -50,7 +50,7 @@ async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_
 async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_native() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Cln,
+        "cln",
         LnTrustRootsLocation::Native,
     )
     .await
@@ -61,7 +61,7 @@ async fn test_payer_requests_invoice_from_payee_cln_lightning_offer_using_https_
 async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_http_creds() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Http,
-        RegTestLnNodeType::Lnd,
+        "cln",
         LnTrustRootsLocation::Credentials,
     )
     .await
@@ -72,7 +72,7 @@ async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_http_c
 async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_creds() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Lnd,
+        "lnd",
         LnTrustRootsLocation::Credentials,
     )
     .await
@@ -83,7 +83,7 @@ async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_
 async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_config() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Lnd,
+        "lnd",
         LnTrustRootsLocation::Configuration,
     )
     .await
@@ -94,7 +94,7 @@ async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_
 async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_native() {
     test_payer_requests_invoice_from_payee_inner(
         Protocol::Https,
-        RegTestLnNodeType::Lnd,
+        "lnd",
         LnTrustRootsLocation::Native,
     )
     .await
@@ -103,15 +103,12 @@ async fn test_payer_requests_invoice_from_payee_lnd_lightning_offer_using_https_
 
 async fn test_payer_requests_invoice_from_payee_inner(
     protocol: Protocol,
-    node_type: RegTestLnNodeType,
+    node_type: &str,
     ln_trusted_roots_location: LnTrustRootsLocation,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), anyhow::Error> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path)? {
-        Some(ctx) => ctx,
-        None => return Ok(()),
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path)?;
 
     let server1 = "server1";
     let config_path = match protocol {
@@ -126,9 +123,10 @@ async fn test_payer_requests_invoice_from_payee_inner(
     step_given_the_payee_has_a_lightning_node_available(&mut ctx, node_type).await?;
 
     let payee = get_payee_from_context(&ctx, "single")?;
-    let node_cert_path = match &payee.node {
-        RegTestLnNode::Cln(n) => n.ca_cert_path.as_path(),
-        RegTestLnNode::Lnd(n) => n.tls_cert_path.as_path(),
+    let node_cert_path = match payee.target_ln_node.as_str() {
+        "cln" => payee.ln_nodes.cln.ca_cert_path.as_path(),
+        "lnd" => payee.ln_nodes.lnd.tls_cert_path.as_path(),
+        _ => bail!("invalid node type"),
     };
 
     let include_ca = match ln_trusted_roots_location {

@@ -1,7 +1,3 @@
-use crate::api::offer::{
-    OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
-    OfferStore,
-};
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
 use crate::axum::extract::uuid::UuidParam;
@@ -11,6 +7,10 @@ use axum::extract::Query;
 use axum::http::HeaderValue;
 use axum::{extract::State, Json};
 use serde::Deserialize;
+use switchgear_service_api::offer::{
+    OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
+    OfferStore,
+};
 
 #[derive(Deserialize, Debug)]
 pub struct GetAllOffersQueryParameters {
