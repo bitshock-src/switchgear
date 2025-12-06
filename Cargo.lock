@@ -1184,9 +1184,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.1.5"
+version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
+checksum = "a2152dbcb980c05735e2a651d96011320a949eb31a0c8b38b72645ce97dec676"
 dependencies = [
  "crc32fast",
  "libz-ng-sys",
@@ -2978,9 +2978,9 @@ dependencies = [
 
 [[package]]
 name = "pxfm"
-version = "0.1.26"
+version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3502d6155304a4173a5f2c34b52b7ed0dd085890326cb50fd625fdf39e86b3b"
+checksum = "7186d3822593aa4393561d186d1393b3923e9d6163d3fbfd6e825e3e6cf3e6a8"
 dependencies = [
  "num-traits",
 ]
@@ -4156,11 +4156,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.23"
+version = "0.1.24"
 
 [[package]]
 name = "switchgear-components"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4201,7 +4201,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -4209,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4230,7 +4230,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4277,7 +4277,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "async-trait",
  "axum",
@@ -4310,7 +4310,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service-api"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "async-trait",
  "axum",
@@ -4331,7 +4331,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.23"
+version = "0.1.24"
 dependencies = [
  "anyhow",
  "dotenvy",
