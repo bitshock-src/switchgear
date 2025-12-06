@@ -1,5 +1,5 @@
-use crate::api::offer::{OfferMetadataStore, OfferStore};
 use jsonwebtoken::DecodingKey;
+use switchgear_service_api::offer::{OfferMetadataStore, OfferStore};
 
 #[derive(Clone)]
 pub struct OfferState<S, M> {

@@ -1,6 +1,6 @@
 use crate::credentials::download_credentials;
 use crate::services::IntegrationTestServices;
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -13,15 +13,11 @@ pub struct TestDatabase {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TestDatabases {
-    pub postgres: Option<TestDatabase>,
-    pub mysql: Option<TestDatabase>,
+    pub postgres: TestDatabase,
+    pub mysql: TestDatabase,
 }
 
 pub struct DbCredentials {
-    inner: Option<DbCredentialsInner>,
-}
-
-struct DbCredentialsInner {
     credentials_dir: TempDir,
     postgres: String,
     mysql: String,
@@ -29,39 +25,19 @@ struct DbCredentialsInner {
 
 impl DbCredentials {
     pub fn create() -> anyhow::Result<Self> {
-        let services = IntegrationTestServices::create()?;
+        let services = IntegrationTestServices::new();
 
-        let inner = match (
-            services.credentials(),
-            services.postgres(),
-            services.mysql(),
-        ) {
-            (Some(credentials), Some(postgres), Some(mysql)) => {
-                let credentials_dir = TempDir::new()?;
-                download_credentials(credentials_dir.path(), credentials)?;
-                Some(DbCredentialsInner {
-                    credentials_dir,
-                    postgres: postgres.to_string(),
-                    mysql: mysql.to_string(),
-                })
-            }
-            _ => None,
-        };
-        Ok(Self { inner })
+        let credentials_dir = TempDir::new()?;
+        download_credentials(credentials_dir.path(), services.credentials())?;
+        Ok(Self {
+            credentials_dir,
+            postgres: services.postgres().to_string(),
+            mysql: services.mysql().to_string(),
+        })
     }
 
     pub fn get_databases(&self) -> anyhow::Result<TestDatabases> {
-        let inner = match &self.inner {
-            None => {
-                return Ok(TestDatabases {
-                    postgres: None,
-                    mysql: None,
-                })
-            }
-            Some(inner) => inner,
-        };
-
-        let credentials = inner.credentials_dir.path().join("credentials");
+        let credentials = self.credentials_dir.path().join("credentials");
         let base_path = credentials.as_path();
 
         let entries = fs::read_dir(base_path)
@@ -89,14 +65,14 @@ impl DbCredentials {
 
             if dir_name == "postgres" {
                 postgres = Some(TestDatabase {
-                    address: inner.postgres.to_string(),
+                    address: self.postgres.to_string(),
                     ca_cert_path: path.join("server.pem"),
                 });
             }
 
             if dir_name == "mysql" {
                 mysql = Some(TestDatabase {
-                    address: inner.mysql.to_string(),
+                    address: self.mysql.to_string(),
                     ca_cert_path: path.join("server.pem"),
                 });
             }
@@ -106,6 +82,19 @@ impl DbCredentials {
             }
         }
 
-        Ok(TestDatabases { postgres, mysql })
+        Ok(TestDatabases {
+            postgres: postgres.ok_or_else(|| {
+                anyhow!(
+                    "postgres credentials not found in {}",
+                    self.credentials_dir.path().to_string_lossy()
+                )
+            })?,
+            mysql: mysql.ok_or_else(|| {
+                anyhow!(
+                    "mysql credentials not found in {}",
+                    self.credentials_dir.path().to_string_lossy()
+                )
+            })?,
+        })
     }
 }

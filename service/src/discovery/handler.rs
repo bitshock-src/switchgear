@@ -1,7 +1,3 @@
-use crate::api::discovery::{
-    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
-    DiscoveryBackendStore, DiscoveryBackends,
-};
 use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
 use crate::axum::header::no_cache_headers;
@@ -9,6 +5,10 @@ use crate::discovery::state::DiscoveryState;
 use axum::extract::Path;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::{extract::State, Json};
+use switchgear_service_api::discovery::{
+    DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
+    DiscoveryBackendStore, DiscoveryBackends,
+};
 
 pub struct DiscoveryHandlers;
 

@@ -1,5 +1,4 @@
-use crate::error::PingoraLnError;
-use crate::{PingoraBackendProvider, PingoraLnBackendExtension};
+use crate::{PingoraBackendProvider, PingoraLnBackendExtension, PingoraLnClientPool};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::http::Extensions;
@@ -12,15 +11,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{Ipv6Addr, SocketAddrV6};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use switchgear_service::api::discovery::DiscoveryBackendStore;
-use switchgear_service::api::discovery::DiscoveryBackends;
-use switchgear_service::api::service::ServiceErrorSource;
-use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
-use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
-use switchgear_service::components::discovery::memory::MemoryDiscoveryBackendStore;
-use switchgear_service::components::pool::LnClientPool;
 
-pub struct DefaultPingoraLnDiscovery<B, P> {
+pub struct LnServiceDiscovery<B, P> {
     backend_provider: B,
     pool: P,
     partitions: BTreeSet<String>,
@@ -28,9 +20,9 @@ pub struct DefaultPingoraLnDiscovery<B, P> {
     last_etag: AtomicU64,
 }
 
-impl<B, P> DefaultPingoraLnDiscovery<B, P> {
+impl<B, P> LnServiceDiscovery<B, P> {
     pub fn new(backend_provider: B, pool: P, partitions: HashSet<String>) -> Self {
-        DefaultPingoraLnDiscovery {
+        LnServiceDiscovery {
             backend_provider,
             pool,
             partitions: partitions.into_iter().collect(),
@@ -41,10 +33,10 @@ impl<B, P> DefaultPingoraLnDiscovery<B, P> {
 }
 
 #[async_trait]
-impl<B, P> ServiceDiscovery for DefaultPingoraLnDiscovery<B, P>
+impl<B, P> ServiceDiscovery for LnServiceDiscovery<B, P>
 where
     B: PingoraBackendProvider + Send + Sync,
-    P: LnClientPool<Key = Backend> + Send + Sync,
+    P: PingoraLnClientPool<Key = Backend> + Send + Sync,
 {
     async fn discover(&self) -> pingora_error::Result<(BTreeSet<Backend>, HashMap<u64, bool>)> {
         let etag = self.last_etag.load(Ordering::Relaxed);
@@ -120,59 +112,11 @@ where
     }
 }
 
-#[async_trait]
-impl PingoraBackendProvider for MemoryDiscoveryBackendStore {
-    type Error = PingoraLnError;
-
-    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
-        let backends = self.get_all(etag).await.map_err(|e| {
-            PingoraLnError::from_discovery_backend_store_err(
-                ServiceErrorSource::Internal,
-                "getting all discovery backends",
-                e,
-            )
-        })?;
-        Ok(backends)
-    }
-}
-
-#[async_trait]
-impl PingoraBackendProvider for DbDiscoveryBackendStore {
-    type Error = PingoraLnError;
-
-    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
-        let backends = self.get_all(etag).await.map_err(|e| {
-            PingoraLnError::from_discovery_backend_store_err(
-                ServiceErrorSource::Internal,
-                "getting all discovery backends",
-                e,
-            )
-        })?;
-        Ok(backends)
-    }
-}
-
-#[async_trait]
-impl PingoraBackendProvider for HttpDiscoveryBackendStore {
-    type Error = PingoraLnError;
-
-    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
-        let backends = self.get_all(etag).await.map_err(|e| {
-            PingoraLnError::from_discovery_backend_store_err(
-                ServiceErrorSource::Internal,
-                "getting all discovery backends",
-                e,
-            )
-        })?;
-        Ok(backends)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::discovery::DefaultPingoraLnDiscovery;
+    use crate::discovery::LnServiceDiscovery;
     use crate::error::PingoraLnError;
-    use crate::PingoraBackendProvider;
+    use crate::{PingoraBackendProvider, PingoraLnClientPool, PingoraLnMetrics};
     use async_trait::async_trait;
     use pingora_load_balancing::discovery::ServiceDiscovery;
     use pingora_load_balancing::Backend;
@@ -180,18 +124,13 @@ mod tests {
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::collections::{BTreeSet, HashSet};
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::io;
     use std::sync::Arc;
-    use switchgear_service::api::discovery::{
-        DiscoveryBackend, DiscoveryBackendImplementation, DiscoveryBackendSparse, DiscoveryBackends,
+    use switchgear_service_api::discovery::{
+        DiscoveryBackend, DiscoveryBackendSparse, DiscoveryBackends,
     };
-    use switchgear_service::api::offer::Offer;
-    use switchgear_service::api::service::ServiceErrorSource;
-    use switchgear_service::components::pool::error::LnPoolError;
-    use switchgear_service::components::pool::lnd::grpc::config::{
-        LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
-    };
-    use switchgear_service::components::pool::LnClientPool;
-    use switchgear_service::components::pool::LnMetrics;
+    use switchgear_service_api::offer::Offer;
+    use switchgear_service_api::service::ServiceErrorSource;
     use tokio::sync::Mutex;
 
     struct MockBackendProvider {
@@ -211,16 +150,10 @@ mod tests {
                 .cloned()
                 .map(|s| s.into_iter().collect::<Vec<_>>())
                 .ok_or_else(|| {
-                    PingoraLnError::new(
-                        crate::error::PingoraLnErrorSourceKind::PoolError(
-                            LnPoolError::from_invalid_configuration(
-                                "Mock BackendProvider forced error",
-                                ServiceErrorSource::Internal,
-                                "get_offer_invoice",
-                            ),
-                        ),
+                    PingoraLnError::from_io_err(
                         ServiceErrorSource::Internal,
                         "Mock BackendProvider forced error",
+                        io::Error::from(io::ErrorKind::Other),
                     )
                 })?;
             Ok(DiscoveryBackends {
@@ -235,7 +168,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl LnClientPool for MockLnClientPool {
+    impl PingoraLnClientPool for MockLnClientPool {
         type Error = PingoraLnError;
         type Key = Backend;
 
@@ -249,22 +182,16 @@ mod tests {
             unimplemented!("get_invoice not implemented for MockLnClientPool")
         }
 
-        async fn get_metrics(&self, _key: &Self::Key) -> Result<LnMetrics, Self::Error> {
+        async fn get_metrics(&self, _key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
             unimplemented!("get_metrics not implemented for MockLnClientPool")
         }
 
         fn connect(&self, _key: Self::Key, _backend: &DiscoveryBackend) -> Result<(), Self::Error> {
             if self.should_fail_connect {
-                Err(PingoraLnError::new(
-                    crate::error::PingoraLnErrorSourceKind::PoolError(
-                        LnPoolError::from_invalid_configuration(
-                            "Mock LnClientPool forced connect error",
-                            ServiceErrorSource::Internal,
-                            "get_offer_invoice",
-                        ),
-                    ),
+                Err(PingoraLnError::from_io_err(
                     ServiceErrorSource::Upstream,
                     "Mock LnClientPool forced connect error",
+                    io::Error::from(io::ErrorKind::Other),
                 ))
             } else {
                 Ok(())
@@ -286,17 +213,7 @@ mod tests {
                 partitions: [partition.to_string()].into(),
                 weight,
                 enabled,
-                implementation: DiscoveryBackendImplementation::LndGrpc(
-                    LndGrpcDiscoveryBackendImplementation {
-                        url: "https://localhost:9736".parse().unwrap(),
-                        domain: None,
-                        auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
-                            tls_cert_path: None,
-                            macaroon_path: "/path/to/macaroon_path".into(),
-                        }),
-                        amp_invoice: false,
-                    },
-                ),
+                implementation: "{}".as_bytes().to_vec(),
             },
         }
     }
@@ -309,7 +226,7 @@ mod tests {
         let mock_ln_client_pool = MockLnClientPool {
             should_fail_connect: false,
         };
-        let discovery = DefaultPingoraLnDiscovery::new(
+        let discovery = LnServiceDiscovery::new(
             mock_backend_provider,
             mock_ln_client_pool,
             HashSet::from(["default".to_string()]),
@@ -335,7 +252,7 @@ mod tests {
         let mock_ln_client_pool = MockLnClientPool {
             should_fail_connect: false,
         };
-        let discovery = DefaultPingoraLnDiscovery::new(
+        let discovery = LnServiceDiscovery::new(
             mock_backend_provider,
             mock_ln_client_pool,
             HashSet::from(["default".to_string()]),
@@ -375,7 +292,7 @@ mod tests {
         let mock_ln_client_pool = MockLnClientPool {
             should_fail_connect: false,
         };
-        let discovery = DefaultPingoraLnDiscovery::new(
+        let discovery = LnServiceDiscovery::new(
             mock_backend_provider,
             mock_ln_client_pool,
             HashSet::from(["default".to_string()]),
@@ -402,7 +319,7 @@ mod tests {
         let mock_ln_client_pool = MockLnClientPool {
             should_fail_connect: true,
         };
-        let discovery = DefaultPingoraLnDiscovery::new(
+        let discovery = LnServiceDiscovery::new(
             mock_backend_provider,
             mock_ln_client_pool,
             HashSet::from(["default".to_string()]),
@@ -435,7 +352,7 @@ mod tests {
         }
 
         #[async_trait]
-        impl LnClientPool for SelectiveMockLnClientPool {
+        impl PingoraLnClientPool for SelectiveMockLnClientPool {
             type Error = PingoraLnError;
             type Key = Backend;
 
@@ -449,7 +366,7 @@ mod tests {
                 unimplemented!("get_invoice not implemented for SelectiveMockLnClientPool")
             }
 
-            async fn get_metrics(&self, _key: &Self::Key) -> Result<LnMetrics, Self::Error> {
+            async fn get_metrics(&self, _key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
                 unimplemented!("get_metrics not implemented for SelectiveMockLnClientPool")
             }
 
@@ -464,16 +381,10 @@ mod tests {
                     .iter()
                     .any(|fail_addr| addr_str.as_str() == fail_addr.as_str())
                 {
-                    Err(PingoraLnError::new(
-                        crate::error::PingoraLnErrorSourceKind::PoolError(
-                            LnPoolError::from_invalid_configuration(
-                                format!("Forced failure for address: {addr_str}"),
-                                ServiceErrorSource::Upstream,
-                                "get_metrics".to_string(),
-                            ),
-                        ),
+                    Err(PingoraLnError::from_io_err(
                         ServiceErrorSource::Upstream,
                         "Selective mock pool forced connect error",
+                        io::Error::from(io::ErrorKind::Other),
                     ))
                 } else {
                     Ok(())
@@ -485,7 +396,7 @@ mod tests {
             fail_addresses: vec![backend2.public_key.to_string()],
         };
 
-        let discovery = DefaultPingoraLnDiscovery::new(
+        let discovery = LnServiceDiscovery::new(
             mock_backend_provider,
             mock_ln_client_pool,
             HashSet::from(["default".to_string()]),

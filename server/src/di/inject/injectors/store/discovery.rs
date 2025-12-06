@@ -7,9 +7,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::str::from_utf8;
 use std::time::Duration;
-use switchgear_service::components::discovery::db::DbDiscoveryBackendStore;
-use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
-use switchgear_service::components::discovery::memory::MemoryDiscoveryBackendStore;
+use switchgear_components::discovery::db::DbDiscoveryBackendStore;
+use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
+use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
 
 #[derive(Clone)]
 pub struct DiscoveryStoreInjector {

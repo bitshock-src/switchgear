@@ -9,11 +9,9 @@ use rcgen::{Issuer, KeyPair};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use switchgear_service::components::discovery::http::HttpDiscoveryBackendStore;
-use switchgear_service::components::offer::http::HttpOfferStore;
-use switchgear_testing::credentials::lightning::{
-    ClnRegTestLnNode, LnCredentials, LndRegTestLnNode, RegTestLnNode,
-};
+use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
+use switchgear_components::offer::http::HttpOfferStore;
+use switchgear_testing::credentials::lightning::{LnCredentials, RegTestLnNodes};
 use tempfile::TempDir;
 
 pub struct GlobalContext {
@@ -25,21 +23,18 @@ pub struct GlobalContext {
     pki_root_certificate_path: PathBuf,
     pki_root_cn: String,
     pki_root_issuer: Issuer<'static, KeyPair>,
-    ln_nodes: Vec<RegTestLnNode>,
+    ln_nodes: RegTestLnNodes,
     _credentials: LnCredentials,
 }
 
 impl GlobalContext {
-    pub fn create(feature_test_config_path: &Path) -> anyhow::Result<Option<Self>> {
+    pub fn create(feature_test_config_path: &Path) -> anyhow::Result<Self> {
         let _ = rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .map_err(|_| anyhow!("failed to stand up rustls encryption platform"));
 
         let credentials = LnCredentials::create()?;
         let ln_nodes = credentials.get_backends()?;
-        if ln_nodes.is_empty() {
-            return Ok(None);
-        }
 
         let feature_test_config_path = Self::load_test_config(feature_test_config_path)?;
         let temp_dir = TempDir::new()?;
@@ -48,7 +43,7 @@ impl GlobalContext {
         let (pki_root_cn, pki_root_issuer, pki_root_certificate_path) =
             gen_root_cert(pki_dir.as_path())?;
 
-        Ok(Some(Self {
+        Ok(Self {
             temp_dir,
             servers: HashMap::new(),
             active_server: "".to_string(),
@@ -59,29 +54,11 @@ impl GlobalContext {
             pki_root_issuer,
             ln_nodes,
             _credentials: credentials,
-        }))
+        })
     }
 
-    pub fn get_first_cln_node(&self) -> anyhow::Result<&ClnRegTestLnNode> {
-        self.ln_nodes
-            .iter()
-            .filter_map(|n| match n {
-                RegTestLnNode::Cln(cln) => Some(cln),
-                RegTestLnNode::Lnd(_) => None,
-            })
-            .next()
-            .ok_or_else(|| anyhow!("no cln node"))
-    }
-
-    pub fn get_first_lnd_node(&self) -> anyhow::Result<&LndRegTestLnNode> {
-        self.ln_nodes
-            .iter()
-            .filter_map(|n| match n {
-                RegTestLnNode::Cln(_) => None,
-                RegTestLnNode::Lnd(lnd) => Some(lnd),
-            })
-            .next()
-            .ok_or_else(|| anyhow!("no lnd node"))
+    pub fn get_ln_nodes(&self) -> &RegTestLnNodes {
+        &self.ln_nodes
     }
 
     fn load_test_config(config_path: &Path) -> anyhow::Result<TestConfiguration> {
@@ -94,9 +71,11 @@ impl GlobalContext {
         self.active_server = server.to_string();
     }
 
-    pub fn add_payee(&mut self, payee_id: &str, node: RegTestLnNode) {
-        self.payees
-            .insert(payee_id.to_string(), PayeeContext::new(node));
+    pub fn add_payee(&mut self, payee_id: &str, nodes: RegTestLnNodes, target_ln_node: &str) {
+        self.payees.insert(
+            payee_id.to_string(),
+            PayeeContext::new(nodes, target_ln_node.to_string()),
+        );
     }
 
     pub fn get_payee(&self, payee_id: &str) -> Option<&PayeeContext> {

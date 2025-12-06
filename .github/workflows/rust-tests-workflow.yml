@@ -26,7 +26,7 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          nohup /bin/sh -c 'docker compose up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
+          nohup /bin/sh -c 'docker compose --env-file ./testing.env up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
           cd ..
 
       - name: Rust cache
@@ -57,14 +57,14 @@ jobs:
             exit 1
           fi
 
-          . ./.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
+          . ./testing.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..
 
       - name: Run tests
         run: |
-          cp testing/.env .
+          cp testing/testing.env ./testing.env
           cargo test
 
       - name: Stop Docker Compose services
         if: always()
-        run: docker compose -f testing/docker-compose.yml down -v
+        run: docker compose --env-file testing/testing.env -f testing/docker-compose.yml down -v

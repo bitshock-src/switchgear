@@ -1,8 +1,8 @@
+use crate::PingoraLnClientPool;
 use async_trait::async_trait;
 use pingora_error::ErrorType;
 use pingora_load_balancing::health_check::HealthCheck;
 use pingora_load_balancing::Backend;
-use switchgear_service::components::pool::LnClientPool;
 
 pub struct PingoraLnHealthCheck<P> {
     pool: P,
@@ -23,8 +23,8 @@ impl<P> PingoraLnHealthCheck<P> {
 #[async_trait]
 impl<P> HealthCheck for PingoraLnHealthCheck<P>
 where
-    P: LnClientPool<Key = Backend> + Send + Sync,
-    P::Error: switchgear_service::api::service::HasServiceErrorSource,
+    P: PingoraLnClientPool<Key = Backend> + Send + Sync,
+    P::Error: switchgear_service_api::service::HasServiceErrorSource,
 {
     async fn check(&self, target: &Backend) -> pingora_error::Result<()> {
         let metrics = self.pool.get_metrics(target).await.map_err(|e| {
@@ -55,13 +55,13 @@ where
 mod tests {
     use super::*;
     use crate::error::PingoraLnError;
+    use crate::PingoraLnMetrics;
     use pingora_core::protocols::l4::socket::SocketAddr;
+    use std::io;
     use std::net::SocketAddr as StdSocketAddr;
-    use switchgear_service::api::discovery::DiscoveryBackend;
-    use switchgear_service::api::offer::Offer;
-    use switchgear_service::api::service::ServiceErrorSource;
-    use switchgear_service::components::pool::error::LnPoolError;
-    use switchgear_service::components::pool::LnMetrics;
+    use switchgear_service_api::discovery::DiscoveryBackend;
+    use switchgear_service_api::offer::Offer;
+    use switchgear_service_api::service::ServiceErrorSource;
 
     struct MockPingoraLnClientPool {
         should_be_healthy: bool,
@@ -69,7 +69,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl LnClientPool for MockPingoraLnClientPool {
+    impl PingoraLnClientPool for MockPingoraLnClientPool {
         type Error = PingoraLnError;
         type Key = Backend;
 
@@ -83,19 +83,15 @@ mod tests {
             unimplemented!("get_invoice is not used in health check tests")
         }
 
-        async fn get_metrics(&self, _key: &Self::Key) -> Result<LnMetrics, Self::Error> {
+        async fn get_metrics(&self, _key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
             if self.return_error {
-                Err(PingoraLnError::from_pool_err(
+                Err(PingoraLnError::from_io_err(
                     ServiceErrorSource::Upstream,
-                    "metrics failure",
-                    LnPoolError::from_invalid_configuration(
-                        "unknown error",
-                        ServiceErrorSource::Upstream,
-                        "get_metrics",
-                    ),
+                    "get_metrics",
+                    io::Error::from(io::ErrorKind::Other),
                 ))
             } else {
-                Ok(LnMetrics {
+                Ok(PingoraLnMetrics {
                     healthy: self.should_be_healthy,
                     node_effective_inbound_msat: 0,
                 })

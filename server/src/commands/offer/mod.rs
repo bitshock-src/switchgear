@@ -8,7 +8,7 @@ use rustls::pki_types::CertificateDer;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{env, fs};
-use switchgear_service::components::offer::http::HttpOfferStore;
+use switchgear_components::offer::http::HttpOfferStore;
 use url::Url;
 
 pub mod metadata;

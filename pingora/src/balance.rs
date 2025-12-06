@@ -1,5 +1,6 @@
+use crate::backoff::BackoffProvider;
 use crate::error::PingoraLnError;
-use crate::PingoraLnBackendExtension;
+use crate::{PingoraLnBackendExtension, PingoraLnClientPool, PingoraLnMetricsCache};
 use async_trait::async_trait;
 use backoff::backoff::Backoff;
 use log::{error, warn};
@@ -7,12 +8,9 @@ use pingora_core::services::background::BackgroundService;
 use pingora_load_balancing::selection::{BackendIter, BackendSelection};
 use pingora_load_balancing::{Backend, LoadBalancer};
 use std::sync::Arc;
-use switchgear_service::api::balance::{LnBalancer, LnBalancerBackgroundServices};
-use switchgear_service::api::offer::Offer;
-use switchgear_service::api::service::ServiceErrorSource;
-use switchgear_service::components::backoff::BackoffProvider;
-use switchgear_service::components::pool::error::LnPoolError;
-use switchgear_service::components::pool::{LnClientPool, LnMetricsCache};
+use switchgear_service_api::balance::{LnBalancer, LnBalancerBackgroundServices};
+use switchgear_service_api::offer::Offer;
+use switchgear_service_api::service::ServiceErrorSource;
 use tokio::sync::watch::Receiver;
 use tokio::time::sleep;
 
@@ -100,8 +98,8 @@ impl<S, P, M, B, X> PingoraLnBalancer<S, P, M, B, X>
 where
     S: BackendSelection + 'static,
     S::Iter: BackendIter,
-    P: LnClientPool<Key = Backend, Error = LnPoolError> + Clone,
-    M: LnMetricsCache<Key = Backend> + Clone,
+    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Clone,
+    M: PingoraLnMetricsCache<Key = Backend> + Clone,
     B: BackoffProvider,
     X: MaxIterations,
 {
@@ -172,16 +170,7 @@ where
         let invoice = self
             .pool
             .get_invoice(offer, backend, amount_msat.into(), expiry_secs.into())
-            .await
-            .map_err(|e| {
-                PingoraLnError::from_pool_err(
-                    e.esource(),
-                    format!(
-                        "generating invoice for offer {offer:?} from selected backend {backend:?}"
-                    ),
-                    e,
-                )
-            })?;
+            .await?;
 
         Ok(invoice)
     }
@@ -192,8 +181,8 @@ impl<S, P, M, B, X> LnBalancer for PingoraLnBalancer<S, P, M, B, X>
 where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
-    P: LnClientPool<Key = Backend, Error = LnPoolError> + Send + Sync + Clone + 'static,
-    M: LnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
+    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Send + Sync + Clone + 'static,
+    M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
     B: BackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
 {
@@ -284,8 +273,8 @@ impl<S, P, M, B, X> LnBalancerBackgroundServices for PingoraLnBalancer<S, P, M, 
 where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
-    P: LnClientPool<Key = Backend, Error = LnPoolError> + Send + Sync + Clone + 'static,
-    M: LnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
+    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Send + Sync + Clone + 'static,
+    M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
     B: BackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
 {
@@ -297,7 +286,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PingoraLnBackendExtension;
+    use crate::backoff::StopBackoffProvider;
+    use crate::{PingoraLnBackendExtension, PingoraLnMetrics};
     use async_trait::async_trait;
     use pingora_error::Result as PingoraResult;
     use pingora_load_balancing::discovery::ServiceDiscovery;
@@ -306,13 +296,11 @@ mod tests {
     use pingora_load_balancing::{Backends, LoadBalancer};
     use std::collections::{BTreeSet, HashMap};
     use std::hash::{DefaultHasher, Hash, Hasher};
+    use std::io;
     use std::sync::{Arc, Mutex};
-    use switchgear_service::api::balance::LnBalancer;
-    use switchgear_service::api::discovery::DiscoveryBackend;
-    use switchgear_service::api::service::ServiceErrorSource;
-    use switchgear_service::components::backoff::StopBackoffProvider;
-    use switchgear_service::components::pool::error::LnPoolError;
-    use switchgear_service::components::pool::{LnClientPool, LnMetrics, LnMetricsCache};
+    use switchgear_service_api::balance::LnBalancer;
+    use switchgear_service_api::discovery::DiscoveryBackend;
+    use switchgear_service_api::service::ServiceErrorSource;
     use uuid::Uuid;
 
     #[derive(Clone)]
@@ -322,8 +310,8 @@ mod tests {
     }
 
     #[async_trait]
-    impl LnClientPool for MockLnClientPool {
-        type Error = LnPoolError;
+    impl PingoraLnClientPool for MockLnClientPool {
+        type Error = PingoraLnError;
         type Key = Backend;
 
         async fn get_invoice(
@@ -340,15 +328,15 @@ mod tests {
                     Ok("mock_invoice".to_string())
                 }
             } else {
-                Err(LnPoolError::from_invalid_configuration(
-                    "Mock pool forced failure",
+                Err(PingoraLnError::from_io_err(
                     ServiceErrorSource::Upstream,
                     "mock get_invoice",
+                    io::Error::from(io::ErrorKind::Other),
                 ))
             }
         }
 
-        async fn get_metrics(&self, _key: &Self::Key) -> Result<LnMetrics, Self::Error> {
+        async fn get_metrics(&self, _key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
             unimplemented!("get_metrics not needed for these tests")
         }
 
@@ -359,11 +347,11 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct MockLnMetricsCache {
-        metrics: Arc<Mutex<HashMap<Backend, LnMetrics>>>,
+        metrics: Arc<Mutex<HashMap<Backend, PingoraLnMetrics>>>,
     }
 
     impl MockLnMetricsCache {
-        fn set_metrics_for_backend(&self, backend: &Backend, metrics: LnMetrics) {
+        fn set_metrics_for_backend(&self, backend: &Backend, metrics: PingoraLnMetrics) {
             self.metrics
                 .lock()
                 .unwrap()
@@ -371,9 +359,9 @@ mod tests {
         }
     }
 
-    impl LnMetricsCache for MockLnMetricsCache {
+    impl PingoraLnMetricsCache for MockLnMetricsCache {
         type Key = Backend;
-        fn get_cached_metrics(&self, backend: &Backend) -> Option<LnMetrics> {
+        fn get_cached_metrics(&self, backend: &Backend) -> Option<PingoraLnMetrics> {
             self.metrics.lock().unwrap().get(backend).cloned()
         }
     }
@@ -537,7 +525,7 @@ mod tests {
         let backend = create_mock_backend("127.0.0.1:8080", &offer.partition);
         balancer.metrics.set_metrics_for_backend(
             &backend,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 100000,
             },
@@ -557,7 +545,7 @@ mod tests {
         let backend = create_mock_backend("127.0.0.1:8080", &offer.partition);
         balancer.metrics.set_metrics_for_backend(
             &backend,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 100000,
             },
@@ -617,7 +605,7 @@ mod tests {
         // Set metrics to allow the invoice
         balancer.metrics.set_metrics_for_backend(
             &backend,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 100000,
             },
@@ -648,7 +636,7 @@ mod tests {
         for backend in [&backend1, &backend2] {
             balancer.metrics.set_metrics_for_backend(
                 backend,
-                LnMetrics {
+                PingoraLnMetrics {
                     healthy: true,
                     node_effective_inbound_msat: 100000,
                 },
@@ -699,7 +687,7 @@ mod tests {
         // Set metrics: low weight has sufficient capacity, high weight backends do not
         balancer.metrics.set_metrics_for_backend(
             &backend_low_weight,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 100000, // 100k * 0.8 = 80k effective (sufficient for 75k)
             },
@@ -713,7 +701,7 @@ mod tests {
         ] {
             balancer.metrics.set_metrics_for_backend(
                 backend,
-                LnMetrics {
+                PingoraLnMetrics {
                     healthy: true,
                     node_effective_inbound_msat: 80000, // 80k * 0.8 = 64k effective (insufficient for 75k)
                 },
@@ -797,7 +785,7 @@ mod tests {
         // Set metrics: backend has insufficient capacity for the requested amount
         balancer.metrics.set_metrics_for_backend(
             &backend,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 80000, // 80k * 0.8 = 64k effective capacity
             },
@@ -853,7 +841,7 @@ mod tests {
         // but with None bias, this should be ignored
         balancer.metrics.set_metrics_for_backend(
             &backend_low_weight,
-            LnMetrics {
+            PingoraLnMetrics {
                 healthy: true,
                 node_effective_inbound_msat: 100000, // Plenty of capacity
             },
@@ -867,7 +855,7 @@ mod tests {
         ] {
             balancer.metrics.set_metrics_for_backend(
                 backend,
-                LnMetrics {
+                PingoraLnMetrics {
                     healthy: true,
                     node_effective_inbound_msat: 10000, // Very low capacity (10k)
                 },

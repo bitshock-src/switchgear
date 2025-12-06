@@ -1,5 +1,5 @@
-use crate::api::discovery::DiscoveryBackendStore;
 use jsonwebtoken::DecodingKey;
+use switchgear_service_api::discovery::DiscoveryBackendStore;
 
 #[derive(Clone)]
 pub struct DiscoveryState<S> {

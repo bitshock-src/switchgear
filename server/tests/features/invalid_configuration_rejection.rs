@@ -25,10 +25,7 @@ use std::path::PathBuf;
 async fn test_configuration_validation_invalid_scenario() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("tests/features/common/config/invalid-config.yaml");
     ctx.add_server(

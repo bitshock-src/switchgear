@@ -1,4 +1,3 @@
-use crate::api::service::HasServiceErrorSource;
 use axum::http::header::InvalidHeaderValue;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::{
@@ -7,6 +6,7 @@ use axum::{
 };
 use log::error;
 use std::fmt::Display;
+use switchgear_service_api::service::HasServiceErrorSource;
 use thiserror::Error;
 
 #[macro_export]

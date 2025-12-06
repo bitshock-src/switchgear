@@ -4,7 +4,7 @@ use anyhow::anyhow;
 
 use std::future::Future;
 use std::pin::Pin;
-use switchgear_service::api::balance::LnBalancerBackgroundServices;
+use switchgear_service_api::balance::LnBalancerBackgroundServices;
 use tokio::sync::watch;
 
 pub struct BackgroundBalancerServiceInjector {

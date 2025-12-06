@@ -9,10 +9,7 @@ use std::time::Duration;
 async fn test_complete_backend_lifecycle_management() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");

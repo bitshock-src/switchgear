@@ -1,13 +1,13 @@
 use std::env;
 
-pub const SKIP_INTEGRATION_TESTS_ENV: &str = "SWGR_SKIP_INTEGRATION_TESTS";
+const TESTING_ENV_FILE_PATH: &str = "./testing.env";
 
 #[derive(Debug)]
 pub struct IntegrationTestServices {
-    credentials: Option<String>,
-    postgres: Option<String>,
-    mysql: Option<String>,
-    lightning: Option<LightningIntegrationTestServices>,
+    credentials: String,
+    postgres: String,
+    mysql: String,
+    lightning: LightningIntegrationTestServices,
 }
 
 #[derive(Debug, Clone)]
@@ -16,121 +16,83 @@ pub struct LightningIntegrationTestServices {
     pub lnd: String,
 }
 
+impl Default for IntegrationTestServices {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl IntegrationTestServices {
-    pub fn create() -> anyhow::Result<Self> {
-        let _ = dotenvy::dotenv();
+    pub fn new() -> Self {
+        let _ = dotenvy::from_filename(TESTING_ENV_FILE_PATH);
 
-        let credentials = match Self::env_or_panic("CREDENTIALS_SERVER_PORT") {
-            None => None,
-            Some(port) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME")
-                    .map(|s| format!("http://{s}:{port}/credentials.tar.gz"))
-            }
-        };
+        let credentials = format!(
+            "http://{}:{}/credentials.tar.gz",
+            Self::env_or_panic("CREDENTIALS_SERVER_HOSTNAME"),
+            Self::env_or_panic("CREDENTIALS_SERVER_PORT")
+        );
 
-        if credentials.is_none() {
-            return Ok(Self {
-                credentials,
-                postgres: None,
-                mysql: None,
-                lightning: None,
-            });
-        }
+        let postgres = format!(
+            "{}:{}",
+            Self::env_or_panic("POSTGRES_HOSTNAME"),
+            Self::env_or_panic("POSTGRES_PORT")
+        );
 
-        let postgres = match (&credentials, Self::env_or_panic("POSTGRES_PORT")) {
-            (Some(_), Some(port)) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("POSTGRES_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-            _ => None,
-        };
+        let mysql = format!(
+            "{}:{}",
+            Self::env_or_panic("MYSQL_HOSTNAME"),
+            Self::env_or_panic("MYSQL_PORT")
+        );
 
-        let mysql = match (&credentials, Self::env_or_panic("MYSQL_PORT")) {
-            (Some(_), Some(port)) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("MYSQL_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-            _ => None,
-        };
+        let cln = format!(
+            "{}:{}",
+            Self::env_or_panic("CLN_HOSTNAME"),
+            Self::env_or_panic("CLN_PORT")
+        );
 
-        let cln = match Self::env_or_panic("CLN_PORT") {
-            None => None,
-            Some(port) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("CLN_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-        };
+        let lnd = format!(
+            "{}:{}",
+            Self::env_or_panic("LND_HOSTNAME"),
+            Self::env_or_panic("LND_PORT")
+        );
 
-        let lnd = match Self::env_or_panic("LND_PORT") {
-            None => None,
-            Some(port) => {
-                let port = port.parse::<u16>()?;
-                Self::env_or_panic("LND_HOSTNAME").map(|s| format!("{s}:{port}"))
-            }
-        };
-
-        let lightning = match (&credentials, cln, lnd) {
-            (Some(_), Some(cln), Some(lnd)) => Some(LightningIntegrationTestServices { cln, lnd }),
-            _ => None,
-        };
-
-        Ok(Self {
+        Self {
             credentials,
             postgres,
             mysql,
-            lightning,
+            lightning: LightningIntegrationTestServices { cln, lnd },
+        }
+    }
+
+    fn env_or_panic(config_env: &str) -> String {
+        env::var(config_env).unwrap_or_else(|_| {
+            panic!(
+                "
+
+❌ INVALID INTEGRATION TEST ENVIRONMENT ❌
+
+Env var '{config_env}' is not set.
+
+See testing/README.md to configure integration tests and services.
+
+",
+            )
         })
     }
 
-    fn env_or_panic(config_env: &str) -> Option<String> {
-        if env::var(SKIP_INTEGRATION_TESTS_ENV).is_ok_and(|s| s.to_lowercase() == "true") {
-            eprintln!("⚠️ WARNING: {SKIP_INTEGRATION_TESTS_ENV} is true, skipping integration tests for {config_env}");
-            return None;
-        }
-
-        match env::var(config_env) {
-            Ok(r) => Some(r),
-            Err(_) => {
-                panic!(
-                    "
-
-❌❌❌ ERROR ❌❌❌
-
-Do one of:
-
-CONFIGURE INTEGRATION TEST ENVIRONMENT
-
-* configure integration tests - see testing/README.md
-* set env {config_env} to configure the service
-
-- or -
-
-SKIP INTEGRATION TESTS
-
-* set env {SKIP_INTEGRATION_TESTS_ENV}=true
-
-❌❌❌ ERROR ❌❌❌
-
-"
-                );
-            }
-        }
+    pub fn credentials(&self) -> &str {
+        &self.credentials
     }
 
-    pub fn credentials(&self) -> Option<&String> {
-        self.credentials.as_ref()
+    pub fn postgres(&self) -> &str {
+        &self.postgres
     }
 
-    pub fn postgres(&self) -> Option<&String> {
-        self.postgres.as_ref()
+    pub fn mysql(&self) -> &str {
+        &self.mysql
     }
 
-    pub fn mysql(&self) -> Option<&String> {
-        self.mysql.as_ref()
-    }
-
-    pub fn lightning(&self) -> Option<&LightningIntegrationTestServices> {
-        self.lightning.as_ref()
+    pub fn lightning(&self) -> &LightningIntegrationTestServices {
+        &self.lightning
     }
 }

@@ -6,9 +6,9 @@ use anyhow::Result;
 use lightning_invoice::Bolt11Invoice;
 use std::fmt::Display;
 use std::str::FromStr;
-use switchgear_service::api::discovery::HttpDiscoveryBackendClient;
-use switchgear_service::api::lnurl::LnUrlOffer;
-use switchgear_service::api::offer::HttpOfferClient;
+use switchgear_service_api::discovery::HttpDiscoveryBackendClient;
+use switchgear_service_api::lnurl::LnUrlOffer;
+use switchgear_service_api::offer::HttpOfferClient;
 use uuid::Uuid;
 
 fn get_required_with_error<T>(option: Option<T>, error_msg: impl FnOnce() -> String) -> Result<T> {

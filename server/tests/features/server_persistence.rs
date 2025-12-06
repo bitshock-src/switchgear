@@ -6,7 +6,6 @@ use crate::FEATURE_TEST_CONFIG_PATH;
 use std::cmp::PartialEq;
 use std::path::PathBuf;
 use switchgear_testing::credentials::db::{DbCredentials, TestDatabase};
-use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 use switchgear_testing::db::{TestMysqlDatabase, TestPostgresDatabase};
 use uuid::Uuid;
 
@@ -94,10 +93,7 @@ async fn test_complete_persistence_lifecycle_with_secrets() {
 async fn test_backend_data_loss_with_offer_persistence_sqlite_sqlite() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/persistence.yaml");
     ctx.add_server(
@@ -124,7 +120,7 @@ async fn test_backend_data_loss_with_offer_persistence_sqlite_sqlite() {
         .await
         .expect("assert");
 
-    step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+    step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
         .await
         .expect("assert");
     step_when_the_payee_creates_an_offer_for_their_lightning_node(&mut ctx, "single")
@@ -218,10 +214,7 @@ async fn test_complete_persistence_lifecycle_impl(db_type: DbType, db_uri_type: 
     let db_credentials = DbCredentials::create().expect("assert");
     let db = db_credentials.get_databases().expect("assert");
 
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = match db_uri_type {
         DbUriType::Full => manifest_dir.join("config/persistence.yaml"),
@@ -241,76 +234,59 @@ async fn test_complete_persistence_lifecycle_impl(db_type: DbType, db_uri_type: 
 
     let _db_guard = match &db_type {
         DbType::Sqlite => (None, None),
-        DbType::Mysql { ssl } => match &db.mysql {
-            None => {
-                eprintln!("MySQL database not available, skipping test");
-                return;
-            }
-            Some(db) => (
-                Some(
-                    install_mysql_databases(
-                        &mut ctx,
-                        DataStoreActivations::All,
-                        server1,
-                        db,
-                        DbUriType::Full,
-                        *ssl,
-                    )
-                    .expect("assert"),
-                ),
-                None,
+        DbType::Mysql { ssl } => (
+            Some(
+                install_mysql_databases(
+                    &mut ctx,
+                    DataStoreActivations::All,
+                    server1,
+                    &db.mysql,
+                    DbUriType::Full,
+                    *ssl,
+                )
+                .expect("assert"),
             ),
-        },
-        DbType::Postgresql { ssl } => match &db.postgres {
-            None => {
-                eprintln!("PostgreSQL database not available, skipping test");
-                return;
-            }
-            Some(db) => (
-                None,
-                Some(
-                    install_postgres_databases(
-                        &mut ctx,
-                        DataStoreActivations::All,
-                        server1,
-                        db,
-                        DbUriType::Full,
-                        *ssl,
-                    )
-                    .expect("assert"),
-                ),
+            None,
+        ),
+        DbType::Postgresql { ssl } => (
+            None,
+            Some(
+                install_postgres_databases(
+                    &mut ctx,
+                    DataStoreActivations::All,
+                    server1,
+                    &db.postgres,
+                    DbUriType::Full,
+                    *ssl,
+                )
+                .expect("assert"),
             ),
-        },
-        DbType::PostgresqlAndMysql => match (&db.postgres, &db.mysql) {
-            (Some(postgres), Some(mysql)) => (
-                Some(
-                    install_mysql_databases(
-                        &mut ctx,
-                        DataStoreActivations::Offer,
-                        server1,
-                        mysql,
-                        DbUriType::AddressNameWithSecrets,
-                        DbSslType::None,
-                    )
-                    .expect("assert"),
-                ),
-                Some(
-                    install_postgres_databases(
-                        &mut ctx,
-                        DataStoreActivations::Discovery,
-                        server1,
-                        postgres,
-                        DbUriType::AddressNameWithSecrets,
-                        DbSslType::None,
-                    )
-                    .expect("assert"),
-                ),
+        ),
+
+        DbType::PostgresqlAndMysql => (
+            Some(
+                install_mysql_databases(
+                    &mut ctx,
+                    DataStoreActivations::Offer,
+                    server1,
+                    &db.mysql,
+                    DbUriType::AddressNameWithSecrets,
+                    DbSslType::None,
+                )
+                .expect("assert"),
             ),
-            _ => {
-                eprintln!("Both PostgreSQL and Mysql databases not available, skipping test");
-                return;
-            }
-        },
+            Some(
+                install_postgres_databases(
+                    &mut ctx,
+                    DataStoreActivations::Discovery,
+                    server1,
+                    &db.postgres,
+                    DbUriType::AddressNameWithSecrets,
+                    DbSslType::None,
+                )
+                .expect("assert"),
+            ),
+        ),
     };
 
     ctx.activate_server(server1);
@@ -336,7 +312,7 @@ async fn test_complete_persistence_lifecycle_impl(db_type: DbType, db_uri_type: 
         .expect("assert");
 
     // Setup specific backend and create data to persist
-    step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+    step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
         .await
         .expect("assert");
     step_when_the_payee_creates_an_offer_for_their_lightning_node(&mut ctx, "single")

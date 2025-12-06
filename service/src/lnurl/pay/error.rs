@@ -1,11 +1,11 @@
-use crate::api::lnurl::{LnUrlError, LnUrlErrorStatus};
-use crate::api::service::HasServiceErrorSource;
 use axum::http::header::InvalidHeaderValue;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use log::error;
+use switchgear_service_api::lnurl::{LnUrlError, LnUrlErrorStatus};
+use switchgear_service_api::service::HasServiceErrorSource;
 use thiserror::Error;
 
 #[macro_export]

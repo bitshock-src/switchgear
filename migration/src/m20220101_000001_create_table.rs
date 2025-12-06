@@ -21,11 +21,7 @@ impl MigrationTrait for DiscoveryBackendMigration {
                     .col(string_null(DiscoveryBackend::Name))
                     .col(integer(DiscoveryBackend::Weight).not_null())
                     .col(boolean(DiscoveryBackend::Enabled).not_null())
-                    .col(
-                        ColumnDef::new(DiscoveryBackend::Implementation)
-                            .json_binary()
-                            .not_null(),
-                    )
+                    .col(blob(DiscoveryBackend::Implementation).not_null())
                     .col(timestamp_with_time_zone(DiscoveryBackend::CreatedAt).not_null())
                     .col(timestamp_with_time_zone(DiscoveryBackend::UpdatedAt).not_null())
                     .primary_key(Index::create().col(DiscoveryBackend::Id))

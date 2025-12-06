@@ -5,16 +5,12 @@ use crate::FEATURE_TEST_CONFIG_PATH;
 use rand::Rng;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use std::path::PathBuf;
-use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 
 #[tokio::test]
 async fn test_service_health_check_logging() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
     ctx.add_server(
@@ -36,7 +32,7 @@ async fn test_service_health_check_logging() {
     step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
         .await
         .expect("assert");
-    step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+    step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
         .await
         .expect("assert");
     step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
@@ -75,10 +71,7 @@ async fn test_service_health_check_logging() {
 async fn test_service_operation_request_logging() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
     ctx.add_server(
@@ -100,7 +93,7 @@ async fn test_service_operation_request_logging() {
     step_given_the_lnurl_server_is_ready_to_start(&mut ctx)
         .await
         .expect("assert");
-    step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+    step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
         .await
         .expect("assert");
     step_when_i_start_the_lnurl_server_with_the_configuration(&mut ctx)
@@ -161,10 +154,7 @@ async fn test_service_operation_request_logging() {
 async fn test_error_conditions_are_properly_logged() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
     ctx.add_server(

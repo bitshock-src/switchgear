@@ -18,15 +18,14 @@ async-trait = "0.1"
 axum = {  version = "0.8", features = ["macros"] }
 backoff = { version = "0.4", features = ["tokio"] }
 chrono = { version = "0.4", features = ["serde"] }
-switchgear-service.workspace = true
 log = "0.4"
 pingora-core = { version = "0.6", default-features = false }
 pingora-error = { version = "0.6", default-features = false }
 pingora-load-balancing = { version = "0.6", default-features = false }
+switchgear-service-api.workspace = true
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4", "serde"] }
-url = "2"
 
 [dev-dependencies]
 chrono = "0.4"

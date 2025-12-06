@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
-use switchgear_service::api::offer::{OfferRecord, OfferRecordSparse, OfferStore};
+use switchgear_service_api::offer::{OfferRecord, OfferRecordSparse, OfferStore};
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]

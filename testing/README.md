@@ -7,15 +7,15 @@ Docker-based regtest environment for testing with Lightning Network nodes (CLN, 
 1. **Start services:**
    ```bash
    cd testing
-   docker compose up -d --build --wait 
+   docker compose --env-file ./testing.env up -d --build --wait 
    ```
 
 2. **Copy environment configuration:**
    ```bash
-   cp testing/.env .
+   cp testing/testing.env ./testing.env
    ```
 
-3. **Edit `.env` and change all service names to localhost:**
+3. **Edit `testing.env` and change all service names to localhost:**
 
 ```shell
 CLN_HOSTNAME=localhost
@@ -30,11 +30,6 @@ POSTGRES_HOSTNAME=localhost
    cargo test
    ```
 
-**Skip integration tests with service dependencies:**
-```bash
-SWGR_SKIP_INTEGRATION_TESTS=true cargo test
-```
-
 ## Docker-in-Docker CI Testing
 
 For running tests inside a container with Docker socket access.
@@ -42,18 +37,18 @@ For running tests inside a container with Docker socket access.
 1. **Start services:**
    ```bash
    cd testing
-   docker compose up -d --build --wait 
+   docker compose --env-file ./testing.env up -d --build --wait 
    ```
 
 2. **Connect container to services network:**
    ```bash
-   . testing/.env
+   . testing/testing.env
    docker network connect $SERVICES_NETWORK_NAME $(hostname)
    ```
 
 3. **Copy environment configuration:**
    ```bash
-   cp testing/.env .
+   cp testing/testing.env ./testing.env
    ```
 
 4. **Run tests:**

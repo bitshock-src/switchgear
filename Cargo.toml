@@ -1,11 +1,13 @@
 [workspace]
 members = [
+    "components",
+    "migration",
+    "pingora",
     "server",
     "service",
-    "pingora",
-    "testing",
-    "migration",
-    "switchgear"
+    "service-api",
+    "switchgear",
+    "testing"
 ]
 
 resolver = "2"
@@ -14,15 +16,16 @@ resolver = "2"
 version = "0.1.23"
 
 [workspace.dependencies]
+switchgear-components = { version = "0.1.23", path = "components" }
+switchgear-migration = { version = "0.1.23", path = "migration" }
 switchgear-pingora = { version = "0.1.23", path = "pingora" }
 switchgear-service = { version = "0.1.23", path = "service" }
-switchgear-migration = { version = "0.1.23", path = "migration" }
+switchgear-service-api = { version = "0.1.23", path = "service-api" }
 switchgear-testing = { version = "0.1.23", path = "testing" }
 
-
 [profile.release]
-lto = true
 codegen-units = 1
+lto = true
 panic = 'abort'
 strip = true
 

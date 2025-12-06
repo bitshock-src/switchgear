@@ -4,7 +4,6 @@ use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
 use std::fs;
 use std::path::PathBuf;
-use switchgear_testing::credentials::lightning::RegTestLnNodeType;
 use tempfile::TempDir;
 
 /// Feature: Server handles secrets files
@@ -13,10 +12,7 @@ use tempfile::TempDir;
 async fn test_server_startup_succeeds_with_valid_secrets_file() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/memory-basic.yaml");
@@ -36,7 +32,7 @@ async fn test_server_startup_succeeds_with_valid_secrets_file() {
         .expect("assert");
 
     // Background steps
-    step_given_the_payee_has_a_lightning_node_available(&mut ctx, RegTestLnNodeType::Cln)
+    step_given_the_payee_has_a_lightning_node_available(&mut ctx, "cln")
         .await
         .expect("assert");
     step_given_the_server_is_not_already_running(&mut ctx)
@@ -70,10 +66,7 @@ async fn test_server_startup_succeeds_with_valid_secrets_file() {
 async fn test_server_startup_fails_with_missing_secrets_file() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/persistence-with-secrets.yaml");
@@ -118,10 +111,7 @@ async fn test_server_startup_fails_with_missing_secrets_file() {
 async fn test_server_startup_fails_with_invalid_secrets_file() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/persistence-with-secrets.yaml");
@@ -170,10 +160,7 @@ async fn test_server_startup_fails_with_invalid_secrets_file() {
 async fn test_server_startup_fails_with_missing_secret_in_file() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let feature_test_config_path = manifest_dir.join(FEATURE_TEST_CONFIG_PATH);
-    let mut ctx = match GlobalContext::create(&feature_test_config_path).expect("assert") {
-        Some(ctx) => ctx,
-        None => return,
-    };
+    let mut ctx = GlobalContext::create(&feature_test_config_path).expect("assert");
 
     let server1 = "server1";
     let config_path = manifest_dir.join("config/persistence-with-secrets.yaml");
