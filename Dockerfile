@@ -10,10 +10,16 @@ COPY Cargo.lock ./
 COPY server/src ./server/src
 COPY server/Cargo.toml ./server/Cargo.toml
 
+COPY service-api/src ./service-api/src
+COPY service-api/Cargo.toml ./service-api/Cargo.toml
+
 COPY service/src ./service/src
-COPY service/proto ./service/proto
-COPY service/build.rs ./service/build.rs
 COPY service/Cargo.toml ./service/Cargo.toml
+
+COPY components/src ./components/src
+COPY components/Cargo.toml ./components/Cargo.toml
+COPY components/proto ./components/proto
+COPY components/build.rs ./components/build.rs
 
 COPY pingora/src ./pingora/src
 COPY pingora/Cargo.toml ./pingora/Cargo.toml
