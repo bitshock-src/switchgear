@@ -1,10 +1,8 @@
 use chrono::{Timelike, Utc};
-use sha2::Digest;
 use switchgear_components::offer::error::{OfferStoreError, OfferStoreErrorSourceKind};
-use switchgear_service_api::lnurl::LnUrlOfferMetadata;
 use switchgear_service_api::offer::{
     OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
-    OfferMetadataStore, OfferProvider, OfferRecord, OfferRecordSparse, OfferStore,
+    OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
 };
 use switchgear_service_api::service::ServiceErrorSource;
 use uuid::Uuid;
@@ -24,6 +22,7 @@ pub fn create_test_offer_with_existing_metadata(id: Uuid, metadata_id: Uuid) -> 
             max_sendable: 1000,
             min_sendable: 100,
             metadata_id,
+            metadata: None,
             timestamp: now,
             expires: Some(expires),
         },
@@ -53,6 +52,7 @@ pub fn create_test_offer_with_metadata_id(offer_id: Uuid, metadata_id: Uuid) -> 
             max_sendable: 5000000,
             min_sendable: 1000,
             metadata_id,
+            metadata: None,
             timestamp: Utc::now(),
             expires: Some(Utc::now() + chrono::Duration::hours(24)),
         },
@@ -87,7 +87,7 @@ where
     <S as OfferStore>::Error: std::fmt::Debug,
 {
     let id = Uuid::new_v4();
-    let result = store.get_offer("default", &id).await.unwrap();
+    let result = store.get_offer("default", &id, None).await.unwrap();
     assert!(result.is_none());
 }
 
@@ -103,7 +103,7 @@ where
     let result = store.post_offer(offer.clone()).await.unwrap();
     assert_eq!(result, Some(offer.id));
 
-    let retrieved = store.get_offer("default", &offer_id).await.unwrap();
+    let retrieved = store.get_offer("default", &offer_id, None).await.unwrap();
     assert!(retrieved.is_some());
     assert_eq!(retrieved.unwrap().id, offer_id);
 }
@@ -136,7 +136,7 @@ where
     let was_created = store.put_offer(offer.clone()).await.unwrap();
     assert!(was_created);
 
-    let retrieved = store.get_offer("default", &offer_id).await.unwrap();
+    let retrieved = store.get_offer("default", &offer_id, None).await.unwrap();
     assert!(retrieved.is_some());
     assert_eq!(retrieved.unwrap().id, offer_id);
 }
@@ -157,7 +157,7 @@ where
     let was_created2 = store.put_offer(offer.clone()).await.unwrap();
     assert!(!was_created2);
 
-    let retrieved = store.get_offer("default", &offer_id).await.unwrap();
+    let retrieved = store.get_offer("default", &offer_id, None).await.unwrap();
     assert_eq!(retrieved.unwrap().offer.max_sendable, 2000);
 }
 
@@ -175,7 +175,7 @@ where
     let deleted = store.delete_offer("default", &offer_id).await.unwrap();
     assert!(deleted);
 
-    let retrieved = store.get_offer("default", &offer_id).await.unwrap();
+    let retrieved = store.get_offer("default", &offer_id, None).await.unwrap();
     assert!(retrieved.is_none());
 }
 
@@ -376,7 +376,6 @@ where
     assert_eq!(single_metadata.as_slice(), &expected_metadata[5..6]);
 }
 
-// OfferProvider tests
 pub async fn setup_store_with_offer_and_metadata<S>(store: S) -> (S, Uuid, Uuid)
 where
     S: OfferStore + OfferMetadataStore,
@@ -405,117 +404,6 @@ where
     (store, offer_id, metadata_id)
 }
 
-pub async fn test_offer_provider_successful_retrieval<S>(store: S)
-where
-    S: OfferProvider + OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    let (store, offer_id, _metadata_id) = setup_store_with_offer_and_metadata(store).await;
-
-    let result = store
-        .offer("example.com", "default", &offer_id)
-        .await
-        .unwrap();
-
-    assert!(result.is_some());
-    let offer = result.unwrap();
-
-    // Verify basic offer fields
-    assert_eq!(offer.id, offer_id);
-    assert_eq!(offer.max_sendable, 5000000);
-    assert_eq!(offer.min_sendable, 1000);
-
-    // Verify metadata_json_string is in LNURL format and contains the expected metadata
-    assert!(offer.metadata_json_string.starts_with("["));
-    assert!(offer.metadata_json_string.contains("Test LNURL offer"));
-    assert!(offer.metadata_json_string.contains("test@lnurl.com"));
-
-    // Verify the JSON string can be deserialized back to LnUrlOfferMetadata
-    let parsed_metadata: LnUrlOfferMetadata =
-        serde_json::from_str(&offer.metadata_json_string).unwrap();
-    assert_eq!(parsed_metadata.0.text, "Test LNURL offer");
-    assert_eq!(
-        parsed_metadata.0.long_text,
-        Some("This is a comprehensive test of the LNURL offer system".to_string())
-    );
-
-    // Verify hash is calculated correctly
-    let expected_hash = sha2::Sha256::digest(offer.metadata_json_string.as_bytes());
-    assert_eq!(offer.metadata_json_hash, expected_hash.as_ref());
-}
-
-pub async fn test_offer_provider_offer_not_found<S>(store: S)
-where
-    S: OfferProvider,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    let non_existent_id = Uuid::new_v4();
-
-    let result = store
-        .offer("example.com", "default", &non_existent_id)
-        .await
-        .unwrap();
-
-    assert!(result.is_none());
-}
-
-pub async fn test_offer_provider_metadata_not_found_or_foreign_key_constraint<S>(store: S)
-where
-    S: OfferProvider + OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    // Create offer with valid metadata first
-    let (store, offer_id, metadata_id) = setup_store_with_offer_and_metadata(store).await;
-
-    store.delete_offer("default", &offer_id).await.unwrap();
-
-    store
-        .delete_metadata("default", &metadata_id)
-        .await
-        .unwrap();
-
-    let result = store
-        .offer("example.com", "default", &offer_id)
-        .await
-        .unwrap();
-
-    assert!(result.is_none());
-}
-
-pub async fn test_offer_provider_hash_consistency<S>(store: S)
-where
-    S: OfferProvider + OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    let (store, offer_id, _) = setup_store_with_offer_and_metadata(store).await;
-
-    // Call offer method multiple times
-    let result1 = store
-        .offer("example.com", "default", &offer_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let result2 = store
-        .offer("example.com", "default", &offer_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    // Hash should be consistent across calls
-    assert_eq!(result1.metadata_json_hash, result2.metadata_json_hash);
-    assert_eq!(result1.metadata_json_string, result2.metadata_json_string);
-
-    // Verify hash matches manual calculation
-    let manual_hash = sha2::Sha256::digest(result1.metadata_json_string.as_bytes());
-    assert_eq!(result1.metadata_json_hash, manual_hash.as_ref());
-}
-
 pub async fn test_post_offer_with_missing_metadata<S>(store: S)
 where
     S: OfferStore,
@@ -531,6 +419,7 @@ where
             max_sendable: 1000,
             min_sendable: 100,
             metadata_id: non_existent_metadata_id, // This metadata doesn't exist
+            metadata: None,
             timestamp: Utc::now(),
             expires: Some(Utc::now() + chrono::Duration::seconds(3600)),
         },
@@ -566,6 +455,7 @@ where
             max_sendable: 1000,
             min_sendable: 100,
             metadata_id: non_existent_metadata_id, // This metadata doesn't exist
+            metadata: None,
             timestamp: Utc::now(),
             expires: Some(Utc::now() + chrono::Duration::seconds(3600)),
         },
@@ -624,125 +514,4 @@ where
         .await
         .unwrap();
     assert!(second_result);
-}
-
-pub async fn test_offer_provider_different_metadata_different_hashes<S>(store: S)
-where
-    S: OfferProvider + OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    // Create two different metadata entries
-    let metadata1_id = Uuid::new_v4();
-    let metadata1 = OfferMetadata {
-        id: metadata1_id,
-        partition: "default".to_string(),
-        metadata: OfferMetadataSparse {
-            text: "First offer".to_string(),
-            long_text: None,
-            image: None,
-            identifier: None,
-        },
-    };
-    store.post_metadata(metadata1).await.unwrap();
-
-    let metadata2_id = Uuid::new_v4();
-    let metadata2 = OfferMetadata {
-        id: metadata2_id,
-        partition: "default".to_string(),
-        metadata: OfferMetadataSparse {
-            text: "Second offer".to_string(),
-            long_text: Some("Different description".to_string()),
-            image: None,
-            identifier: None,
-        },
-    };
-    store.post_metadata(metadata2).await.unwrap();
-
-    // Create two offers with different metadata
-    let offer1_id = Uuid::new_v4();
-    let offer1 = create_test_offer_with_metadata_id(offer1_id, metadata1_id);
-    store.post_offer(offer1).await.unwrap();
-
-    let offer2_id = Uuid::new_v4();
-    let offer2 = create_test_offer_with_metadata_id(offer2_id, metadata2_id);
-    store.post_offer(offer2).await.unwrap();
-
-    // Retrieve both offers
-    let result1 = store
-        .offer("example.com", "default", &offer1_id)
-        .await
-        .unwrap()
-        .unwrap();
-    let result2 = store
-        .offer("example.com", "default", &offer2_id)
-        .await
-        .unwrap()
-        .unwrap();
-
-    // Should have different metadata strings and hashes
-    assert_ne!(result1.metadata_json_string, result2.metadata_json_string);
-    assert_ne!(result1.metadata_json_hash, result2.metadata_json_hash);
-
-    // Verify content differences
-    assert!(result1.metadata_json_string.contains("First offer"));
-    assert!(result2.metadata_json_string.contains("Second offer"));
-    assert!(!result1
-        .metadata_json_string
-        .contains("Different description"));
-    assert!(result2
-        .metadata_json_string
-        .contains("Different description"));
-}
-
-pub async fn test_offer_provider_valid_current_offer_returns_some<S>(store: S)
-where
-    S: OfferProvider + OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug,
-    <S as OfferProvider>::Error: std::fmt::Debug,
-{
-    // Create metadata first
-    let metadata_id = Uuid::new_v4();
-    let metadata = OfferMetadata {
-        id: metadata_id,
-        partition: "default".to_string(),
-        metadata: OfferMetadataSparse {
-            text: "Valid current offer".to_string(),
-            long_text: None,
-            image: None,
-            identifier: None,
-        },
-    };
-    store.post_metadata(metadata).await.unwrap();
-
-    // Create a valid current offer
-    let offer_id = Uuid::new_v4();
-    let valid_offer = OfferRecord {
-        partition: "default".to_string(),
-        id: offer_id,
-        offer: OfferRecordSparse {
-            max_sendable: 1000000,
-            min_sendable: 1000,
-            metadata_id,
-            timestamp: Utc::now() - chrono::Duration::minutes(30), // Started 30 minutes ago
-            expires: Some(Utc::now() + chrono::Duration::hours(1)), // Expires 1 hour from now
-        },
-    };
-    store.post_offer(valid_offer.clone()).await.unwrap();
-
-    // Try to get the valid offer through OfferProvider::offer
-    let result = store
-        .offer("example.com", "default", &offer_id)
-        .await
-        .unwrap();
-
-    // Should return Some for valid offer
-    assert!(result.is_some());
-    let offer = result.unwrap();
-    assert_eq!(offer.id, offer_id);
-    assert_eq!(offer.max_sendable, valid_offer.offer.max_sendable);
-    assert_eq!(offer.min_sendable, valid_offer.offer.min_sendable);
-    assert!(offer.metadata_json_string.contains("Valid current offer"));
 }

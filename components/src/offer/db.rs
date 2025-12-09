@@ -8,13 +8,10 @@ use sea_orm::{
     ColumnTrait, Database, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
     Set,
 };
-use sha2::{Digest, Sha256};
 use switchgear_migration::OnConflict;
 use switchgear_migration::{Expr, MigratorTrait};
-use switchgear_service_api::lnurl::LnUrlOfferMetadata;
 use switchgear_service_api::offer::{
-    Offer, OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferProvider, OfferRecord,
-    OfferRecordSparse, OfferStore,
+    OfferMetadata, OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
 };
 use switchgear_service_api::service::ServiceErrorSource;
 use uuid::Uuid;
@@ -70,32 +67,49 @@ impl OfferStore for DbOfferStore {
         &self,
         partition: &str,
         id: &Uuid,
+        sparse: Option<bool>,
     ) -> Result<Option<OfferRecord>, Self::Error> {
-        let model = OfferRecordTable::find_by_id((partition.to_string(), *id))
+        let sparse = sparse.unwrap_or(true);
+
+        let result = OfferRecordTable::find_by_id((partition.to_string(), *id))
+            .find_also_related(OfferMetadataTable)
             .one(&self.db)
             .await
             .map_err(|e| {
                 OfferStoreError::from_db(
                     ServiceErrorSource::Internal,
-                    format!("getting offer for partition {partition} id {id}"),
+                    format!("getting offer with metadata for partition {partition} id {id}",),
                     e,
                 )
             })?;
 
-        match model {
-            Some(model) => Ok(Some(OfferRecord {
-                partition: model.partition,
-                id: model.id,
-                offer: OfferRecordSparse {
-                    max_sendable: model.max_sendable as u64,
-                    min_sendable: model.min_sendable as u64,
-                    metadata_id: model.metadata_id,
-                    timestamp: model.timestamp.into(),
-                    expires: model.expires.map(|dt| dt.into()),
-                },
-            })),
-            None => Ok(None),
-        }
+        let (offer_model, metadata_model) = match (result, sparse) {
+            (Some((offer, Some(metadata))), false) => {
+                let metadata = serde_json::from_value(metadata.metadata).map_err(|e| {
+                    OfferStoreError::serialization_error(
+                        ServiceErrorSource::Internal,
+                        format!("deserializing metadata for partition {partition} id {id}",),
+                        e,
+                    )
+                })?;
+                (offer, Some(metadata))
+            }
+            (Some((offer, _)), true) => (offer, None),
+            _ => return Ok(None),
+        };
+
+        Ok(Some(OfferRecord {
+            partition: offer_model.partition,
+            id: offer_model.id,
+            offer: OfferRecordSparse {
+                max_sendable: offer_model.max_sendable as u64,
+                min_sendable: offer_model.min_sendable as u64,
+                metadata_id: offer_model.metadata_id,
+                metadata: metadata_model,
+                timestamp: offer_model.timestamp.into(),
+                expires: offer_model.expires.map(|dt| dt.into()),
+            },
+        }))
     }
 
     async fn get_offers(
@@ -129,6 +143,7 @@ impl OfferStore for DbOfferStore {
                     max_sendable: model.max_sendable as u64,
                     min_sendable: model.min_sendable as u64,
                     metadata_id: model.metadata_id,
+                    metadata: None,
                     timestamp: model.timestamp.into(),
                     expires: model.expires.map(|dt| dt.into()),
                 },
@@ -553,67 +568,5 @@ impl OfferMetadataStore for DbOfferStore {
             })?;
 
         Ok(result.rows_affected > 0)
-    }
-}
-
-#[async_trait]
-impl OfferProvider for DbOfferStore {
-    type Error = OfferStoreError;
-
-    async fn offer(
-        &self,
-        _hostname: &str,
-        partition: &str,
-        id: &Uuid,
-    ) -> Result<Option<Offer>, Self::Error> {
-        let result = OfferRecordTable::find_by_id((partition.to_string(), *id))
-            .find_also_related(OfferMetadataTable)
-            .one(&self.db)
-            .await
-            .map_err(|e| {
-                OfferStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    format!("getting offer with metadata for partition {partition} id {id}",),
-                    e,
-                )
-            })?;
-
-        let (offer_model, metadata_model) = match result {
-            Some((offer, Some(metadata))) => (offer, metadata),
-            _ => return Ok(None),
-        };
-
-        let metadata_sparse: OfferMetadataSparse = serde_json::from_value(metadata_model.metadata)
-            .map_err(|e| {
-                OfferStoreError::serialization_error(
-                    ServiceErrorSource::Internal,
-                    format!("deserializing metadata for offer {id} in partition {partition}",),
-                    e,
-                )
-            })?;
-
-        let lnurl_metadata = LnUrlOfferMetadata(metadata_sparse);
-        let metadata_json_string = serde_json::to_string(&lnurl_metadata).map_err(|e| {
-            OfferStoreError::serialization_error(
-                ServiceErrorSource::Internal,
-                format!("serializing metadata for offer {id} in partition {partition}",),
-                e,
-            )
-        })?;
-
-        let mut hasher = Sha256::new();
-        hasher.update(metadata_json_string.as_bytes());
-        let metadata_json_hash = hasher.finalize().into();
-
-        Ok(Some(Offer {
-            partition: offer_model.partition,
-            id: offer_model.id,
-            max_sendable: offer_model.max_sendable as u64,
-            min_sendable: offer_model.min_sendable as u64,
-            metadata_json_string,
-            metadata_json_hash,
-            timestamp: offer_model.timestamp.with_timezone(&Utc),
-            expires: offer_model.expires.map(|dt| dt.with_timezone(&Utc)),
-        }))
     }
 }

@@ -1,14 +1,17 @@
-use async_trait::async_trait;
-use std::collections::BTreeSet;
-use std::error::Error;
-use switchgear_service_api::discovery::{DiscoveryBackend, DiscoveryBackends};
-use switchgear_service_api::offer::Offer;
-
 pub mod backoff;
 pub mod balance;
 pub mod discovery;
 pub mod error;
 pub mod health;
+pub mod pool;
+
+use ::backoff::backoff::Backoff;
+use async_trait::async_trait;
+use std::collections::BTreeSet;
+use std::error::Error;
+use switchgear_service_api::discovery::{DiscoveryBackend, DiscoveryBackends};
+use switchgear_service_api::offer::Offer;
+use switchgear_service_api::service::HasServiceErrorSource;
 
 #[derive(Debug, Clone)]
 pub struct PingoraLnBackendExtension {
@@ -17,14 +20,13 @@ pub struct PingoraLnBackendExtension {
 
 #[async_trait]
 pub trait PingoraBackendProvider {
-    type Error: Error + Send + Sync + 'static;
-
-    async fn backends(&self, etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error>;
+    async fn backends(&self, etag: Option<u64>)
+        -> Result<DiscoveryBackends, pingora_error::BError>;
 }
 
 #[async_trait]
 pub trait PingoraLnClientPool {
-    type Error: Error + Send + Sync + 'static;
+    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
     type Key: std::hash::Hash + Eq + Send + Sync + 'static;
 
     async fn get_invoice(
@@ -50,4 +52,10 @@ pub trait PingoraLnMetricsCache {
 pub struct PingoraLnMetrics {
     pub healthy: bool,
     pub node_effective_inbound_msat: u64,
+}
+
+pub trait PingoraBackoffProvider: Clone + Send + Sync {
+    type Item: Backoff + Send;
+
+    fn get_backoff(&self) -> Self::Item;
 }

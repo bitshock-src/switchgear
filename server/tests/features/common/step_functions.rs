@@ -386,6 +386,7 @@ pub async fn step_when_the_payee_creates_an_offer_for_their_lightning_node(
             max_sendable,
             min_sendable,
             metadata_id,
+            metadata: None,
             timestamp: now - ChronoDuration::minutes(5),
             expires: Some(now + ChronoDuration::hours(24)),
         },
@@ -833,6 +834,7 @@ pub async fn step_and_the_payee_has_created_an_offer_linked_to_both_lightning_no
             max_sendable: 1_000_000_000, // 1000 sats in msat
             min_sendable: 1_000,         // 1 sat in msat
             metadata_id,
+            metadata: None,
             timestamp: now - ChronoDuration::minutes(5),
             expires: Some(now + ChronoDuration::hours(24)),
         },

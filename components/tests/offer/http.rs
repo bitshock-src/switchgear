@@ -139,48 +139,6 @@ async fn test_http_get_all_offer_metadata() {
 }
 
 #[tokio::test]
-async fn test_http_offer_provider_successful_retrieval() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_successful_retrieval(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
-async fn test_http_offer_provider_offer_not_found() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_offer_not_found(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
-async fn test_http_offer_provider_metadata_not_found() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_metadata_not_found_or_foreign_key_constraint(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
-async fn test_http_offer_provider_hash_consistency() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_hash_consistency(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
-async fn test_http_offer_provider_different_metadata_different_hashes() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_different_metadata_different_hashes(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
-async fn test_http_offer_provider_valid_current_offer_returns_some() {
-    let (store, service) = create_http_store().await;
-    offer::test_offer_provider_valid_current_offer_returns_some(store).await;
-    service.shutdown().await;
-}
-
-#[tokio::test]
 async fn test_http_post_offer_with_missing_metadata() {
     let (store, service) = create_http_store().await;
     offer::test_post_offer_with_missing_metadata(store).await;

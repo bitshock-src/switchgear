@@ -1,13 +1,8 @@
 use crate::offer::error::OfferStoreError;
 use async_trait::async_trait;
-use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::Arc;
-use switchgear_service_api::lnurl::LnUrlOfferMetadata;
-use switchgear_service_api::offer::{
-    Offer, OfferMetadata, OfferMetadataStore, OfferProvider, OfferRecord, OfferStore,
-};
-use switchgear_service_api::service::ServiceErrorSource;
+use switchgear_service_api::offer::{OfferMetadata, OfferMetadataStore, OfferRecord, OfferStore};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -52,11 +47,25 @@ impl OfferStore for MemoryOfferStore {
         &self,
         partition: &str,
         id: &Uuid,
+        sparse: Option<bool>,
     ) -> Result<Option<OfferRecord>, Self::Error> {
+        let sparse = sparse.unwrap_or(true);
+        let metadata_store = self.metadata.lock().await;
         let store = self.offer.lock().await;
-        Ok(store
-            .get(&(partition.to_string(), *id))
-            .map(|o| o.offer.clone()))
+
+        Ok(store.get(&(partition.to_string(), *id)).and_then(|offer| {
+            if sparse {
+                Some(offer.offer.clone())
+            } else {
+                metadata_store
+                    .get(&(partition.to_string(), offer.offer.offer.metadata_id))
+                    .map(|metadata| {
+                        let mut offer = offer.offer.clone();
+                        offer.offer.metadata = Some(metadata.metadata.metadata.clone());
+                        offer
+                    })
+            }
+        }))
     }
 
     async fn get_offers(
@@ -144,66 +153,6 @@ impl OfferStore for MemoryOfferStore {
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let mut store = self.offer.lock().await;
         Ok(store.remove(&(partition.to_string(), *id)).is_some())
-    }
-}
-
-#[async_trait]
-impl OfferProvider for MemoryOfferStore {
-    type Error = OfferStoreError;
-
-    async fn offer(
-        &self,
-        _hostname: &str,
-        partition: &str,
-        id: &Uuid,
-    ) -> Result<Option<Offer>, Self::Error> {
-        if let Some(offer) = self.get_offer(partition, id).await? {
-            let offer_metadata = match self
-                .get_metadata(partition, &offer.offer.metadata_id)
-                .await?
-            {
-                Some(metadata) => metadata,
-                None => {
-                    return Ok(None);
-                }
-            };
-
-            let lnurl_metadata = LnUrlOfferMetadata(offer_metadata.metadata);
-            let metadata_json_string = serde_json::to_string(&lnurl_metadata).map_err(|e| {
-                OfferStoreError::serialization_error(
-                    ServiceErrorSource::Internal,
-                    format!(
-                        "serializing LnUrlOfferMetadata while building LNURL offer response for {offer:?}"
-                    ),
-                    e,
-                )
-            })?;
-
-            let metadata_json_hash = sha2::Sha256::digest(metadata_json_string.as_bytes())
-                .to_vec()
-                .try_into()
-                .map_err(|_| {
-                    OfferStoreError::hash_conversion_error(
-                        ServiceErrorSource::Internal,
-                        format!(
-                            "hashing LnUrlOfferMetadata json string {metadata_json_string} while building LNURL offer response for {offer:?}"
-                        ),
-                    )
-                })?;
-
-            Ok(Some(Offer {
-                partition: offer.partition,
-                id: offer.id,
-                max_sendable: offer.offer.max_sendable,
-                min_sendable: offer.offer.min_sendable,
-                metadata_json_string,
-                metadata_json_hash,
-                timestamp: offer.offer.timestamp,
-                expires: offer.offer.expires,
-            }))
-        } else {
-            Ok(None)
-        }
     }
 }
 

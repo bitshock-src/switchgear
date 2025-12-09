@@ -3,12 +3,9 @@ use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderValue};
 use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
 use rustls::pki_types::CertificateDer;
-use sha2::Digest;
 use std::time::Duration;
-use switchgear_service_api::lnurl::LnUrlOfferMetadata;
 use switchgear_service_api::offer::{
-    HttpOfferClient, Offer, OfferMetadata, OfferMetadataStore, OfferProvider, OfferRecord,
-    OfferStore,
+    HttpOfferClient, OfferMetadata, OfferMetadataStore, OfferRecord, OfferStore,
 };
 use switchgear_service_api::service::ServiceErrorSource;
 use url::Url;
@@ -154,8 +151,11 @@ impl OfferStore for HttpOfferStore {
         &self,
         partition: &str,
         id: &Uuid,
+        sparse: Option<bool>,
     ) -> Result<Option<OfferRecord>, Self::Error> {
+        let sparse = sparse.unwrap_or(true);
         let url = self.offers_partition_id_url(partition, id);
+        let url = format!("{url}?sparse={sparse}");
         let response = self.client.get(&url).send().await.map_err(|e| {
             OfferStoreError::http_error(ServiceErrorSource::Upstream, format!("get offer {url}"), e)
         })?;
@@ -421,62 +421,6 @@ impl OfferMetadataStore for HttpOfferStore {
                 status,
                 &format!("delete offer metadata {url}"),
             )),
-        }
-    }
-}
-
-#[async_trait]
-impl OfferProvider for HttpOfferStore {
-    type Error = OfferStoreError;
-
-    async fn offer(
-        &self,
-        _hostname: &str,
-        partition: &str,
-        id: &Uuid,
-    ) -> Result<Option<Offer>, Self::Error> {
-        if let Some(offer) = self.get_offer(partition, id).await? {
-            let offer_metadata = match self
-                .get_metadata(partition, &offer.offer.metadata_id)
-                .await?
-            {
-                Some(metadata) => metadata,
-                None => {
-                    return Ok(None);
-                }
-            };
-
-            let lnurl_metadata = LnUrlOfferMetadata(offer_metadata.metadata);
-            let metadata_json_string = serde_json::to_string(&lnurl_metadata).map_err(|e| {
-                OfferStoreError::serialization_error(
-                    ServiceErrorSource::Internal,
-                    format!("building LNURL offer response for offer {}", offer.id),
-                    e,
-                )
-            })?;
-
-            let metadata_json_hash = sha2::Sha256::digest(metadata_json_string.as_bytes())
-                .to_vec()
-                .try_into()
-                .map_err(|_| {
-                    OfferStoreError::hash_conversion_error(
-                        ServiceErrorSource::Internal,
-                        format!("generating metadata hash for offer {}", offer.id),
-                    )
-                })?;
-
-            Ok(Some(Offer {
-                partition: offer.partition,
-                id: offer.id,
-                max_sendable: offer.offer.max_sendable,
-                min_sendable: offer.offer.min_sendable,
-                metadata_json_string,
-                metadata_json_hash,
-                timestamp: offer.offer.timestamp,
-                expires: offer.offer.expires,
-            }))
-        } else {
-            Ok(None)
         }
     }
 }

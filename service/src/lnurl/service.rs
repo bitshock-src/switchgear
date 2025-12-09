@@ -47,12 +47,12 @@ mod tests {
     use crate::axum::extract::scheme::Scheme;
     use crate::lnurl::pay::state::LnUrlPayState;
     use crate::lnurl::service::LnUrlBalancerService;
+    use crate::testing::offer::store::TestOfferStore;
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use std::collections::HashSet;
-    use switchgear_components::offer::memory::MemoryOfferStore;
     use switchgear_service_api::balance::LnBalancer;
     use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata};
     use switchgear_service_api::offer::{
@@ -175,6 +175,7 @@ mod tests {
                 max_sendable: 1000000,
                 min_sendable: 1000,
                 metadata_id,
+                metadata: None,
                 timestamp: Utc::now() - Duration::hours(1),
                 expires: Some(Utc::now() + Duration::hours(1)),
             },
@@ -215,7 +216,7 @@ mod tests {
         partitions: Option<HashSet<String>>,
     ) -> (TestServer, MockLnBalancer) {
         let partition = offer.partition.clone();
-        let offer_provider = MemoryOfferStore::default();
+        let offer_provider = TestOfferStore::default();
 
         // Create metadata for the offer
         let metadata = OfferMetadata {
@@ -252,7 +253,7 @@ mod tests {
     }
 
     fn create_empty_test_server() -> TestServer {
-        let offer_provider = MemoryOfferStore::default();
+        let offer_provider = TestOfferStore::default();
         let balancer = MockLnBalancer::new();
         let state = LnUrlPayState::new(
             HashSet::from(["default".to_string()]),
@@ -273,7 +274,7 @@ mod tests {
 
     async fn create_test_server_with_failing_balancer(offer: OfferRecord) -> TestServer {
         let partition = offer.partition.clone();
-        let offer_provider = MemoryOfferStore::default();
+        let offer_provider = TestOfferStore::default();
 
         // Create metadata for the offer
         let metadata = OfferMetadata {
@@ -357,7 +358,8 @@ mod tests {
         scheme: &str,
     ) -> (TestServer, Uuid) {
         let partition = offer.partition.clone();
-        let offer_provider = MemoryOfferStore::default();
+        let offer_provider = TestOfferStore::default();
+
         let metadata = OfferMetadata {
             id: offer.offer.metadata_id,
             partition: offer.partition.clone(),
@@ -729,7 +731,7 @@ mod tests {
     #[tokio::test]
     async fn get_invoice_with_custom_invoice_response() {
         let test_offer = create_test_offer();
-        let offer_provider = MemoryOfferStore::default();
+        let offer_provider = TestOfferStore::default();
 
         let partition = test_offer.partition.clone();
 

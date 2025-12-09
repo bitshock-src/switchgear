@@ -1,18 +1,13 @@
+use crate::PingoraBackoffProvider;
 use backoff::backoff::{Backoff, Stop};
 use backoff::{ExponentialBackoff, ExponentialBackoffBuilder};
 use std::sync::Arc;
 use std::time::Duration;
 
-pub trait BackoffProvider: Clone + Send + Sync {
-    type Item: Backoff + Send;
-
-    fn get_backoff(&self) -> Self::Item;
-}
-
 #[derive(Clone)]
 pub struct StopBackoffProvider;
 
-impl BackoffProvider for StopBackoffProvider {
+impl PingoraBackoffProvider for StopBackoffProvider {
     type Item = Stop;
 
     fn get_backoff(&self) -> Self::Item {
@@ -33,7 +28,7 @@ impl ExponentialBackoffProvider {
     }
 }
 
-impl BackoffProvider for ExponentialBackoffProvider {
+impl PingoraBackoffProvider for ExponentialBackoffProvider {
     type Item = ExponentialBackoff;
 
     fn get_backoff(&self) -> Self::Item {

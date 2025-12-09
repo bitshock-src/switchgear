@@ -126,48 +126,6 @@ async fn test_sqlite_get_all_offer_metadata() {
 }
 
 #[tokio::test]
-async fn test_sqlite_offer_provider_successful_retrieval() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_successful_retrieval(store).await;
-}
-
-#[tokio::test]
-async fn test_sqlite_offer_provider_offer_not_found() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_offer_not_found(store).await;
-}
-
-#[tokio::test]
-async fn test_sqlite_offer_provider_metadata_not_found() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_metadata_not_found_or_foreign_key_constraint(store).await;
-}
-
-#[tokio::test]
-async fn test_sqlite_offer_provider_hash_consistency() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_hash_consistency(store).await;
-}
-
-#[tokio::test]
-async fn test_sqlite_offer_provider_different_metadata_different_hashes() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_different_metadata_different_hashes(store).await;
-}
-
-#[tokio::test]
-async fn test_sqlite_offer_provider_valid_current_offer_returns_some() {
-    let t = TempDir::new().unwrap();
-    let store = create_sqlite_store(t.path()).await;
-    offer::test_offer_provider_valid_current_offer_returns_some(store).await;
-}
-
-#[tokio::test]
 async fn test_sqlite_post_offer_with_missing_metadata() {
     let t = TempDir::new().unwrap();
     let store = create_sqlite_store(t.path()).await;
