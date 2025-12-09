@@ -13,15 +13,15 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.1.25"
+version = "0.1.26"
 
 [workspace.dependencies]
-switchgear-components = { version = "0.1.25", path = "components" }
-switchgear-migration = { version = "0.1.25", path = "migration" }
-switchgear-pingora = { version = "0.1.25", path = "pingora" }
-switchgear-service = { version = "0.1.25", path = "service" }
-switchgear-service-api = { version = "0.1.25", path = "service-api" }
-switchgear-testing = { version = "0.1.25", path = "testing" }
+switchgear-components = { version = "0.1.26", path = "components" }
+switchgear-migration = { version = "0.1.26", path = "migration" }
+switchgear-pingora = { version = "0.1.26", path = "pingora" }
+switchgear-service = { version = "0.1.26", path = "service" }
+switchgear-service-api = { version = "0.1.26", path = "service-api" }
+switchgear-testing = { version = "0.1.26", path = "testing" }
 
 [profile.release]
 codegen-units = 1
