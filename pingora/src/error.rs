@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::error::Error;
 use std::fmt::{Display, Formatter};
 use switchgear_service_api::service::{HasServiceErrorSource, ServiceErrorSource};
 use thiserror::Error;
@@ -10,7 +11,7 @@ pub enum PingoraLnErrorSourceKind {
     #[error("no available lightning nodes")]
     NoAvailableNodes,
     #[error("{0}")]
-    IoError(std::io::Error),
+    ServiceError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 #[derive(Error, Debug)]
@@ -56,15 +57,17 @@ impl PingoraLnError {
         }
     }
 
-    pub fn from_io_err<C: Into<Cow<'static, str>>>(
-        esource: ServiceErrorSource,
+    pub fn from_service_error<
+        E: Error + HasServiceErrorSource + Send + Sync + 'static,
+        C: Into<Cow<'static, str>>,
+    >(
         context: C,
-        error: std::io::Error,
+        source: E,
     ) -> Self {
         Self {
             context: context.into(),
-            source: PingoraLnErrorSourceKind::IoError(error),
-            esource,
+            esource: source.get_service_error_source(),
+            source: PingoraLnErrorSourceKind::ServiceError(source.into()),
         }
     }
 

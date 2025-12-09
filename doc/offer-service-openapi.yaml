@@ -6,7 +6,7 @@ info:
 servers:
   - url: http://localhost:3002
 security:
-  - bearerAuth: []
+  - bearerAuth: [ ]
 paths:
   /offers:
     post:
@@ -94,6 +94,13 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: sparse
+          in: query
+          required: false
+          schema:
+            default: true
+            type: boolean
+          description: If true, only includes metadataId. If false, includes full metadata representation.
       responses:
         '200':
           description: Offer details
@@ -316,7 +323,7 @@ paths:
     get:
       summary: Health check
       description: Returns HTTP 200 OK to indicate the offer service is running and accessible.
-      security: []
+      security: [ ]
       responses:
         '200':
           description: Service healthy
@@ -359,6 +366,11 @@ components:
           type: string
           format: uuid
           description: Reference to offer metadata
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/OfferMetadataSparse'
+          nullable: true
+          description: Optional full metadata object (included when sparse=false in GET request)
         timestamp:
           type: string
           format: date-time
@@ -392,6 +404,11 @@ components:
           type: string
           format: uuid
           description: Reference to offer metadata
+        metadata:
+          allOf:
+            - $ref: '#/components/schemas/OfferMetadataSparse'
+          nullable: true
+          description: Optional full metadata object (included when sparse=false)
         timestamp:
           type: string
           format: date-time

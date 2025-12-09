@@ -403,9 +403,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64ct"
-version = "1.8.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
+checksum = "0e050f626429857a27ddccb31e0aca21356bfa709c04041aefddac081a8f068a"
 
 [[package]]
 name = "bech32"
@@ -429,9 +429,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin"
-version = "0.32.7"
+version = "0.32.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fda569d741b895131a88ee5589a467e73e9c4718e958ac9308e4f7dc44b6945"
+checksum = "1e499f9fc0407f50fe98af744ab44fa67d409f76b6772e1689ec8485eb0c0f66"
 dependencies = [
  "base58ck",
  "bech32",
@@ -558,9 +558,9 @@ checksum = "6bd91ee7b2422bcb158d90ef4d14f75ef67f340943fc4149891dcce8f8b972a3"
 
 [[package]]
 name = "cc"
-version = "1.2.48"
+version = "1.2.49"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c481bdbf0ed3b892f6f806287d72acd515b352a4ec27a208489b8c1bc839633a"
+checksum = "90583009037521a116abf44494efecd645ba48b6622457080f080b85544e2215"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1184,9 +1184,9 @@ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
 
 [[package]]
 name = "flate2"
-version = "1.1.7"
+version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2152dbcb980c05735e2a651d96011320a949eb31a0c8b38b72645ce97dec676"
+checksum = "bfe33edd8e85a12a67454e37f8c75e730830d83e313556ab9ebf9ee7fbeb3bfb"
 dependencies = [
  "crc32fast",
  "libz-ng-sys",
@@ -3132,9 +3132,9 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "reqwest"
-version = "0.12.24"
+version = "0.12.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d0946410b9f7b082a427e4ef5c8ff541a88b357bc6c637c40db3a68ac70a36f"
+checksum = "b6eff9328d40131d43bd911d42d79eb6a47312002a4daefc9e37f17e74a7701a"
 dependencies = [
  "base64",
  "bytes",
@@ -3819,9 +3819,9 @@ dependencies = [
 
 [[package]]
 name = "simd-adler32"
-version = "0.3.7"
+version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
+checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "simple_asn1"
@@ -4156,11 +4156,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.24"
+version = "0.1.25"
 
 [[package]]
 name = "switchgear-components"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4201,7 +4201,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -4209,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4222,6 +4222,7 @@ dependencies = [
  "pingora-load-balancing",
  "rand 0.8.5",
  "secp256k1 0.31.1",
+ "switchgear-components",
  "switchgear-service-api",
  "thiserror 2.0.17",
  "tokio",
@@ -4230,7 +4231,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4277,7 +4278,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "async-trait",
  "axum",
@@ -4287,6 +4288,7 @@ dependencies = [
  "chrono",
  "http",
  "image",
+ "indexmap 2.12.1",
  "jsonwebtoken",
  "log",
  "p256",
@@ -4298,8 +4300,8 @@ dependencies = [
  "secp256k1 0.31.1",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
- "switchgear-components",
  "switchgear-service-api",
  "thiserror 2.0.17",
  "tokio",
@@ -4310,7 +4312,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service-api"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "async-trait",
  "axum",
@@ -4331,7 +4333,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -4753,9 +4755,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.7"
+version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cf146f99d442e8e68e585f5d798ccd3cad9a7835b917e09728880a862706456"
+checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
  "bitflags 2.10.0",
  "bytes",

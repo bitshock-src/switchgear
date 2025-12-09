@@ -117,42 +117,6 @@ async fn test_postgres_get_all_offer_metadata() {
 }
 
 #[tokio::test]
-async fn test_postgres_offer_provider_successful_retrieval() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_successful_retrieval(store).await;
-}
-
-#[tokio::test]
-async fn test_postgres_offer_provider_offer_not_found() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_offer_not_found(store).await;
-}
-
-#[tokio::test]
-async fn test_postgres_offer_provider_metadata_not_found() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_metadata_not_found_or_foreign_key_constraint(store).await;
-}
-
-#[tokio::test]
-async fn test_postgres_offer_provider_hash_consistency() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_hash_consistency(store).await;
-}
-
-#[tokio::test]
-async fn test_postgres_offer_provider_different_metadata_different_hashes() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_different_metadata_different_hashes(store).await;
-}
-
-#[tokio::test]
-async fn test_postgres_offer_provider_valid_current_offer_returns_some() {
-    let (store, _guard) = create_postgres_store().await;
-    offer::test_offer_provider_valid_current_offer_returns_some(store).await;
-}
-
-#[tokio::test]
 async fn test_postgres_post_offer_with_missing_metadata() {
     let (store, _guard) = create_postgres_store().await;
     offer::test_post_offer_with_missing_metadata(store).await;

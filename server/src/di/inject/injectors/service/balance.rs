@@ -8,6 +8,7 @@ use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
 use switchgear_components::axum::middleware::logger::ClfLogger;
+use switchgear_components::offer::provider::StoreOfferProvider;
 use switchgear_service::scheme::Scheme;
 use switchgear_service::{LnUrlBalancerService, LnUrlPayState};
 
@@ -58,6 +59,8 @@ impl BalancerServiceInjector {
             .get()
             .await?
             .ok_or_else(|| anyhow!("lnurl service enabled but has no offer store"))?;
+
+        let offer_store = StoreOfferProvider::new(offer_store);
 
         let listener = TcpListener::bind(service_config.address).with_context(|| {
             format!(

@@ -13,6 +13,7 @@ pub trait OfferStore {
         &self,
         partition: &str,
         id: &Uuid,
+        sparse: Option<bool>,
     ) -> Result<Option<OfferRecord>, Self::Error>;
 
     async fn get_offers(
@@ -108,6 +109,8 @@ pub struct OfferRecordSparse {
     pub max_sendable: u64,
     pub min_sendable: u64,
     pub metadata_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<OfferMetadataSparse>,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires: Option<chrono::DateTime<chrono::Utc>>,

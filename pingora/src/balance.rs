@@ -1,5 +1,5 @@
-use crate::backoff::BackoffProvider;
 use crate::error::PingoraLnError;
+use crate::PingoraBackoffProvider;
 use crate::{PingoraLnBackendExtension, PingoraLnClientPool, PingoraLnMetricsCache};
 use async_trait::async_trait;
 use backoff::backoff::Backoff;
@@ -7,10 +7,11 @@ use log::{error, warn};
 use pingora_core::services::background::BackgroundService;
 use pingora_load_balancing::selection::{BackendIter, BackendSelection};
 use pingora_load_balancing::{Backend, LoadBalancer};
+use std::error::Error;
 use std::sync::Arc;
 use switchgear_service_api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service_api::offer::Offer;
-use switchgear_service_api::service::ServiceErrorSource;
+use switchgear_service_api::service::{HasServiceErrorSource, ServiceErrorSource};
 use tokio::sync::watch::Receiver;
 use tokio::time::sleep;
 
@@ -62,7 +63,7 @@ pub struct PingoraLnBalancer<S, P, M, B, X>
 where
     P: Clone,
     M: Clone,
-    B: BackoffProvider,
+    B: PingoraBackoffProvider,
     X: MaxIterations,
 {
     load_balancer: Arc<LoadBalancer<S>>,
@@ -78,7 +79,7 @@ impl<S, P, M, B, X> Clone for PingoraLnBalancer<S, P, M, B, X>
 where
     P: Clone,
     M: Clone,
-    B: BackoffProvider,
+    B: PingoraBackoffProvider,
     X: MaxIterations,
 {
     fn clone(&self) -> Self {
@@ -98,9 +99,10 @@ impl<S, P, M, B, X> PingoraLnBalancer<S, P, M, B, X>
 where
     S: BackendSelection + 'static,
     S::Iter: BackendIter,
-    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Clone,
+    P: PingoraLnClientPool<Key = Backend> + Clone,
+    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
     M: PingoraLnMetricsCache<Key = Backend> + Clone,
-    B: BackoffProvider,
+    B: PingoraBackoffProvider,
     X: MaxIterations,
 {
     pub fn new(
@@ -170,7 +172,13 @@ where
         let invoice = self
             .pool
             .get_invoice(offer, backend, amount_msat.into(), expiry_secs.into())
-            .await?;
+            .await
+            .map_err(|e| {
+                PingoraLnError::from_service_error(
+                    format!("get invoice for offer {}/{}", offer.partition, offer.id),
+                    e,
+                )
+            })?;
 
         Ok(invoice)
     }
@@ -181,9 +189,10 @@ impl<S, P, M, B, X> LnBalancer for PingoraLnBalancer<S, P, M, B, X>
 where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
-    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Send + Sync + Clone + 'static,
+    P: PingoraLnClientPool<Key = Backend> + Send + Sync + Clone + 'static,
+    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
     M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
-    B: BackoffProvider + Send + Sync + 'static,
+    B: PingoraBackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
 {
     type Error = PingoraLnError;
@@ -273,9 +282,10 @@ impl<S, P, M, B, X> LnBalancerBackgroundServices for PingoraLnBalancer<S, P, M, 
 where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
-    P: PingoraLnClientPool<Key = Backend, Error = PingoraLnError> + Send + Sync + Clone + 'static,
+    P: PingoraLnClientPool<Key = Backend> + Send + Sync + Clone + 'static,
+    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
     M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
-    B: BackoffProvider + Send + Sync + 'static,
+    B: PingoraBackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
 {
     async fn start(&self, shutdown_rx: Receiver<bool>) {
@@ -296,7 +306,6 @@ mod tests {
     use pingora_load_balancing::{Backends, LoadBalancer};
     use std::collections::{BTreeSet, HashMap};
     use std::hash::{DefaultHasher, Hash, Hasher};
-    use std::io;
     use std::sync::{Arc, Mutex};
     use switchgear_service_api::balance::LnBalancer;
     use switchgear_service_api::discovery::DiscoveryBackend;
@@ -328,10 +337,10 @@ mod tests {
                     Ok("mock_invoice".to_string())
                 }
             } else {
-                Err(PingoraLnError::from_io_err(
+                Err(PingoraLnError::general_error(
                     ServiceErrorSource::Upstream,
                     "mock get_invoice",
-                    io::Error::from(io::ErrorKind::Other),
+                    "forced error".to_string(),
                 ))
             }
         }

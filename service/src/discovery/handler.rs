@@ -74,13 +74,14 @@ impl DiscoveryHandlers {
     where
         S: DiscoveryBackendStore,
     {
+        let location = backend.public_key.to_string();
+
         let result = state
             .store()
-            .post(backend.clone())
+            .post(backend)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let location = backend.public_key.to_string();
         let location = HeaderValue::from_str(&location)?;
 
         match result {
@@ -106,7 +107,7 @@ impl DiscoveryHandlers {
 
         let was_created = state
             .store()
-            .put(backend.clone())
+            .put(backend)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
@@ -134,7 +135,7 @@ impl DiscoveryHandlers {
 
         let patched = state
             .store()
-            .patch(backend.clone())
+            .patch(backend)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 

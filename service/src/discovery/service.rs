@@ -52,6 +52,7 @@ mod tests {
     use crate::discovery::auth::{DiscoveryAudience, DiscoveryClaims};
     use crate::discovery::service::DiscoveryService;
     use crate::discovery::state::DiscoveryState;
+    use crate::testing::discovery::store::TestDiscoveryBackendStore;
     use axum::http::StatusCode;
     use axum_test::TestServer;
     use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
@@ -61,7 +62,6 @@ mod tests {
     use rand::{thread_rng, Rng};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::time::{SystemTime, UNIX_EPOCH};
-    use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
     use switchgear_service_api::discovery::{
         DiscoveryBackend, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
     };
@@ -104,7 +104,7 @@ mod tests {
             .unwrap();
         let decoding_key = DecodingKey::from_ec_pem(public_key.as_bytes()).unwrap();
 
-        let store = MemoryDiscoveryBackendStore::new();
+        let store = TestDiscoveryBackendStore::default();
         let state = DiscoveryState::new(store, decoding_key);
 
         let header = Header::new(Algorithm::ES256);

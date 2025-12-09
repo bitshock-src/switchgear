@@ -2,6 +2,8 @@ pub(crate) mod axum;
 pub(crate) mod discovery;
 pub(crate) mod lnurl;
 pub(crate) mod offer;
+#[cfg(test)]
+mod testing;
 
 pub use axum::extract::scheme;
 

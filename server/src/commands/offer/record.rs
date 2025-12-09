@@ -88,6 +88,7 @@ pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> 
             max_sendable: 0,
             min_sendable: 0,
             metadata_id: *metadata_id,
+            metadata: None,
             #[allow(clippy::expect_used)]
             timestamp: DateTime::<Utc>::from_timestamp_secs(0).expect("unix epoch"),
             #[allow(clippy::expect_used)]
@@ -121,7 +122,7 @@ pub async fn get_offer(
 ) -> anyhow::Result<()> {
     let client = create_offer_client(client_configuration)?;
     if let Some(id) = id {
-        if let Some(offer) = client.get_offer(partition, id).await? {
+        if let Some(offer) = client.get_offer(partition, id, None).await? {
             let offer = serde_json::to_string_pretty(&offer)
                 .with_context(|| format!("serializing offer {id}"))?;
             cli_write_all(output, offer.as_bytes()).with_context(|| {

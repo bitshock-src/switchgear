@@ -11,6 +11,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{Ipv6Addr, SocketAddrV6};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use switchgear_service_api::discovery::{DiscoveryBackendStore, DiscoveryBackends};
 
 pub struct LnServiceDiscovery<B, P> {
     backend_provider: B,
@@ -40,17 +41,7 @@ where
 {
     async fn discover(&self) -> pingora_error::Result<(BTreeSet<Backend>, HashMap<u64, bool>)> {
         let etag = self.last_etag.load(Ordering::Relaxed);
-        let backends = self
-            .backend_provider
-            .backends(Some(etag))
-            .await
-            .map_err(|e| {
-                pingora_error::Error::because(
-                    pingora_error::ErrorType::InternalError,
-                    "getting all discovery backends",
-                    e,
-                )
-            })?;
+        let backends = self.backend_provider.backends(Some(etag)).await?;
 
         let discovery_backends = match backends.backends {
             None => {
@@ -112,6 +103,35 @@ where
     }
 }
 
+pub struct PingoraDiscoveryBackendStoreProvider<S> {
+    store: S,
+}
+
+impl<S> PingoraDiscoveryBackendStoreProvider<S> {
+    pub fn new(store: S) -> Self {
+        Self { store }
+    }
+}
+
+#[async_trait]
+impl<S> PingoraBackendProvider for PingoraDiscoveryBackendStoreProvider<S>
+where
+    S: DiscoveryBackendStore + Sync,
+{
+    async fn backends(
+        &self,
+        etag: Option<u64>,
+    ) -> Result<DiscoveryBackends, pingora_error::BError> {
+        self.store.get_all(etag).await.map_err(|e| {
+            pingora_error::Error::because(
+                pingora_error::ErrorType::InternalError,
+                "getting all discovery backends from discovery backend store",
+                e,
+            )
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::discovery::LnServiceDiscovery;
@@ -124,7 +144,6 @@ mod tests {
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::collections::{BTreeSet, HashSet};
     use std::hash::{DefaultHasher, Hash, Hasher};
-    use std::io;
     use std::sync::Arc;
     use switchgear_service_api::discovery::{
         DiscoveryBackend, DiscoveryBackendSparse, DiscoveryBackends,
@@ -139,9 +158,10 @@ mod tests {
 
     #[async_trait]
     impl PingoraBackendProvider for MockBackendProvider {
-        type Error = PingoraLnError;
-
-        async fn backends(&self, _etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        async fn backends(
+            &self,
+            _etag: Option<u64>,
+        ) -> Result<DiscoveryBackends, pingora_error::BError> {
             let backends = self
                 .backends_to_return
                 .lock()
@@ -150,10 +170,9 @@ mod tests {
                 .cloned()
                 .map(|s| s.into_iter().collect::<Vec<_>>())
                 .ok_or_else(|| {
-                    PingoraLnError::from_io_err(
-                        ServiceErrorSource::Internal,
+                    pingora_error::Error::explain(
+                        pingora_error::ErrorType::InternalError,
                         "Mock BackendProvider forced error",
-                        io::Error::from(io::ErrorKind::Other),
                     )
                 })?;
             Ok(DiscoveryBackends {
@@ -188,10 +207,10 @@ mod tests {
 
         fn connect(&self, _key: Self::Key, _backend: &DiscoveryBackend) -> Result<(), Self::Error> {
             if self.should_fail_connect {
-                Err(PingoraLnError::from_io_err(
+                Err(PingoraLnError::general_error(
                     ServiceErrorSource::Upstream,
                     "Mock LnClientPool forced connect error",
-                    io::Error::from(io::ErrorKind::Other),
+                    "forced error".to_string(),
                 ))
             } else {
                 Ok(())
@@ -303,7 +322,7 @@ mod tests {
         let err = result.unwrap_err();
         assert_eq!(err.etype, pingora_error::ErrorType::InternalError);
         assert!(err
-            .cause
+            .context
             .unwrap()
             .to_string()
             .contains("Mock BackendProvider forced error"));
@@ -381,10 +400,10 @@ mod tests {
                     .iter()
                     .any(|fail_addr| addr_str.as_str() == fail_addr.as_str())
                 {
-                    Err(PingoraLnError::from_io_err(
+                    Err(PingoraLnError::general_error(
                         ServiceErrorSource::Upstream,
                         "Selective mock pool forced connect error",
-                        io::Error::from(io::ErrorKind::Other),
+                        "forced error".to_string(),
                     ))
                 } else {
                     Ok(())

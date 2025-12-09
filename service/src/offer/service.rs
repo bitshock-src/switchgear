@@ -59,6 +59,7 @@ impl OfferService {
 mod tests {
     use crate::offer::service::OfferService;
     use crate::offer::state::OfferState;
+    use crate::testing::offer::store::TestOfferStore;
     use crate::{OfferAudience, OfferClaims};
     use axum::http::StatusCode;
     use axum_test::TestServer;
@@ -69,7 +70,6 @@ mod tests {
     use p256::pkcs8::EncodePublicKey;
     use rand::thread_rng;
     use std::time::{SystemTime, UNIX_EPOCH};
-    use switchgear_components::offer::memory::MemoryOfferStore;
     use switchgear_service_api::offer::{
         OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
         OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
@@ -84,6 +84,7 @@ mod tests {
                 max_sendable: 1000000,
                 min_sendable: 1000,
                 metadata_id,
+                metadata: None,
                 timestamp: Utc::now() - Duration::hours(1),
                 expires: Some(Utc::now() + Duration::hours(1)),
             },
@@ -134,7 +135,7 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let store = MemoryOfferStore::default();
+        let store = TestOfferStore::default();
 
         for m in metadata {
             store.put_metadata(m).await.unwrap();
@@ -181,7 +182,7 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let store = MemoryOfferStore::default();
+        let store = TestOfferStore::default();
         store.put_metadata(metadata).await.unwrap();
         let state = OfferState::new(store.clone(), store, decoding_key, 100);
 
@@ -218,7 +219,7 @@ mod tests {
         };
         let authorization = encode(&header, &claims, &encoding_key).unwrap();
 
-        let store = MemoryOfferStore::default();
+        let store = TestOfferStore::default();
         let state = OfferState::new(store.clone(), store, decoding_key, 100);
 
         let app = OfferService::router(state);
@@ -284,11 +285,12 @@ mod tests {
     #[tokio::test]
     async fn get_offer_when_exists_then_returns_resource() {
         let test_metadata = create_test_metadata();
-        let test_offer = create_test_offer_with_metadata_id(test_metadata.id);
+        let mut test_offer = create_test_offer_with_metadata_id(test_metadata.id);
         let offer_id = test_offer.id;
 
         let server =
-            create_test_server_with_offer(vec![test_offer.clone()], vec![test_metadata]).await;
+            create_test_server_with_offer(vec![test_offer.clone()], vec![test_metadata.clone()])
+                .await;
         let response = server
             .server
             .get(&format!("/offers/default/{offer_id}"))
@@ -297,11 +299,18 @@ mod tests {
 
         assert_eq!(response.status_code(), StatusCode::OK);
         let returned_offer: OfferRecord = response.json();
-        assert_eq!(returned_offer.id, offer_id);
-        assert_eq!(
-            returned_offer.offer.max_sendable,
-            test_offer.offer.max_sendable
-        );
+        assert_eq!(test_offer, returned_offer);
+
+        let response = server
+            .server
+            .get(&format!("/offers/default/{offer_id}?sparse=false"))
+            .authorization_bearer(server.authorization.clone())
+            .await;
+
+        test_offer.offer.metadata = Some(test_metadata.metadata);
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let returned_offer: OfferRecord = response.json();
+        assert_eq!(test_offer, returned_offer);
     }
 
     #[tokio::test]

@@ -24,10 +24,16 @@ pub struct GetAllMetadataQueryParameters {
     pub count: Option<usize>,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct GetOfferQueryParameters {
+    pub sparse: Option<bool>,
+}
+
 pub struct OfferHandlers;
 
 impl OfferHandlers {
     pub async fn get_offer<S, M>(
+        Query(params): Query<GetOfferQueryParameters>,
         UuidParam { partition, id }: UuidParam,
         State(state): State<OfferState<S, M>>,
     ) -> Result<JsonCrudResponse<OfferRecord>, CrudError>
@@ -37,7 +43,7 @@ impl OfferHandlers {
     {
         let offer = state
             .offer_store()
-            .get_offer(&partition, &id)
+            .get_offer(&partition, &id, params.sparse)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?
             .ok_or(CrudError::not_found())?;
@@ -73,19 +79,21 @@ impl OfferHandlers {
 
     pub async fn post_offer<S, M>(
         State(state): State<OfferState<S, M>>,
-        Json(offer): Json<OfferRecord>,
+        Json(mut offer): Json<OfferRecord>,
     ) -> Result<JsonCrudResponse<()>, CrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
+        offer.offer.metadata = None;
+        let location = format!("{}/{}", offer.partition, offer.id);
+
         let result = state
             .offer_store()
-            .post_offer(offer.clone())
+            .post_offer(offer)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let location = format!("{}/{}", offer.partition, offer.id);
         let location = HeaderValue::from_str(&location)?;
 
         match result {
@@ -103,15 +111,17 @@ impl OfferHandlers {
         S: OfferStore,
         M: OfferMetadataStore,
     {
-        let offer = OfferRecord {
+        let mut offer = OfferRecord {
             partition,
             id,
             offer,
         };
 
+        offer.offer.metadata = None;
+
         let was_created = state
             .offer_store()
-            .put_offer(offer.clone())
+            .put_offer(offer)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
@@ -194,13 +204,14 @@ impl OfferHandlers {
         S: OfferStore,
         M: OfferMetadataStore,
     {
+        let location = format!("{}/{}", metadata.partition, metadata.id);
+
         let result = state
             .metadata_store()
-            .post_metadata(metadata.clone())
+            .post_metadata(metadata)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 
-        let location = format!("{}/{}", metadata.partition, metadata.id);
         let location = HeaderValue::from_str(&location)?;
 
         match result {
@@ -226,7 +237,7 @@ impl OfferHandlers {
 
         let was_created = state
             .metadata_store()
-            .put_metadata(metadata.clone())
+            .put_metadata(metadata)
             .await
             .map_err(|e| crate::crud_error_from_service!(e))?;
 

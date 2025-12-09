@@ -167,8 +167,11 @@ async fn offer_health() -> StatusCode {
 async fn get_offer(
     State(state): State<OfferState>,
     AxumPath((partition, id)): AxumPath<(String, Uuid)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<OfferRecord>, StatusCode> {
-    match state.store.get_offer(&partition, &id).await {
+    let sparse: Option<bool> = params.get("sparse").and_then(|s| s.parse().ok());
+
+    match state.store.get_offer(&partition, &id, sparse).await {
         Ok(Some(offer)) => Ok(Json(offer)),
         Ok(None) => Err(StatusCode::NOT_FOUND),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),

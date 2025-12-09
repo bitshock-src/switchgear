@@ -1,5 +1,5 @@
 use crate::config::{BackendSelectionConfig, BackoffConfig, LnUrlBalancerServiceConfig};
-use crate::di::delegates::{BackoffProviderDelegate, LnBalancerDelegate, LnClientPoolDelegate};
+use crate::di::delegates::{BackoffProviderDelegate, LnBalancerDelegate};
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 use crate::di::inject::injectors::store::discovery::DiscoveryStoreInjector;
 use anyhow::{anyhow, Context};
@@ -17,8 +17,9 @@ use switchgear_pingora::backoff::{ExponentialBackoffProvider, StopBackoffProvide
 use switchgear_pingora::balance::{
     ConsistentMaxIterations, PingoraLnBalancer, RandomMaxIterations, RoundRobinMaxIterations,
 };
-use switchgear_pingora::discovery::LnServiceDiscovery;
+use switchgear_pingora::discovery::{LnServiceDiscovery, PingoraDiscoveryBackendStoreProvider};
 use switchgear_pingora::health::PingoraLnHealthCheck;
+use switchgear_pingora::pool::DefaultPingoraLnClientPool;
 
 #[derive(Clone)]
 pub struct BalancerInjector {
@@ -68,6 +69,8 @@ impl BalancerInjector {
             .await?
             .ok_or_else(|| anyhow!("lnurl service enabled but has no discovery store"))?;
 
+        let discovery = PingoraDiscoveryBackendStoreProvider::new(discovery);
+
         let backoff = match lnurl_config.backoff {
             BackoffConfig::Stop => BackoffProviderDelegate::Stop(StopBackoffProvider),
             BackoffConfig::Exponential {
@@ -110,7 +113,7 @@ impl BalancerInjector {
             trusted_roots,
         );
 
-        let pool = LnClientPoolDelegate::Default(pool);
+        let pool = DefaultPingoraLnClientPool::new(pool);
 
         let discovery =
             LnServiceDiscovery::new(discovery, pool.clone(), lnurl_config.partitions.clone());
