@@ -41,7 +41,7 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
 
     // Sort the two backends by address string representation
     let mut backends = [backend1, backend2];
-    backends.sort_by(|a, b| a.public_key.to_string().cmp(&b.public_key.to_string()));
+    backends.sort_by_key(|a| a.public_key.to_string());
 
     let new_backend1 = backends[0].clone();
     let new_backend2 = backends[1].clone();

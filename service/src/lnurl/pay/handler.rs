@@ -85,12 +85,12 @@ impl LnUrlPayHandlers {
             .await
             .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
         let offer = offer
-            .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", &id)))?;
+            .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", id)))?;
 
         if offer.is_expired() {
             return Err(LnUrlPayServiceError::not_found(format!(
                 "offer not found: {}",
-                &id
+                id
             )));
         }
 
@@ -241,12 +241,12 @@ impl LnUrlPayHandlers {
             .await
             .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
         let offer = offer
-            .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", &id)))?;
+            .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", id)))?;
 
         if offer.is_expired() {
             return Err(LnUrlPayServiceError::not_found(format!(
                 "offer not found: {}",
-                &id
+                id
             )));
         }
 

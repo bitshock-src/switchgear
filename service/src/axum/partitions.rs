@@ -75,7 +75,7 @@ where
                 inner.call(req).await
             } else {
                 let error_response =
-                    LnUrlPayServiceError::not_found(format!("offer not found: {}", &uuid_param.id));
+                    LnUrlPayServiceError::not_found(format!("offer not found: {}", uuid_param.id));
                 Ok(error_response.into_response())
             }
         })

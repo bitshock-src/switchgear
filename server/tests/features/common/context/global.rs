@@ -117,7 +117,7 @@ impl GlobalContext {
     }
 
     pub fn signal_all_servers(&mut self, signal: sysinfo::Signal) -> anyhow::Result<()> {
-        for (_, server) in self.servers.iter_mut() {
+        for server in self.servers.values_mut() {
             server.signal_server(signal)?;
         }
         Ok(())
