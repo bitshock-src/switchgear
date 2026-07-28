@@ -220,7 +220,7 @@ impl OfferStore for HttpOfferStore {
             .map_err(|e| {
                 OfferStoreError::http_error(
                     ServiceErrorSource::Upstream,
-                    format!("post offer: {}, url: {}", offer.id, &self.offer_url),
+                    format!("post offer: {}, url: {}", offer.id, self.offer_url),
                     e,
                 )
             })?;
@@ -230,7 +230,7 @@ impl OfferStore for HttpOfferStore {
             StatusCode::CONFLICT => Ok(None),
             status => Err(Self::general_error(
                 status,
-                &format!("post offer: {}, url: {}", offer.id, &self.offer_url),
+                &format!("post offer: {}, url: {}", offer.id, self.offer_url),
             )),
         }
     }
@@ -359,7 +359,7 @@ impl OfferMetadataStore for HttpOfferStore {
                     ServiceErrorSource::Upstream,
                     format!(
                         "post offer metadata {}, url: {}",
-                        metadata.id, &self.metadata_url
+                        metadata.id, self.metadata_url
                     ),
                     e,
                 )
@@ -372,7 +372,7 @@ impl OfferMetadataStore for HttpOfferStore {
                 status,
                 &format!(
                     "post offer metadata {}, url: {}",
-                    metadata.id, &self.metadata_url
+                    metadata.id, self.metadata_url
                 ),
             )),
         }

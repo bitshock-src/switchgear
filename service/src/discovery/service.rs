@@ -417,7 +417,7 @@ mod tests {
 
         // Sort backends by address before posting
         let mut expected_backends = [backend1, backend2];
-        expected_backends.sort_by(|a, b| a.public_key.to_string().cmp(&b.public_key.to_string()));
+        expected_backends.sort_by_key(|a| a.public_key.to_string());
 
         // Create multiple backends
         server

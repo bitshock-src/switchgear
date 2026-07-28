@@ -1,7 +1,7 @@
 ARG BUILDPLATFORM
 ARG WEBPKI_ROOTS=false
 
-FROM --platform=$BUILDPLATFORM bitshock/linux-musl-rust:1.91.1 AS builder
+FROM --platform=$BUILDPLATFORM bitshock/linux-musl-rust:1.97.1 AS builder
 
 WORKDIR /app
 COPY Cargo.toml ./

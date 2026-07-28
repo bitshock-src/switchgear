@@ -241,7 +241,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                     ServiceErrorSource::Upstream,
                     format!(
                         "post backend: {}, url: {}",
-                        backend.public_key, &self.discovery_url
+                        backend.public_key, self.discovery_url
                     ),
                     e,
                 )
@@ -254,7 +254,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
                 status,
                 &format!(
                     "post backend: {}, url: {}",
-                    backend.public_key, &self.discovery_url
+                    backend.public_key, self.discovery_url
                 ),
             )),
         }

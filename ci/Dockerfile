@@ -1,5 +1,5 @@
 # CI Rust build image
-FROM rust:1.91.1
+FROM rust:1.97.1
 
 RUN apt-get update && \
     apt-get upgrade -y && \
