@@ -2,16 +2,16 @@ use crate::{PingoraBackendProvider, PingoraLnBackendExtension, PingoraLnClientPo
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use axum::http::Extensions;
-use log::error;
 use pingora_core::protocols::l4::socket::SocketAddr;
-use pingora_load_balancing::discovery::ServiceDiscovery;
 use pingora_load_balancing::Backend;
+use pingora_load_balancing::discovery::ServiceDiscovery;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{Ipv6Addr, SocketAddrV6};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use switchgear_service_api::discovery::{DiscoveryBackendStore, DiscoveryBackends};
+use tracing::error;
 
 pub struct LnServiceDiscovery<B, P> {
     backend_provider: B,
@@ -48,7 +48,7 @@ where
                 return Ok((
                     (**self.pingora_backend_cache.load()).clone(),
                     HashMap::new(),
-                ))
+                ));
             }
             Some(backends) => BTreeSet::from_iter(backends),
         };
@@ -138,18 +138,18 @@ mod tests {
     use crate::error::PingoraLnError;
     use crate::{PingoraBackendProvider, PingoraLnClientPool, PingoraLnMetrics};
     use async_trait::async_trait;
-    use pingora_load_balancing::discovery::ServiceDiscovery;
     use pingora_load_balancing::Backend;
+    use pingora_load_balancing::discovery::ServiceDiscovery;
     use rand::Rng;
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::collections::{BTreeSet, HashSet};
     use std::hash::{DefaultHasher, Hash, Hasher};
     use std::sync::Arc;
+    use switchgear_error::ErrorOrigin;
     use switchgear_service_api::discovery::{
         DiscoveryBackend, DiscoveryBackendSparse, DiscoveryBackends,
     };
     use switchgear_service_api::offer::Offer;
-    use switchgear_service_api::service::ServiceErrorSource;
     use tokio::sync::Mutex;
 
     struct MockBackendProvider {
@@ -207,10 +207,9 @@ mod tests {
 
         fn connect(&self, _key: Self::Key, _backend: &DiscoveryBackend) -> Result<(), Self::Error> {
             if self.should_fail_connect {
-                Err(PingoraLnError::general_error(
-                    ServiceErrorSource::Upstream,
-                    "Mock LnClientPool forced connect error",
-                    "forced error".to_string(),
+                Err(PingoraLnError::message(
+                    ErrorOrigin::Upstream,
+                    "Mock LnClientPool forced connect error: forced error",
                 ))
             } else {
                 Ok(())
@@ -222,7 +221,7 @@ mod tests {
         let secp = Secp256k1::new();
         let mut rng = rand::thread_rng();
 
-        let backend_secret_key = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+        let backend_secret_key = SecretKey::from_byte_array(rng.r#gen::<[u8; 32]>()).unwrap();
         let backend_public_key = PublicKey::from_secret_key(&secp, &backend_secret_key);
 
         DiscoveryBackend {
@@ -321,11 +320,12 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.etype, pingora_error::ErrorType::InternalError);
-        assert!(err
-            .context
-            .unwrap()
-            .to_string()
-            .contains("Mock BackendProvider forced error"));
+        assert!(
+            err.context
+                .unwrap()
+                .to_string()
+                .contains("Mock BackendProvider forced error")
+        );
     }
 
     #[tokio::test]
@@ -400,10 +400,9 @@ mod tests {
                     .iter()
                     .any(|fail_addr| addr_str.as_str() == fail_addr.as_str())
                 {
-                    Err(PingoraLnError::general_error(
-                        ServiceErrorSource::Upstream,
-                        "Selective mock pool forced connect error",
-                        "forced error".to_string(),
+                    Err(PingoraLnError::message(
+                        ErrorOrigin::Upstream,
+                        "Selective mock pool forced connect error: forced error",
                     ))
                 } else {
                     Ok(())

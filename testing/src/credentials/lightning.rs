@@ -1,6 +1,6 @@
 use crate::credentials::download_credentials;
 use crate::services::{IntegrationTestServices, LightningIntegrationTestServices};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use secp256k1::PublicKey;
 use std::fs;
 use std::path::{Path, PathBuf};

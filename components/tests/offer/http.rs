@@ -1,8 +1,10 @@
 use crate::common::{mock_service, offer};
 use anyhow::anyhow;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use switchgear_components::offer::http::HttpOfferStore;
+use switchgear_components::secrets::{SecretStore, SecretStoreConfig, SecretStoreSecretConfig};
 use switchgear_service_api::offer::HttpOfferClient;
 
 async fn create_http_store() -> (HttpOfferStore, mock_service::TestService) {
@@ -14,12 +16,23 @@ async fn create_http_store() -> (HttpOfferStore, mock_service::TestService) {
     let test_service = mock_service::TestService::start(&ports_path).await.unwrap();
     let base_url = test_service.offer_base_url();
 
+    let secret_store = SecretStore::create(&SecretStoreConfig {
+        ttl: 60.0,
+        secrets: BTreeMap::from([(
+            "BEARER".to_owned(),
+            SecretStoreSecretConfig {
+                path: test_service.offer_authorization_path.clone(),
+            },
+        )]),
+    });
+
     let store = HttpOfferStore::create(
         base_url,
         Duration::from_secs(10),
         Duration::from_secs(10),
         &[],
-        test_service.offer_authorization.clone(),
+        secret_store,
+        "BEARER",
     )
     .unwrap();
 

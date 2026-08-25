@@ -4,11 +4,20 @@ use tempfile::TempDir;
 
 use crate::common::offer;
 
+const CONNECT_TIMEOUT: f64 = 5.0;
+const ACQUIRE_TIMEOUT: f64 = 10.0;
+
 async fn create_sqlite_store(path: &Path) -> DbOfferStore {
     let path = path.join("db.sqlite");
-    let store = DbOfferStore::connect(&format!("sqlite://{}?mode=rwc", path.to_string_lossy()), 5)
-        .await
-        .unwrap();
+    let store = DbOfferStore::connect(
+        &format!("sqlite://{}?mode=rwc", path.to_string_lossy()),
+        Default::default(),
+        5,
+        CONNECT_TIMEOUT,
+        ACQUIRE_TIMEOUT,
+    )
+    .await
+    .unwrap();
     store.migrate_up().await.unwrap();
     store
 }

@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use switchgear_error::{ErrorOrigin, ForeignContext};
 use switchgear_service_api::discovery::DiscoveryBackend;
 use switchgear_service_api::offer::Offer;
-use switchgear_service_api::service::ServiceErrorSource;
 use tonic::transport::CertificateDer;
 
 type LnClientMap<K> =
@@ -40,27 +40,30 @@ where
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_client(
         &self,
         key: &K,
     ) -> Result<Arc<Box<dyn LnRpcClient<Error = LnPoolError> + Send + Sync + 'static>>, LnPoolError>
     {
-        let pool = self.pool.lock().map_err(|e| {
-            LnPoolError::from_memory_error(
-                e.to_string(),
+        let Ok(pool) = self.pool.lock() else {
+            return Err(LnPoolError::message(
+                ErrorOrigin::Internal,
                 format!("fetching client from pool for key: {key:?}"),
-            )
-        })?;
+            ));
+        };
         let client = pool.get(key).ok_or_else(|| {
-            LnPoolError::from_invalid_configuration(
-                format!("client for key: {key:?} not found in pool"),
-                ServiceErrorSource::Internal,
-                format!("fetching client from pool for key: {key:?}"),
+            LnPoolError::message(
+                ErrorOrigin::Internal,
+                format!(
+                    "fetching client from pool for key: {key:?}: client for key: {key:?} not found in pool"
+                ),
             )
         })?;
         Ok(client.clone())
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_invoice(
         &self,
         offer: &Offer,
@@ -86,23 +89,28 @@ where
             .await
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_metrics(&self, key: &K) -> Result<LnMetrics, LnPoolError> {
         let client = self.get_client(key).await?;
 
         let metrics = client.get_metrics().await?;
 
-        let mut cache = self.metrics_cache.lock().map_err(|e| {
-            LnPoolError::from_memory_error(e.to_string(), format!("get node metrics key: {key:?}"))
-        })?;
+        let Ok(mut cache) = self.metrics_cache.lock() else {
+            return Err(LnPoolError::message(
+                ErrorOrigin::Internal,
+                format!("caching metrics for key: {key:?}"),
+            ));
+        };
 
         cache.insert(key.clone(), metrics.clone());
         Ok(metrics)
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn connect(&self, key: K, backend: &DiscoveryBackend) -> Result<(), LnPoolError> {
         let implementation: DiscoveryBackendImplementation =
             serde_json::from_slice(backend.backend.implementation.as_slice())
-                .map_err(|e| LnPoolError::from_json_error(e, "parsing backend implementation"))?;
+                .foreign_context("parsing backend implementation", None)?;
         let client: Box<dyn LnRpcClient<Error = LnPoolError> + Send + Sync> = match implementation {
             DiscoveryBackendImplementation::ClnGrpc(implementation) => Box::new(
                 TonicClnGrpcClient::create(self.timeout, implementation, &self.trusted_roots)?,
@@ -112,9 +120,12 @@ where
             ),
         };
 
-        let mut pool = self.pool.lock().map_err(|e| {
-            LnPoolError::from_memory_error(e.to_string(), format!("connecting ln client {key:?}"))
-        })?;
+        let Ok(mut pool) = self.pool.lock() else {
+            return Err(LnPoolError::message(
+                ErrorOrigin::Internal,
+                format!("connecting ln client {key:?}"),
+            ));
+        };
         pool.insert(key, Arc::new(client));
 
         Ok(())

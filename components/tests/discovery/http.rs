@@ -1,8 +1,10 @@
 use crate::common::{discovery, mock_service};
 use anyhow::anyhow;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
+use switchgear_components::secrets::{SecretStore, SecretStoreConfig, SecretStoreSecretConfig};
 use switchgear_service_api::discovery::HttpDiscoveryBackendClient;
 
 async fn create_http_store() -> (HttpDiscoveryBackendStore, mock_service::TestService) {
@@ -14,12 +16,23 @@ async fn create_http_store() -> (HttpDiscoveryBackendStore, mock_service::TestSe
     let test_service = mock_service::TestService::start(&ports_path).await.unwrap();
     let base_url = test_service.discovery_base_url();
 
+    let secret_store = SecretStore::create(&SecretStoreConfig {
+        ttl: 60.0,
+        secrets: BTreeMap::from([(
+            "BEARER".to_owned(),
+            SecretStoreSecretConfig {
+                path: test_service.discovery_authorization_path.clone(),
+            },
+        )]),
+    });
+
     let store = HttpDiscoveryBackendStore::create(
         base_url,
         Duration::from_secs(10),
         Duration::from_secs(10),
         &[],
-        test_service.discovery_authorization.clone(),
+        secret_store,
+        "BEARER",
     )
     .unwrap();
     (store, test_service)

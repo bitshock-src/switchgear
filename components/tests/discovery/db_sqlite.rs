@@ -4,11 +4,17 @@ use tempfile::TempDir;
 
 use crate::common::discovery;
 
+const CONNECT_TIMEOUT: f64 = 5.0;
+const ACQUIRE_TIMEOUT: f64 = 10.0;
+
 async fn create_sqlite_store(path: &Path) -> DbDiscoveryBackendStore {
     let path = path.join("db.sqlite");
     let store = DbDiscoveryBackendStore::connect(
         &format!("sqlite://{}?mode=rwc", path.to_string_lossy()),
+        Default::default(),
         5,
+        CONNECT_TIMEOUT,
+        ACQUIRE_TIMEOUT,
     )
     .await
     .unwrap();

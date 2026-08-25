@@ -1,9 +1,9 @@
-use crate::offer::error::OfferStoreError;
+use crate::offer::error::DefaultOfferStoreError;
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
+use switchgear_error::{ErrorOrigin, ForeignContext};
 use switchgear_service_api::lnurl::LnUrlOfferMetadata;
 use switchgear_service_api::offer::{Offer, OfferProvider, OfferStore};
-use switchgear_service_api::service::ServiceErrorSource;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -21,10 +21,11 @@ impl<S> StoreOfferProvider<S> {
 impl<S> OfferProvider for StoreOfferProvider<S>
 where
     S: OfferStore + Send + Sync + 'static,
-    S::Error: From<OfferStoreError>,
+    S::Error: From<DefaultOfferStoreError>,
 {
     type Error = S::Error;
 
+    #[tracing::instrument(skip_all)]
     async fn offer(
         &self,
         _hostname: &str,
@@ -40,13 +41,11 @@ where
             };
 
             let lnurl_metadata = LnUrlOfferMetadata(offer_metadata);
-            let metadata_json_string = serde_json::to_string(&lnurl_metadata).map_err(|e| {
-                OfferStoreError::serialization_error(
-                    ServiceErrorSource::Internal,
-                    format!("building LNURL offer response for offer {}", offer.id),
-                    e,
-                )
-            })?;
+            let metadata_json_string = serde_json::to_string(&lnurl_metadata)
+                .with_foreign_context(
+                    || format!("building LNURL offer response for offer {}", offer.id),
+                    ErrorOrigin::Internal,
+                )?;
 
             let mut hasher = Sha256::new();
             hasher.update(metadata_json_string.as_bytes());
@@ -91,7 +90,7 @@ mod tests {
 
     #[async_trait]
     impl OfferStore for MockOfferStore {
-        type Error = OfferStoreError;
+        type Error = DefaultOfferStoreError;
 
         async fn get_offer(
             &self,

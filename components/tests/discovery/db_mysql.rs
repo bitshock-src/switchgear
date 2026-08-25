@@ -5,6 +5,9 @@ use switchgear_testing::db::TestMysqlDatabase;
 use switchgear_testing::services::IntegrationTestServices;
 use uuid::Uuid;
 
+const CONNECT_TIMEOUT: f64 = 5.0;
+const ACQUIRE_TIMEOUT: f64 = 10.0;
+
 async fn create_mysql_store() -> (DbDiscoveryBackendStore, TestMysqlDatabase) {
     let _ = rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
@@ -18,9 +21,15 @@ async fn create_mysql_store() -> (DbDiscoveryBackendStore, TestMysqlDatabase) {
 
     let db = TestMysqlDatabase::new("root", &db_name, services.mysql(), false, None);
 
-    let store = DbDiscoveryBackendStore::connect(db.connection_url(), 5)
-        .await
-        .unwrap();
+    let store = DbDiscoveryBackendStore::connect(
+        db.connection_url(),
+        Default::default(),
+        5,
+        CONNECT_TIMEOUT,
+        ACQUIRE_TIMEOUT,
+    )
+    .await
+    .unwrap();
 
     store.migrate_up().await.unwrap();
 

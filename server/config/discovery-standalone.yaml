@@ -1,14 +1,30 @@
 # Discovery service standalone configuration
 # Run only the backend discovery service for Lightning node registration
 # Suitable for centralized discovery deployments
-
 discovery-service:
   address: "${DISCOVERY_SERVICE_ADDRESS:-127.0.0.1:8081}"
   auth-authority: "${DISCOVERY_SERVICE_AUTH_AUTHORITY_PATH:-/etc/ssl/certs/discovery-auth-authority.pem}"
   tls:
     cert-path: "${DISCOVERY_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/discovery-cert.pem}"
     key-path: "${DISCOVERY_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/discovery-key.pem}"
-
+  otlp:
+    tracing:
+      endpoint: "${DISCOVERY_SERVICE_OTLP_TRACING_ENDPOINT:-http://127.0.0.1:4317}"
+      auth-token: "OTEL_AUTH_TOKEN"
+      trusted-roots: ${DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOTS:-}
+      trusted-root-address: ${DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOT_ADDRESS:-}
+      client-identity:
+        cert-secret: "OTEL_CLIENT_CERT"
+        key-secret: "OTEL_CLIENT_KEY"
+      secrets:
+        ttl: 300.0
+        secrets:
+          OTEL_AUTH_TOKEN:
+            path: "${DISCOVERY_SERVICE_OTLP_TRACING_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
+          OTEL_CLIENT_CERT:
+            path: "${DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_CERT:-}"
+          OTEL_CLIENT_KEY:
+            path: "${DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_KEY:-}"
 # Storage configuration
 store:
   discover:

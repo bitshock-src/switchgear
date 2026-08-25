@@ -10,10 +10,10 @@ pub fn gen_backends() -> (DiscoveryBackend, DiscoveryBackend, DiscoveryBackend) 
     let mut rng = rand::thread_rng();
 
     // Generate two random secret keys and derive public keys
-    let secret_key1 = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+    let secret_key1 = SecretKey::from_byte_array(rng.r#gen::<[u8; 32]>()).unwrap();
     let public_key1 = PublicKey::from_secret_key(&secp, &secret_key1);
 
-    let secret_key2 = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+    let secret_key2 = SecretKey::from_byte_array(rng.r#gen::<[u8; 32]>()).unwrap();
     let public_key2 = PublicKey::from_secret_key(&secp, &secret_key2);
 
     // Create the two distinct backends
@@ -138,11 +138,13 @@ where
     // Verify all backends are gone
     assert!(store.get(&new_backend1.public_key).await.unwrap().is_none());
     assert!(store.get(&new_backend2.public_key).await.unwrap().is_none());
-    assert!(store
-        .get(&modified_backend2.public_key)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(
+        store
+            .get(&modified_backend2.public_key)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 pub async fn test_put_new_backend_returns_true<S>(store: S)

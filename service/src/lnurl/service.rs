@@ -1,9 +1,9 @@
-use crate::axum::partitions::PartitionsLayer;
 use crate::lnurl::pay::handler::LnUrlPayHandlers;
+use crate::lnurl::pay::partitions::PartitionsLayer;
 use crate::lnurl::pay::state::LnUrlPayState;
+use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
-use axum::Router;
 use std::sync::Arc;
 use switchgear_service_api::balance::LnBalancer;
 use switchgear_service_api::offer::OfferProvider;
@@ -44,6 +44,7 @@ impl LnUrlBalancerService {
 
 #[cfg(test)]
 mod tests {
+    use crate::axum::extract::host::AllowedHosts;
     use crate::axum::extract::scheme::Scheme;
     use crate::lnurl::pay::state::LnUrlPayState;
     use crate::lnurl::service::LnUrlBalancerService;
@@ -53,13 +54,13 @@ mod tests {
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
     use std::collections::HashSet;
+    use switchgear_error::ContextError;
     use switchgear_service_api::balance::LnBalancer;
     use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata};
     use switchgear_service_api::offer::{
         Offer, OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord,
         OfferRecordSparse, OfferStore,
     };
-    use switchgear_service_api::service::HasServiceErrorSource;
     use uuid::Uuid;
 
     // Mock LnBalancer implementation
@@ -104,24 +105,66 @@ mod tests {
         }
     }
 
-    #[derive(Debug, thiserror::Error)]
+    #[derive(Debug)]
     pub enum MockLnBalancerCombinedError {
-        #[error("Mock LnBalancer internal error")]
-        Internal,
-        #[error("Mock LnBalancer upstream error")]
-        Upstream,
+        Internal(&'static std::panic::Location<'static>),
+        Upstream(&'static std::panic::Location<'static>),
     }
 
-    impl HasServiceErrorSource for MockLnBalancerCombinedError {
-        fn get_service_error_source(&self) -> switchgear_service_api::service::ServiceErrorSource {
+    impl MockLnBalancerCombinedError {
+        #[track_caller]
+        pub fn internal() -> Self {
+            Self::Internal(std::panic::Location::caller())
+        }
+
+        #[track_caller]
+        pub fn upstream() -> Self {
+            Self::Upstream(std::panic::Location::caller())
+        }
+    }
+
+    impl std::fmt::Display for MockLnBalancerCombinedError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                MockLnBalancerCombinedError::Internal => {
-                    switchgear_service_api::service::ServiceErrorSource::Internal
+                MockLnBalancerCombinedError::Internal(_) => {
+                    write!(f, "Mock LnBalancer internal error")
                 }
-                MockLnBalancerCombinedError::Upstream => {
-                    switchgear_service_api::service::ServiceErrorSource::Upstream
+                MockLnBalancerCombinedError::Upstream(_) => {
+                    write!(f, "Mock LnBalancer upstream error")
                 }
             }
+        }
+    }
+
+    impl std::error::Error for MockLnBalancerCombinedError {}
+
+    impl ContextError for MockLnBalancerCombinedError {
+        fn origin(&self) -> switchgear_error::ErrorOrigin {
+            match self {
+                MockLnBalancerCombinedError::Internal(_) => switchgear_error::ErrorOrigin::Internal,
+                MockLnBalancerCombinedError::Upstream(_) => switchgear_error::ErrorOrigin::Upstream,
+            }
+        }
+
+        fn location(&self) -> &'static std::panic::Location<'static> {
+            match self {
+                MockLnBalancerCombinedError::Internal(loc)
+                | MockLnBalancerCombinedError::Upstream(loc) => loc,
+            }
+        }
+
+        fn source_context(&self) -> Option<&dyn ContextError> {
+            None
+        }
+    }
+
+    impl switchgear_service_api::balance::LnBalancerError for MockLnBalancerCombinedError {}
+
+    impl switchgear_error::IntoBoxedTrait<dyn switchgear_service_api::balance::LnBalancerError>
+        for MockLnBalancerCombinedError
+    {
+        fn into_boxed(self) -> Box<dyn switchgear_service_api::balance::LnBalancerError> {
+            Box::new(self)
         }
     }
 
@@ -140,9 +183,9 @@ mod tests {
             *self.captured_expiry.lock().unwrap() = Some(expiry_secs);
 
             if self.should_fail_upstream {
-                Err(MockLnBalancerCombinedError::Upstream)
+                Err(MockLnBalancerCombinedError::upstream())
             } else if self.should_fail {
-                Err(MockLnBalancerCombinedError::Internal)
+                Err(MockLnBalancerCombinedError::internal())
             } else {
                 Ok(self.invoice_response.clone())
             }
@@ -240,7 +283,10 @@ mod tests {
             balancer.clone(),
             expiry,
             Scheme("http".to_string()),
-            Default::default(),
+            AllowedHosts(HashSet::from([
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+            ])),
             Default::default(),
             8,
             255u8,
@@ -261,7 +307,10 @@ mod tests {
             balancer,
             3600,
             Scheme("http".to_string()),
-            Default::default(),
+            AllowedHosts(HashSet::from([
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+            ])),
             Default::default(),
             8,
             255u8,
@@ -297,7 +346,10 @@ mod tests {
             balancer,
             3600,
             Scheme("http".to_string()),
-            Default::default(),
+            AllowedHosts(HashSet::from([
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+            ])),
             Default::default(),
             8,
             255u8,
@@ -337,10 +389,12 @@ mod tests {
             offer.callback.host_str().unwrap() == "127.0.0.1"
                 || offer.callback.host_str().unwrap() == "localhost"
         );
-        assert!(offer
-            .callback
-            .path()
-            .contains(&format!("/offers/default/{offer_id}/invoice")));
+        assert!(
+            offer
+                .callback
+                .path()
+                .contains(&format!("/offers/default/{offer_id}/invoice"))
+        );
         assert_eq!(offer.max_sendable, test_offer.offer.max_sendable);
         assert_eq!(offer.min_sendable, test_offer.offer.min_sendable);
 
@@ -380,7 +434,10 @@ mod tests {
             balancer,
             3600,
             Scheme(scheme.to_string()),
-            Default::default(),
+            AllowedHosts(HashSet::from([
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+            ])),
             Default::default(),
             8,
             255u8,
@@ -426,7 +483,7 @@ mod tests {
 
         let response = server
             .get(&format!("/offers/default/{offer_id}"))
-            .add_header("Forwarded", "proto=wss;host=example.com")
+            .add_header("Forwarded", "proto=wss")
             .await;
         assert_eq!(response.status_code(), StatusCode::OK);
 
@@ -757,7 +814,10 @@ mod tests {
             balancer,
             3600,
             Scheme("http".to_string()),
-            Default::default(),
+            AllowedHosts(HashSet::from([
+                "localhost".to_string(),
+                "127.0.0.1".to_string(),
+            ])),
             Default::default(),
             8,
             255u8,

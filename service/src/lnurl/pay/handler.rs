@@ -1,11 +1,10 @@
 use crate::axum::extract::host::ValidatedHost;
 use crate::axum::extract::scheme::Scheme;
-use crate::axum::extract::uuid::UuidParam;
 use crate::axum::header::no_cache_headers;
 use crate::lnurl::pay::error::LnUrlPayServiceError;
 use crate::lnurl::pay::state::LnUrlPayState;
-use axum::extract::Query;
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use crate::lnurl::pay::{Query, UuidParam};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use axum::{extract::State, response::IntoResponse};
 use bech32::{Bech32, Hrp};
@@ -14,6 +13,7 @@ use qrcode::QrCode;
 use serde::Deserialize;
 use sqlx::types::JsonValue;
 use std::io::{self, Cursor};
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::balance::LnBalancer;
 use switchgear_service_api::lnurl::{LnUrlInvoice, LnUrlOffer, LnUrlOfferTag};
 use switchgear_service_api::offer::{Offer, OfferProvider};
@@ -23,10 +23,11 @@ use uuid::Uuid;
 pub struct LnUrlPayHandlers;
 
 impl LnUrlPayHandlers {
+    #[tracing::instrument(skip_all)]
     pub async fn offer<O, B>(
         ValidatedHost(hostname): ValidatedHost,
         Scheme(scheme): Scheme,
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<LnUrlPayState<O, B>>,
     ) -> Result<LnUrlPayResponse<LnUrlOffer>, LnUrlPayServiceError>
     where
@@ -36,13 +37,8 @@ impl LnUrlPayHandlers {
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}/invoice");
-        let callback = Url::parse(&callback).map_err(|e| {
-            LnUrlPayServiceError::internal_error(
-                module_path!(),
-                &format!("{}:{}", file!(), line!()),
-                format!("{e} : when parsing {callback}"),
-            )
-        })?;
+        let callback = Url::parse(&callback)
+            .with_foreign_context(|| format!("parsing callback url {callback}"), None)?;
 
         let lnurl_offer = LnUrlOffer {
             callback,
@@ -57,10 +53,11 @@ impl LnUrlPayHandlers {
         Ok(LnUrlPayResponse::ok(lnurl_offer, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn invoice<O, B>(
         ValidatedHost(hostname): ValidatedHost,
-        UuidParam { partition, id }: UuidParam,
-        Query(params): Query<InvoiceParameters>,
+        UuidParam { partition, id, .. }: UuidParam,
+        Query { value: params, .. }: Query<InvoiceParameters>,
         State(state): State<LnUrlPayState<O, B>>,
     ) -> Result<LnUrlPayResponse<LnUrlInvoice>, LnUrlPayServiceError>
     where
@@ -83,7 +80,7 @@ impl LnUrlPayHandlers {
             .offer_provider()
             .offer(&hostname, &partition, &id)
             .await
-            .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
+            .chained_context("fetching offer", None)?;
         let offer = offer
             .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", id)))?;
 
@@ -106,17 +103,18 @@ impl LnUrlPayHandlers {
             .balancer()
             .get_invoice(&offer, params.amount, state.invoice_expiry(), &key)
             .await
-            .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
+            .chained_context("generating invoice", None)?;
 
         let invoice = LnUrlInvoice { pr, routes: vec![] };
         let headers = no_cache_headers();
         Ok(LnUrlPayResponse::ok(invoice, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn bech32<O, B>(
         ValidatedHost(hostname): ValidatedHost,
         Scheme(scheme): Scheme,
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<LnUrlPayState<O, B>>,
     ) -> Result<(HeaderMap, String), LnUrlPayServiceError>
     where
@@ -126,13 +124,8 @@ impl LnUrlPayHandlers {
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}");
-        let callback = Self::gen_bech32(&callback).map_err(|e| {
-            LnUrlPayServiceError::internal_error(
-                module_path!(),
-                &format!("{}:{}", file!(), line!()),
-                format!("{e} : when parsing {callback}"),
-            )
-        })?;
+        let callback = Self::gen_bech32(&callback)
+            .with_foreign_context(|| format!("encoding bech32 callback {callback}"), None)?;
 
         let mut headers = Self::expires_headers(offer.expires)?;
         headers.insert(
@@ -143,10 +136,11 @@ impl LnUrlPayHandlers {
         Ok((headers, callback))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn bech32_qr<O, B>(
         ValidatedHost(hostname): ValidatedHost,
         Scheme(scheme): Scheme,
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<LnUrlPayState<O, B>>,
     ) -> Result<(HeaderMap, Vec<u8>), LnUrlPayServiceError>
     where
@@ -156,20 +150,10 @@ impl LnUrlPayHandlers {
         let offer = Self::get_offer(&hostname, &partition, &id, &state).await?;
 
         let callback = format!("{scheme}://{hostname}/offers/{partition}/{id}");
-        let callback = Self::gen_bech32(&callback).map_err(|e| {
-            LnUrlPayServiceError::internal_error(
-                module_path!(),
-                &format!("{}:{}", file!(), line!()),
-                format!("{e} : when parsing {callback}"),
-            )
-        })?;
-        let qr = QrCode::new(callback.as_bytes()).map_err(|e| {
-            LnUrlPayServiceError::internal_error(
-                module_path!(),
-                &format!("{}:{}", file!(), line!()),
-                format!("{e} : while generating qr code for {callback}"),
-            )
-        })?;
+        let callback = Self::gen_bech32(&callback)
+            .with_foreign_context(|| format!("encoding bech32 callback {callback}"), None)?;
+        let qr = QrCode::new(callback.as_bytes())
+            .with_foreign_context(|| format!("generating qr code for {callback}"), None)?;
 
         let scale = state.bech32_qr_scale();
         let dark = state.bech32_qr_dark();
@@ -184,13 +168,7 @@ impl LnUrlPayHandlers {
 
         let mut png_bytes = Vec::new();
         img.write_to(&mut Cursor::new(&mut png_bytes), image::ImageFormat::Png)
-            .map_err(|e| {
-                LnUrlPayServiceError::internal_error(
-                    module_path!(),
-                    &format!("{}:{}", file!(), line!()),
-                    format!("{e} : while encoding QR code to PNG"),
-                )
-            })?;
+            .foreign_context("encoding QR code to PNG", None)?;
 
         let mut headers = Self::expires_headers(offer.expires)?;
         headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("image/png"));
@@ -198,6 +176,7 @@ impl LnUrlPayHandlers {
         Ok((headers, png_bytes))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn health_full<O, B>(
         State(state): State<LnUrlPayState<O, B>>,
     ) -> Result<LnUrlPayResponse<JsonValue>, LnUrlPayServiceError>
@@ -209,13 +188,14 @@ impl LnUrlPayHandlers {
             .balancer()
             .health()
             .await
-            .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
+            .chained_context("checking balancer health", ErrorOrigin::Upstream)?;
         Ok(LnUrlPayResponse::ok(
             JsonValue::Array(vec![]),
             HeaderMap::new(),
         ))
     }
 
+    #[tracing::instrument(skip_all)]
     fn gen_bech32(callback: &str) -> io::Result<String> {
         let callback =
             Url::parse(callback).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -225,6 +205,7 @@ impl LnUrlPayHandlers {
         Ok(callback)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_offer<O, B>(
         hostname: &str,
         partition: &str,
@@ -239,7 +220,7 @@ impl LnUrlPayHandlers {
             .offer_provider()
             .offer(hostname, partition, id)
             .await
-            .map_err(|e| crate::lnurl_pay_error_from_service!(e))?;
+            .chained_context("fetching offer", None)?;
         let offer = offer
             .ok_or_else(|| LnUrlPayServiceError::not_found(format!("offer not found: {}", id)))?;
 
@@ -253,6 +234,7 @@ impl LnUrlPayHandlers {
         Ok(offer)
     }
 
+    #[tracing::instrument(skip_all)]
     fn expires_headers(
         expires: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<HeaderMap, LnUrlPayServiceError> {
@@ -265,9 +247,14 @@ impl LnUrlPayHandlers {
             HeaderMap::from_iter(vec![
                 (
                     header::CACHE_CONTROL,
-                    HeaderValue::from_str(&cache_control_value)?,
+                    HeaderValue::from_str(&cache_control_value)
+                        .foreign_context("building cache-control header", None)?,
                 ),
-                (header::EXPIRES, HeaderValue::from_str(&expires_header)?),
+                (
+                    header::EXPIRES,
+                    HeaderValue::from_str(&expires_header)
+                        .foreign_context("building expires header", None)?,
+                ),
             ])
         } else {
             no_cache_headers()

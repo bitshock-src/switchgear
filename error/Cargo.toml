@@ -1,0 +1,17 @@
+[package]
+name = "switchgear-error"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors = ["Bitshock <info@bitshock.com>"]
+description = "Error primitives (ContextError, ErrorOrigin) for the Switchgear workspace"
+documentation = "https://github.com/bitshock-src/switchgear"
+homepage = "https://bitshock.com"
+repository = "https://github.com/bitshock-src/switchgear"
+license = "Apache-2.0"
+keywords = ["error", "tracing"]
+categories = ["rust-patterns"]
+publish = true
+
+[dependencies]
+tracing.workspace = true

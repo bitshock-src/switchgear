@@ -1,10 +1,11 @@
-use crate::common::client::{LnUrlTestClient, TcpProbe};
+use crate::common::client::{LnUrlTestClient, RawHttpClient, TcpProbe};
 use crate::common::context::certs::gen_root_cert;
+use crate::common::context::jaeger::JaegerClient;
 use crate::common::context::pay::{OfferRequest, PayeeContext};
 use crate::common::context::server::{CertificateLocation, ServerContext};
 use crate::common::context::{Protocol, TestConfiguration, TestConfigurationServiceDomains};
 use crate::common::context::{Service, ServiceProfile};
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use rcgen::{Issuer, KeyPair};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_components::offer::http::HttpOfferStore;
 use switchgear_testing::credentials::lightning::{LnCredentials, RegTestLnNodes};
+use switchgear_testing::credentials::otel::{OtelCollector, OtelCredentials};
 use tempfile::TempDir;
 
 pub struct GlobalContext {
@@ -24,7 +26,9 @@ pub struct GlobalContext {
     pki_root_cn: String,
     pki_root_issuer: Issuer<'static, KeyPair>,
     ln_nodes: RegTestLnNodes,
+    otel_collector: OtelCollector,
     _credentials: LnCredentials,
+    _otel_credentials: OtelCredentials,
 }
 
 impl GlobalContext {
@@ -35,6 +39,9 @@ impl GlobalContext {
 
         let credentials = LnCredentials::create()?;
         let ln_nodes = credentials.get_backends()?;
+
+        let otel_credentials = OtelCredentials::create()?;
+        let otel_collector = otel_credentials.get_collector()?;
 
         let feature_test_config_path = Self::load_test_config(feature_test_config_path)?;
         let temp_dir = TempDir::new()?;
@@ -53,7 +60,9 @@ impl GlobalContext {
             pki_root_cn,
             pki_root_issuer,
             ln_nodes,
+            otel_collector,
             _credentials: credentials,
+            _otel_credentials: otel_credentials,
         })
     }
 
@@ -158,6 +167,7 @@ impl GlobalContext {
                     protocol: offer_protocol,
                     address: format!("127.0.0.1:{offer_port}").parse()?,
                 },
+                self.otel_collector.clone(),
             )?,
         );
 
@@ -250,6 +260,74 @@ impl GlobalContext {
 
     pub fn get_pki_root_certificate_path(&self) -> &Path {
         &self.pki_root_certificate_path
+    }
+
+    pub fn get_otel_client_cert_path(&self) -> Option<&Path> {
+        self.otel_collector.client_cert_path.as_deref()
+    }
+
+    pub fn get_otel_client_key_path(&self) -> Option<&Path> {
+        self.otel_collector.client_key_path.as_deref()
+    }
+
+    pub fn get_jaeger_query_endpoint(&self) -> &str {
+        &self.otel_collector.jaeger_query_endpoint
+    }
+
+    /// Returns a Jaeger client bound to the collector's query endpoint,
+    /// pre-configured with the test defaults (30s timeout, 500ms interval).
+    pub fn jaeger(&self) -> JaegerClient {
+        JaegerClient::new(&self.otel_collector.jaeger_query_endpoint)
+    }
+
+    /// Build a raw HTTP client aimed at the active server's given service.
+    pub fn active_raw_client_for(&self, service: Service) -> anyhow::Result<RawHttpClient> {
+        self.get_active_server()?.raw_client_for(service)
+    }
+
+    /// Read the bearer token that the given service's authenticated clients
+    /// send, useful for constructing signed raw requests.
+    pub fn active_service_token(&self, service: Service) -> anyhow::Result<String> {
+        let path = match service {
+            Service::Discovery => self.get_active_server()?.discovery_authorization(),
+            Service::Offer => self.get_active_server()?.offer_authorization(),
+            Service::LnUrl => return Err(anyhow!("lnurl service does not authenticate requests")),
+        };
+        let s = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {service} bearer token from {}", path.display()))?;
+        Ok(s.trim().to_string())
+    }
+
+    /// Directly override the active server's HTTP offer-store URL. Use a dead
+    /// address (e.g. `https://127.0.0.1:1`) to provoke a reqwest transport
+    /// failure at the offer-fetch path.
+    pub fn set_active_offer_store_url_raw(&mut self, url: Option<String>) -> anyhow::Result<()> {
+        self.get_active_server_mut()?.set_offer_store_url(url);
+        Ok(())
+    }
+
+    /// Directly override the active server's HTTP discovery-store URL.
+    pub fn set_active_discovery_store_url_raw(
+        &mut self,
+        url: Option<String>,
+    ) -> anyhow::Result<()> {
+        self.get_active_server_mut()?.set_discovery_store_url(url);
+        Ok(())
+    }
+
+    /// Directly override the active server's discovery-store DB URI (e.g. a
+    /// SQLite path that can't be created, to provoke sqlx::Error at connect).
+    pub fn set_active_discovery_store_database_uri(&mut self, uri: String) -> anyhow::Result<()> {
+        self.get_active_server_mut()?
+            .set_discovery_store_database_uri(uri);
+        Ok(())
+    }
+
+    /// Directly override the active server's offer-store DB URI.
+    pub fn set_active_offer_store_database_uri(&mut self, uri: String) -> anyhow::Result<()> {
+        self.get_active_server_mut()?
+            .set_offer_store_database_uri(uri);
+        Ok(())
     }
 
     pub fn get_active_discovery_service_profile(&self) -> anyhow::Result<ServiceProfile> {
@@ -436,17 +514,71 @@ impl GlobalContext {
         )
     }
 
-    pub fn set_secrets_path(
+    pub fn set_mysql_username_file(
         &mut self,
         server_key_id: &str,
-        secrets_path: Option<PathBuf>,
+        path: Option<PathBuf>,
     ) -> anyhow::Result<()> {
         let server = self
             .servers
             .get_mut(server_key_id)
             .ok_or_else(|| anyhow!("server not found"))?;
 
-        server.set_secrets_path(secrets_path);
+        server.set_mysql_username_file(path);
+        Ok(())
+    }
+
+    pub fn set_mysql_password_file(
+        &mut self,
+        server_key_id: &str,
+        path: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_mysql_password_file(path);
+        Ok(())
+    }
+
+    pub fn set_postgres_username_file(
+        &mut self,
+        server_key_id: &str,
+        path: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_postgres_username_file(path);
+        Ok(())
+    }
+
+    pub fn set_postgres_password_file(
+        &mut self,
+        server_key_id: &str,
+        path: Option<PathBuf>,
+    ) -> anyhow::Result<()> {
+        let server = self
+            .servers
+            .get_mut(server_key_id)
+            .ok_or_else(|| anyhow!("server not found"))?;
+
+        server.set_postgres_password_file(path);
+        Ok(())
+    }
+
+    /// Replace the active server's OTLP collector before start. Used by the
+    /// OTLP-compliance tests to swap the shared container collector for a
+    /// per-test in-process `TestOtlpCollector`.
+    pub fn set_active_otel_collector(
+        &mut self,
+        otel_collector: OtelCollector,
+    ) -> anyhow::Result<()> {
+        self.get_active_server_mut()?
+            .set_otel_collector_override(otel_collector);
         Ok(())
     }
 }

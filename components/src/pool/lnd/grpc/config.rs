@@ -1,8 +1,9 @@
+use crate::secrets::SecretStoreConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use url::Url;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LndGrpcDiscoveryBackendImplementation {
     pub url: Url,
@@ -11,16 +12,10 @@ pub struct LndGrpcDiscoveryBackendImplementation {
     pub amp_invoice: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[serde(tag = "type")]
-pub enum LndGrpcClientAuth {
-    Path(LndGrpcClientAuthPath),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LndGrpcClientAuthPath {
+pub struct LndGrpcClientAuth {
     pub tls_cert_path: Option<PathBuf>,
-    pub macaroon_path: PathBuf,
+    pub macaroon_secret: String,
+    pub secrets: SecretStoreConfig,
 }

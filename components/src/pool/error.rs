@@ -1,142 +1,244 @@
 use std::borrow::Cow;
-use std::fmt::{Display, Formatter};
-use switchgear_service_api::service::{HasServiceErrorSource, ServiceErrorSource};
-use thiserror::Error;
-use tonic::{transport, Code, Status};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
+use std::panic::Location;
+use switchgear_error::{ContextError, ErrorOrigin, IntoContextError};
+use tonic::{Code, Status, transport};
 
-#[derive(Error, Debug)]
-pub enum LnPoolErrorSourceKind {
-    #[error("CLN tonic gRPC error: {0}")]
-    TonicError(Status),
-    #[error("CLN transport connection error: {0}")]
-    TransportError(transport::Error),
-    #[error("invalid configuration for: {0}")]
-    InvalidConfiguration(String),
-    #[error("invalid credentials for {0}")]
-    InvalidCredentials(String),
-    #[error("memory error: {0}")]
-    MemoryError(String),
-    #[error("json error: {0}")]
-    JsonError(serde_json::Error),
+#[derive(Debug)]
+pub(crate) enum LnPoolErrorSourceKind {
+    TonicError(Box<Status>),
+    TransportError(Box<transport::Error>),
+    JsonError(Box<serde_json::Error>),
+    Io(Box<std::io::Error>),
+    InvalidUri(Box<http::uri::InvalidUri>),
+    SystemTime(Box<std::time::SystemTimeError>),
+    Pem(Box<rustls::pki_types::pem::Error>),
+    Rustls(Box<rustls::Error>),
 }
 
-#[derive(Error, Debug)]
+impl Display for LnPoolErrorSourceKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TonicError(e) => Display::fmt(e, f),
+            Self::TransportError(e) => Display::fmt(e, f),
+            Self::JsonError(e) => Display::fmt(e, f),
+            Self::Io(e) => Display::fmt(e, f),
+            Self::InvalidUri(e) => Display::fmt(e, f),
+            Self::SystemTime(e) => Display::fmt(e, f),
+            Self::Pem(e) => Display::fmt(e, f),
+            Self::Rustls(e) => Display::fmt(e, f),
+        }
+    }
+}
+
+impl Error for LnPoolErrorSourceKind {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::TonicError(e) => Some(&**e),
+            Self::TransportError(e) => Some(&**e),
+            Self::JsonError(e) => Some(&**e),
+            Self::Io(e) => Some(&**e),
+            Self::InvalidUri(e) => Some(&**e),
+            Self::SystemTime(e) => Some(&**e),
+            Self::Pem(e) => Some(&**e),
+            Self::Rustls(e) => Some(&**e),
+        }
+    }
+}
+
 pub struct LnPoolError {
     context: Cow<'static, str>,
-    #[source]
-    source: LnPoolErrorSourceKind,
-    esource: ServiceErrorSource,
+    origin: ErrorOrigin,
+    location: &'static Location<'static>,
+    source: Option<Box<LnPoolErrorSourceKind>>,
+}
+
+impl Debug for LnPoolError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LnPoolError")
+            .field("context", &self.context)
+            .field("origin", &self.origin)
+            .field("source", &self.source)
+            .finish()
+    }
 }
 
 impl Display for LnPoolError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "LnPoolError: while {}: {}",
-            self.context.as_ref(),
-            self.source
-        )
+        match &self.source {
+            Some(s) => write!(f, "LnPoolError: while {}: {}", self.context, s),
+            None => write!(f, "LnPoolError: {}", self.context),
+        }
+    }
+}
+
+impl Error for LnPoolError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.source.as_deref().map(|s| s as &(dyn Error + 'static))
     }
 }
 
 impl LnPoolError {
+    #[track_caller]
     fn new<C: Into<Cow<'static, str>>>(
         source: LnPoolErrorSourceKind,
-        esource: ServiceErrorSource,
+        origin: ErrorOrigin,
         context: C,
     ) -> Self {
         Self {
             context: context.into(),
-            source,
-            esource,
+            origin,
+            location: Location::caller(),
+            source: Some(Box::new(source)),
         }
     }
 
-    pub fn from_invalid_configuration<C: Into<Cow<'static, str>>>(
-        source: C,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::InvalidConfiguration(source.into().to_string()),
-            esource,
-            context.into(),
-        )
-    }
-
-    pub fn from_invalid_credentials<C: Into<Cow<'static, str>>>(
-        source: C,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::InvalidCredentials(source.into().to_string()),
-            esource,
-            context.into(),
-        )
-    }
-
-    pub fn from_tonic_error<C: Into<Cow<'static, str>>>(source: Status, context: C) -> Self {
-        let esource = Self::from_tonic_code(source.code());
-        Self::new(LnPoolErrorSourceKind::TonicError(source), esource, context)
-    }
-
-    pub fn from_transport_error<C: Into<Cow<'static, str>>>(
-        source: transport::Error,
-        esource: ServiceErrorSource,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::TransportError(source),
-            esource,
-            context,
-        )
-    }
-
-    pub fn from_memory_error<C: Into<Cow<'static, str>>>(source: String, context: C) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::MemoryError(source),
-            ServiceErrorSource::Internal,
-            context,
-        )
-    }
-
-    pub fn from_json_error<C: Into<Cow<'static, str>>>(
-        source: serde_json::Error,
-        context: C,
-    ) -> Self {
-        Self::new(
-            LnPoolErrorSourceKind::JsonError(source),
-            ServiceErrorSource::Internal,
-            context,
-        )
-    }
-
-    pub fn context(&self) -> &str {
-        self.context.as_ref()
-    }
-
-    pub fn source(&self) -> &LnPoolErrorSourceKind {
-        &self.source
-    }
-
-    pub fn esource(&self) -> ServiceErrorSource {
-        self.esource
-    }
-
-    fn from_tonic_code(code: Code) -> ServiceErrorSource {
-        match code {
-            Code::InvalidArgument | Code::OutOfRange | Code::AlreadyExists => {
-                ServiceErrorSource::Downstream
-            }
-
-            _ => ServiceErrorSource::Upstream,
+    #[track_caller]
+    pub(crate) fn message<C: Into<Cow<'static, str>>>(origin: ErrorOrigin, context: C) -> Self {
+        Self {
+            context: context.into(),
+            origin,
+            location: Location::caller(),
+            source: None,
         }
     }
 }
 
-impl HasServiceErrorSource for LnPoolError {
-    fn get_service_error_source(&self) -> ServiceErrorSource {
-        self.esource
+impl ContextError for LnPoolError {
+    fn origin(&self) -> ErrorOrigin {
+        self.origin
+    }
+
+    fn location(&self) -> &'static Location<'static> {
+        self.location
+    }
+
+    fn source_context(&self) -> Option<&dyn ContextError> {
+        None
+    }
+}
+
+fn origin_from_tonic_status(status: &Status) -> ErrorOrigin {
+    match status.code() {
+        Code::InvalidArgument | Code::OutOfRange | Code::AlreadyExists => ErrorOrigin::Downstream,
+        _ => ErrorOrigin::Upstream,
+    }
+}
+
+impl IntoContextError<Status> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<Status>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        let origin = origin.unwrap_or_else(|| origin_from_tonic_status(&source));
+        Self::new(LnPoolErrorSourceKind::TonicError(source), origin, message)
+    }
+}
+
+impl IntoContextError<transport::Error> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<transport::Error>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::TransportError(source),
+            origin.unwrap_or(ErrorOrigin::Upstream),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<serde_json::Error> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<serde_json::Error>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::JsonError(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<std::io::Error> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<std::io::Error>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::Io(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<http::uri::InvalidUri> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<http::uri::InvalidUri>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::InvalidUri(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<std::time::SystemTimeError> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<std::time::SystemTimeError>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::SystemTime(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<rustls::pki_types::pem::Error> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<rustls::pki_types::pem::Error>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::Pem(source),
+            origin.unwrap_or(ErrorOrigin::Downstream),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<rustls::Error> for LnPoolError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<rustls::Error>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            LnPoolErrorSourceKind::Rustls(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
     }
 }

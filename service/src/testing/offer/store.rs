@@ -3,17 +3,14 @@ use async_trait::async_trait;
 use indexmap::IndexMap;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
+use switchgear_error::{ErrorOrigin, ForeignContext};
 use switchgear_service_api::lnurl::LnUrlOfferMetadata;
 use switchgear_service_api::offer::{
     Offer, OfferMetadata, OfferMetadataStore, OfferProvider, OfferRecord, OfferStore,
 };
-use switchgear_service_api::service::ServiceErrorSource;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-/// Simplified in-memory offer store for unit tests.
-/// This is a minimal implementation designed to replace MemoryOfferStore
-/// in service crate tests. Uses IndexMap to preserve insertion order.
 #[derive(Clone, Debug)]
 pub struct TestOfferStore {
     offer: Arc<Mutex<IndexMap<(String, Uuid), OfferRecord>>>,
@@ -93,7 +90,7 @@ impl OfferStore for TestOfferStore {
                     "metadata {} not found for offer {}",
                     offer.offer.metadata_id, offer.id
                 ),
-                ServiceErrorSource::Downstream,
+                ErrorOrigin::Downstream,
                 format!("post offer {offer:?}"),
             ));
         }
@@ -118,7 +115,7 @@ impl OfferStore for TestOfferStore {
                     "metadata {} not found for offer {}",
                     offer.offer.metadata_id, offer.id
                 ),
-                ServiceErrorSource::Downstream,
+                ErrorOrigin::Downstream,
                 format!("put offer {offer:?}"),
             ));
         }
@@ -198,7 +195,7 @@ impl OfferMetadataStore for TestOfferStore {
         if metadata_in_use {
             return Err(TestError::error(
                 format!("metadata {} is referenced by existing offers", id),
-                ServiceErrorSource::Downstream,
+                ErrorOrigin::Downstream,
                 format!("delete metadata {partition}/{id}"),
             ));
         }
@@ -231,15 +228,14 @@ impl OfferProvider for TestOfferStore {
             };
 
             let lnurl_metadata = LnUrlOfferMetadata(offer_metadata.metadata);
-            let metadata_json_string = serde_json::to_string(&lnurl_metadata).map_err(|e| {
-                TestError::error(
-                    format!("serialization error: {e}"),
-                    ServiceErrorSource::Internal,
+            let metadata_json_string = serde_json::to_string(&lnurl_metadata).with_foreign_context(
+                || {
                     format!(
                         "serializing LnUrlOfferMetadata while building LNURL offer response for {offer:?}"
-                    ),
-                )
-            })?;
+                    )
+                },
+                ErrorOrigin::Internal,
+            )?;
 
             let mut hasher = Sha256::new();
             hasher.update(metadata_json_string.as_bytes());

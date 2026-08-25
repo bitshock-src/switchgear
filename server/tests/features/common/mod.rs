@@ -1,6 +1,9 @@
 pub mod client;
 pub mod context;
+pub mod ecs_reducer;
+pub mod error_fixture;
 pub mod helpers;
+pub mod otlp_collector;
 pub mod step_functions;
 
 #[macro_export]

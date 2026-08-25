@@ -1,7 +1,8 @@
 [package]
 name = "switchgear-components"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Component APIs and implementations for Switchgear LNURL load balancer"
 documentation = "https://github.com/bitshock-src/switchgear"
@@ -15,29 +16,38 @@ publish = true
 [dependencies]
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
+axum-tracing-opentelemetry = { version = "0.38", features = ["tracing_level_info"] }
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 client-ip = { version = "0.1", features = ["forwarded-header"] }
 hex = "0.4"
+http = "1"
+hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "aws-lc-rs", "logging"] }
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
-log = "0.4"
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 prost = {  version = "0.14" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots-no-provider"] }
 rustls = { version = "0.23", default-features = false }
-sea-orm = { version = "1", default-features = false, features = ["with-chrono", "with-uuid", "with-json"] }
+rustls-native-certs = "0.8"
+sea-orm = { version = "2", default-features = false, features = ["with-chrono", "with-uuid", "with-json"] }
 secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
+secrecy.workspace = true
 serde = "1"
 serde_json = "1"
 sha2 = "0.10"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
+sqlx-core = { version = "0.9", default-features = false, features = ["rustls-native-certs"] }
+switchgear-error.workspace = true
 switchgear-migration.workspace = true
 switchgear-service-api.workspace = true
 tempfile = "3"
-thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tonic = {  version = "0.14", default-features = false, features = ["codegen", "transport", "tls-native-roots"] }
 tonic-prost = "0.14"
 tower = { version = "0.5", features = ["balance"] }
+tracing.workspace = true
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 

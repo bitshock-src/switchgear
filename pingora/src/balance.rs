@@ -1,19 +1,19 @@
-use crate::error::PingoraLnError;
 use crate::PingoraBackoffProvider;
+use crate::error::PingoraLnError;
 use crate::{PingoraLnBackendExtension, PingoraLnClientPool, PingoraLnMetricsCache};
 use async_trait::async_trait;
 use backoff::backoff::Backoff;
-use log::{error, warn};
 use pingora_core::services::background::BackgroundService;
 use pingora_load_balancing::selection::{BackendIter, BackendSelection};
 use pingora_load_balancing::{Backend, LoadBalancer};
 use std::error::Error;
 use std::sync::Arc;
+use switchgear_error::{ChainedContext, ContextError, ErrorOrigin};
 use switchgear_service_api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service_api::offer::Offer;
-use switchgear_service_api::service::{HasServiceErrorSource, ServiceErrorSource};
 use tokio::sync::watch::Receiver;
 use tokio::time::sleep;
+use tracing::{error, warn};
 
 pub trait MaxIterations: Clone + Send + Sync {
     fn max_iterations(&self, backends: usize) -> usize;
@@ -100,7 +100,7 @@ where
     S: BackendSelection + 'static,
     S::Iter: BackendIter,
     P: PingoraLnClientPool<Key = Backend> + Clone,
-    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
+    P::Error: Error + Send + Sync + 'static + ContextError,
     M: PingoraLnMetricsCache<Key = Backend> + Clone,
     B: PingoraBackoffProvider,
     X: MaxIterations,
@@ -125,6 +125,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn select_backend(
         &self,
         offer: &Offer,
@@ -140,28 +141,26 @@ where
                 if !health {
                     return false;
                 }
-                if let Some(extension) = backend.ext.get::<PingoraLnBackendExtension>() {
-                    if extension.partitions.contains(&offer.partition) {
-                        if let Some(metrics) = self.metrics.get_cached_metrics(backend) {
-                            if let Some(current_selection_capacity_bias) =
-                                current_selection_capacity_bias
-                            {
-                                if amount_msat as f64
-                                    <= metrics.node_effective_inbound_msat as f64
-                                        * (1.0 + current_selection_capacity_bias)
-                                {
-                                    return true;
-                                }
-                            } else {
-                                return true;
-                            }
+                if let Some(extension) = backend.ext.get::<PingoraLnBackendExtension>()
+                    && extension.partitions.contains(&offer.partition)
+                    && let Some(metrics) = self.metrics.get_cached_metrics(backend)
+                {
+                    if let Some(current_selection_capacity_bias) = current_selection_capacity_bias {
+                        if amount_msat as f64
+                            <= metrics.node_effective_inbound_msat as f64
+                                * (1.0 + current_selection_capacity_bias)
+                        {
+                            return true;
                         }
+                    } else {
+                        return true;
                     }
                 }
                 false
             })
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice_from_backend(
         &self,
         offer: &Offer,
@@ -173,12 +172,10 @@ where
             .pool
             .get_invoice(offer, backend, amount_msat.into(), expiry_secs.into())
             .await
-            .map_err(|e| {
-                PingoraLnError::from_service_error(
-                    format!("get invoice for offer {}/{}", offer.partition, offer.id),
-                    e,
-                )
-            })?;
+            .with_chained_context(
+                || format!("get invoice for offer {}/{}", offer.partition, offer.id),
+                None,
+            )?;
 
         Ok(invoice)
     }
@@ -190,13 +187,14 @@ where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
     P: PingoraLnClientPool<Key = Backend> + Send + Sync + Clone + 'static,
-    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
+    P::Error: Error + Send + Sync + 'static + ContextError,
     M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
     B: PingoraBackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
 {
     type Error = PingoraLnError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice(
         &self,
         offer: &Offer,
@@ -218,9 +216,11 @@ where
             }
 
             let invoice = match invoice.ok_or_else(|| {
-                PingoraLnError::no_available_nodes(
-                    ServiceErrorSource::Upstream,
-                    format!("load balancing invoice request for offer {offer:?}"),
+                PingoraLnError::message(
+                    ErrorOrigin::Upstream,
+                    format!(
+                        "no available lightning nodes: load balancing invoice request for offer {offer:?}"
+                    ),
                 )
             }) {
                 Ok(backend) => {
@@ -233,7 +233,7 @@ where
             match invoice {
                 Ok(invoice) => return Ok(invoice),
                 Err(e) => {
-                    if ServiceErrorSource::Downstream == e.esource() {
+                    if ErrorOrigin::Downstream == e.origin() {
                         return Err(e);
                     } else {
                         match backoff.next_backoff() {
@@ -263,6 +263,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn health(&self) -> Result<(), Self::Error> {
         let select_max_iterations = self
             .select_max_iterations
@@ -270,7 +271,10 @@ where
         self.load_balancer
             .select(&[], select_max_iterations)
             .ok_or_else(|| {
-                PingoraLnError::no_available_nodes(ServiceErrorSource::Upstream, "health check")
+                PingoraLnError::message(
+                    ErrorOrigin::Upstream,
+                    "no available lightning nodes: health check",
+                )
             })?;
 
         Ok(())
@@ -283,7 +287,7 @@ where
     S: BackendSelection + Send + Sync + 'static,
     S::Iter: BackendIter,
     P: PingoraLnClientPool<Key = Backend> + Send + Sync + Clone + 'static,
-    P::Error: Error + Send + Sync + 'static + HasServiceErrorSource,
+    P::Error: Error + Send + Sync + 'static + ContextError,
     M: PingoraLnMetricsCache<Key = Backend> + Send + Sync + Clone + 'static,
     B: PingoraBackoffProvider + Send + Sync + 'static,
     X: MaxIterations,
@@ -307,9 +311,9 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
     use std::hash::{DefaultHasher, Hash, Hasher};
     use std::sync::{Arc, Mutex};
+    use switchgear_error::{ContextError, ErrorOrigin};
     use switchgear_service_api::balance::LnBalancer;
     use switchgear_service_api::discovery::DiscoveryBackend;
-    use switchgear_service_api::service::ServiceErrorSource;
     use uuid::Uuid;
 
     #[derive(Clone)]
@@ -337,10 +341,9 @@ mod tests {
                     Ok("mock_invoice".to_string())
                 }
             } else {
-                Err(PingoraLnError::general_error(
-                    ServiceErrorSource::Upstream,
-                    "mock get_invoice",
-                    "forced error".to_string(),
+                Err(PingoraLnError::message(
+                    ErrorOrigin::Upstream,
+                    "mock get_invoice: forced error",
                 ))
             }
         }
@@ -563,7 +566,7 @@ mod tests {
         let result = balancer.get_invoice(&offer, 50000, 3600, &[]).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.esource(), ServiceErrorSource::Upstream);
+        assert_eq!(err.origin(), ErrorOrigin::Upstream);
     }
 
     #[tokio::test]
@@ -600,7 +603,7 @@ mod tests {
         let result = balancer.get_invoice(&offer, 50000, 3600, &[]).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert_eq!(err.esource(), ServiceErrorSource::Upstream);
+        assert_eq!(err.origin(), ErrorOrigin::Upstream);
     }
 
     #[tokio::test]
@@ -659,7 +662,7 @@ mod tests {
         // This should fail because no backend has the "foreign_partition"
         let result = balancer.get_invoice(&offer_foreign, 50000, 3600, &[]).await;
         assert!(result.is_err());
-        assert_eq!(result.unwrap_err().esource(), ServiceErrorSource::Upstream);
+        assert_eq!(result.unwrap_err().origin(), ErrorOrigin::Upstream);
 
         // Verify that partition1 and partition2 still work
         for partition in ["partition1", "partition2"] {
@@ -773,7 +776,10 @@ mod tests {
             high_weight_count > 0,
             "High weight backends should be selected when they meet capacity"
         );
-        assert!(high_weight_count > low_weight_count, "High weight backends should be selected more often: low={low_weight_count}, high={high_weight_count}");
+        assert!(
+            high_weight_count > low_weight_count,
+            "High weight backends should be selected more often: low={low_weight_count}, high={high_weight_count}"
+        );
     }
 
     #[tokio::test]

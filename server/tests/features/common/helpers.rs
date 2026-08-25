@@ -1,6 +1,6 @@
+use crate::common::context::Service;
 use crate::common::context::global::GlobalContext;
 use crate::common::context::pay::{OfferRequest, PayeeContext};
-use crate::common::context::Service;
 use crate::{anyhow_log, bail_log};
 use anyhow::Result;
 use lightning_invoice::Bolt11Invoice;
@@ -27,10 +27,168 @@ fn validate_expectation<T: PartialEq + Display>(
     }
 }
 
-fn count_log_patterns_internal(logs: &str, patterns: &[&str]) -> usize {
-    logs.lines()
-        .filter(|line| patterns.iter().all(|pattern| line.contains(pattern)))
-        .count()
+#[derive(Default, Debug, Copy, Clone)]
+pub struct EcsRequestFilter<'a> {
+    pub service: Option<&'a str>,
+    pub method: Option<&'a str>,
+    pub path_exact: Option<&'a str>,
+    pub path_prefix: Option<&'a str>,
+    pub query_prefix: Option<&'a str>,
+    pub status: Option<u64>,
+    pub level: Option<&'a str>,
+    pub event_kind: Option<&'a str>,
+    // Matched by array-contains against the JSON `event.category` array.
+    pub event_category: Option<&'a str>,
+    // Matched by array-contains against the JSON `event.type` array.
+    pub event_type: Option<&'a str>,
+    pub event_outcome: Option<&'a str>,
+}
+
+pub fn parse_ecs_line(line: &str) -> Option<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    v.is_object().then_some(v)
+}
+
+pub fn matches_ecs_request(line: &str, f: &EcsRequestFilter) -> bool {
+    let Some(v) = parse_ecs_line(line) else {
+        return false;
+    };
+    let get_str = |k: &str| v.get(k).and_then(|x| x.as_str());
+    let get_u64 = |k: &str| v.get(k).and_then(|x| x.as_u64());
+    let array_contains = |k: &str, needle: &str| {
+        v.get(k)
+            .and_then(|x| x.as_array())
+            .is_some_and(|arr| arr.iter().any(|e| e.as_str() == Some(needle)))
+    };
+
+    if let Some(s) = f.service {
+        let expected_name = format!("swgr.{s}");
+        if get_str("service.name") != Some(expected_name.as_str()) {
+            return false;
+        }
+    }
+    if let Some(m) = f.method
+        && get_str("http.request.method") != Some(m)
+    {
+        return false;
+    }
+    if let Some(p) = f.path_exact
+        && get_str("url.path") != Some(p)
+    {
+        return false;
+    }
+    if let Some(p) = f.path_prefix {
+        let Some(path) = get_str("url.path") else {
+            return false;
+        };
+        if !path.starts_with(p) {
+            return false;
+        }
+    }
+    if let Some(q) = f.query_prefix {
+        let Some(query) = get_str("url.query") else {
+            return false;
+        };
+        if !query.starts_with(q) {
+            return false;
+        }
+    }
+    if let Some(s) = f.status
+        && get_u64("http.response.status_code") != Some(s)
+    {
+        return false;
+    }
+    if let Some(l) = f.level
+        && get_str("log.level") != Some(l)
+    {
+        return false;
+    }
+    if let Some(k) = f.event_kind
+        && get_str("event.kind") != Some(k)
+    {
+        return false;
+    }
+    if let Some(c) = f.event_category
+        && !array_contains("event.category", c)
+    {
+        return false;
+    }
+    if let Some(t) = f.event_type
+        && !array_contains("event.type", t)
+    {
+        return false;
+    }
+    if let Some(o) = f.event_outcome
+        && get_str("event.outcome") != Some(o)
+    {
+        return false;
+    }
+    true
+}
+
+pub fn count_ecs_requests(lines: &[String], f: &EcsRequestFilter) -> usize {
+    match f.level {
+        // WARN/ERROR emissions produce a matched pair of records: an INFO
+        // access line from RequestLogger + an error line from the emitter.
+        // Count the pairs by taking the min of the two filtered counts.
+        //
+        // - RequestLogger records don't carry event.* fields (see
+        //   ecs-log-field-audit.md § 5), so the access-side filter uses
+        //   only transport-shape fields (service, method, path, query,
+        //   status).
+        // - The error-side filter carries the caller's event.* expectations
+        //   plus `event_type = "error"`. HTTP request-shape fields (method,
+        //   path, query) only appear on the access record, so they're dropped
+        //   from the error-side filter.
+        Some("WARN") | Some("ERROR") => {
+            let access = EcsRequestFilter {
+                service: f.service,
+                method: f.method,
+                path_exact: f.path_exact,
+                path_prefix: f.path_prefix,
+                query_prefix: f.query_prefix,
+                status: f.status,
+                level: Some("INFO"),
+                ..Default::default()
+            };
+            let error = EcsRequestFilter {
+                method: None,
+                path_exact: None,
+                path_prefix: None,
+                query_prefix: None,
+                event_type: Some("error"),
+                ..*f
+            };
+            let access_count = lines
+                .iter()
+                .filter(|line| matches_ecs_request(line, &access))
+                .count();
+            let error_count = lines
+                .iter()
+                .filter(|line| matches_ecs_request(line, &error))
+                .count();
+            access_count.min(error_count)
+        }
+        _ => lines
+            .iter()
+            .filter(|line| matches_ecs_request(line, f))
+            .count(),
+    }
+}
+
+/// Snapshot the active server's stderr as a `Vec<String>`. Bails if the
+/// buffer mutex is poisoned or the buffer is empty (the latter almost
+/// always indicates a test-harness bug rather than legitimate silence).
+pub fn read_active_stderr_lines(ctx: &GlobalContext) -> Result<Vec<String>> {
+    let lines = ctx
+        .get_active_stderr_buffer()?
+        .lock()
+        .map_err(|_| anyhow_log!("Failed to lock stderr buffer"))?
+        .clone();
+    if lines.is_empty() {
+        bail_log!("No stderr logs captured");
+    }
+    Ok(lines)
 }
 
 fn update_offer_request_invoice(
@@ -330,6 +488,96 @@ pub async fn verify_single_service_status(
     .await
 }
 
-pub fn count_log_patterns(logs: &str, patterns: &[&str]) -> usize {
-    count_log_patterns_internal(logs, patterns)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn access_line() -> String {
+        r#"{"@timestamp":"t","log.level":"INFO","message":"request","ecs.version":"8.11","service.name":"swgr.lnurl","http.request.method":"GET","http.response.status_code":200,"url.path":"/offers/default/x","event.kind":"event","event.category":["web"],"event.type":["access"],"event.outcome":"success"}"#.to_string()
+    }
+
+    fn error_line() -> String {
+        r#"{"@timestamp":"t","log.level":"WARN","message":"nope","ecs.version":"8.11","service.name":"swgr.lnurl","http.response.status_code":404,"event.kind":"event","event.category":["web"],"event.type":["error"],"event.outcome":"failure"}"#.to_string()
+    }
+
+    #[test]
+    fn matches_event_kind_scalar() {
+        let f = EcsRequestFilter {
+            event_kind: Some("event"),
+            ..Default::default()
+        };
+        assert!(matches_ecs_request(&access_line(), &f));
+
+        let f = EcsRequestFilter {
+            event_kind: Some("metric"),
+            ..Default::default()
+        };
+        assert!(!matches_ecs_request(&access_line(), &f));
+    }
+
+    #[test]
+    fn matches_event_category_by_array_contains() {
+        let f = EcsRequestFilter {
+            event_category: Some("web"),
+            ..Default::default()
+        };
+        assert!(matches_ecs_request(&access_line(), &f));
+
+        let f = EcsRequestFilter {
+            event_category: Some("api"),
+            ..Default::default()
+        };
+        assert!(!matches_ecs_request(&access_line(), &f));
+    }
+
+    #[test]
+    fn matches_event_type_by_array_contains() {
+        let f = EcsRequestFilter {
+            event_type: Some("access"),
+            ..Default::default()
+        };
+        assert!(matches_ecs_request(&access_line(), &f));
+
+        let f = EcsRequestFilter {
+            event_type: Some("error"),
+            ..Default::default()
+        };
+        assert!(!matches_ecs_request(&access_line(), &f));
+        assert!(matches_ecs_request(&error_line(), &f));
+    }
+
+    #[test]
+    fn matches_event_outcome_scalar() {
+        let f = EcsRequestFilter {
+            event_outcome: Some("success"),
+            ..Default::default()
+        };
+        assert!(matches_ecs_request(&access_line(), &f));
+
+        let f = EcsRequestFilter {
+            event_outcome: Some("failure"),
+            ..Default::default()
+        };
+        assert!(!matches_ecs_request(&access_line(), &f));
+        assert!(matches_ecs_request(&error_line(), &f));
+    }
+
+    #[test]
+    fn count_warn_pair_uses_new_event_fields() {
+        // A single 4xx request produces one INFO access line (RequestLogger,
+        // no event.* fields) and one WARN error line (from the emitter,
+        // with the full event.* tuple). `count_ecs_requests(min)` = 1.
+        // The access-side filter uses only transport-shape fields;
+        // event.* expectations apply only to the error record.
+        let f = EcsRequestFilter {
+            service: Some("lnurl"),
+            status: Some(404),
+            level: Some("WARN"),
+            event_category: Some("web"),
+            ..Default::default()
+        };
+        let access = r#"{"@timestamp":"t","log.level":"INFO","message":"request","ecs.version":"8.11","service.name":"swgr.lnurl","http.request.method":"GET","http.response.status_code":404,"url.path":"/x"}"#.to_string();
+        let warn = r#"{"@timestamp":"t","log.level":"WARN","message":"nope","ecs.version":"8.11","service.name":"swgr.lnurl","http.response.status_code":404,"event.kind":"event","event.category":["web"],"event.type":["error"],"event.outcome":"failure"}"#.to_string();
+        assert_eq!(count_ecs_requests(&[access, warn], &f), 1);
+    }
 }

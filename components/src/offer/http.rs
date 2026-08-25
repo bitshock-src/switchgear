@@ -1,104 +1,88 @@
-use crate::offer::error::OfferStoreError;
+use crate::offer::error::DefaultOfferStoreError;
+use crate::secrets::SecretStore;
 use async_trait::async_trait;
-use axum::http::{HeaderMap, HeaderValue};
 use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
 use rustls::pki_types::CertificateDer;
+use secrecy::{ExposeSecret, SecretString};
 use std::time::Duration;
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::offer::{
     HttpOfferClient, OfferMetadata, OfferMetadataStore, OfferRecord, OfferStore,
 };
-use switchgear_service_api::service::ServiceErrorSource;
 use url::Url;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct HttpOfferStore {
     client: Client,
+    secret_store: SecretStore,
+    bearer_secret: String,
     offer_url: String,
     metadata_url: String,
     health_check_url: String,
 }
 
 impl HttpOfferStore {
+    #[tracing::instrument(skip_all)]
     pub fn create<U: IntoUrl>(
         base_url: U,
         total_timeout: Duration,
         connect_timeout: Duration,
         trusted_roots: &[CertificateDer],
-        authorization: String,
-    ) -> Result<Self, OfferStoreError> {
-        let mut headers = HeaderMap::new();
-        let mut auth_value =
-            HeaderValue::from_str(&format!("Bearer {authorization}")).map_err(|e| {
-                OfferStoreError::internal_error(
-                    ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {}", base_url.as_str()),
-                    e.to_string(),
-                )
-            })?;
-        auth_value.set_sensitive(true);
-        headers.insert(reqwest::header::AUTHORIZATION, auth_value);
-
+        secret_store: SecretStore,
+        bearer_secret: impl Into<String>,
+    ) -> Result<Self, DefaultOfferStoreError> {
         let mut builder = ClientBuilder::new();
         for root in trusted_roots {
-            let root = Certificate::from_der(root).map_err(|e| {
-                OfferStoreError::internal_error(
-                    ServiceErrorSource::Internal,
-                    format!("parsing certificate for url: {}", base_url.as_str()),
-                    e.to_string(),
-                )
-            })?;
+            let root = Certificate::from_der(root).with_foreign_context(
+                || format!("parsing certificate for url: {}", base_url.as_str()),
+                ErrorOrigin::Internal,
+            )?;
             builder = builder.add_root_certificate(root);
         }
-
         let client = builder
-            .default_headers(headers)
             .use_rustls_tls()
             .timeout(total_timeout)
             .connect_timeout(connect_timeout)
             .build()
-            .map_err(|e| {
-                OfferStoreError::http_error(
-                    ServiceErrorSource::Internal,
-                    format!("creating http client with base url: {}", base_url.as_str()),
-                    e,
-                )
-            })?;
-        Self::with_client(client, base_url)
+            .with_foreign_context(
+                || format!("creating http client with base url: {}", base_url.as_str()),
+                ErrorOrigin::Internal,
+            )?;
+        Self::with_client(client, base_url, secret_store, bearer_secret.into())
     }
 
-    fn with_client<U: IntoUrl>(client: Client, base_url: U) -> Result<Self, OfferStoreError> {
+    #[tracing::instrument(skip_all)]
+    fn with_client<U: IntoUrl>(
+        client: Client,
+        base_url: U,
+        secret_store: SecretStore,
+        bearer_secret: String,
+    ) -> Result<Self, DefaultOfferStoreError> {
         let base_url = base_url.as_str().trim_end_matches('/').to_string();
 
         let offer_url = format!("{base_url}/offers");
-        Url::parse(&offer_url).map_err(|e| {
-            OfferStoreError::internal_error(
-                ServiceErrorSource::Upstream,
-                format!("parsing service url {offer_url}"),
-                e.to_string(),
-            )
-        })?;
+        Url::parse(&offer_url).with_foreign_context(
+            || format!("parsing service url {offer_url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         let metadata_url = format!("{base_url}/metadata");
-        Url::parse(&offer_url).map_err(|e| {
-            OfferStoreError::internal_error(
-                ServiceErrorSource::Upstream,
-                format!("parsing service url {metadata_url}"),
-                e.to_string(),
-            )
-        })?;
+        Url::parse(&metadata_url).with_foreign_context(
+            || format!("parsing service url {metadata_url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         let health_check_url = format!("{base_url}/health");
-        Url::parse(&health_check_url).map_err(|e| {
-            OfferStoreError::internal_error(
-                ServiceErrorSource::Upstream,
-                format!("parsing service url {health_check_url}"),
-                e.to_string(),
-            )
-        })?;
+        Url::parse(&health_check_url).with_foreign_context(
+            || format!("parsing service url {health_check_url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         Ok(Self {
             client,
+            secret_store,
+            bearer_secret,
             offer_url,
             metadata_url,
             health_check_url,
@@ -121,32 +105,41 @@ impl HttpOfferStore {
         format!("{}/{}", self.metadata_partition_url(partition), id)
     }
 
-    fn general_error(status: StatusCode, context: &str) -> OfferStoreError {
+    fn bearer(&self) -> Result<SecretString, DefaultOfferStoreError> {
+        self.secret_store
+            .get_str(&self.bearer_secret)
+            .with_chained_context(
+                || format!("resolving http offer store bearer {}", self.bearer_secret),
+                ErrorOrigin::Internal,
+            )
+    }
+
+    #[tracing::instrument(skip_all)]
+    fn general_error(status: StatusCode, context: &str) -> DefaultOfferStoreError {
         if status.is_success() {
-            return OfferStoreError::internal_error(
-                ServiceErrorSource::Upstream,
-                context.to_string(),
-                format!("unexpected http status {status}"),
+            return DefaultOfferStoreError::message(
+                ErrorOrigin::Upstream,
+                format!("{context}: unexpected http status {status}"),
             );
         }
         if status.is_client_error() {
-            return OfferStoreError::invalid_input_error(
+            return DefaultOfferStoreError::invalid_input_error(
                 context.to_string(),
                 format!("invalid input, http status: {status}"),
             );
         }
-        OfferStoreError::http_status_error(
-            ServiceErrorSource::Upstream,
-            context.to_string(),
-            status.as_u16(),
+        DefaultOfferStoreError::message(
+            ErrorOrigin::Upstream,
+            format!("http status {}: {context}", status.as_u16()),
         )
     }
 }
 
 #[async_trait]
 impl OfferStore for HttpOfferStore {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_offer(
         &self,
         partition: &str,
@@ -156,19 +149,21 @@ impl OfferStore for HttpOfferStore {
         let sparse = sparse.unwrap_or(true);
         let url = self.offers_partition_id_url(partition, id);
         let url = format!("{url}?sparse={sparse}");
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(ServiceErrorSource::Upstream, format!("get offer {url}"), e)
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(|| format!("get offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::OK => {
-                let offer = response.json::<OfferRecord>().await.map_err(|e| {
-                    OfferStoreError::deserialization_error(
-                        ServiceErrorSource::Upstream,
-                        format!("parsing offer {id}"),
-                        e,
-                    )
-                })?;
+                let offer = response.json::<OfferRecord>().await.with_foreign_context(
+                    || format!("parsing offer {id}"),
+                    ErrorOrigin::Upstream,
+                )?;
                 Ok(Some(offer))
             }
             StatusCode::NOT_FOUND => Ok(None),
@@ -176,6 +171,7 @@ impl OfferStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_offers(
         &self,
         partition: &str,
@@ -184,23 +180,24 @@ impl OfferStore for HttpOfferStore {
     ) -> Result<Vec<OfferRecord>, Self::Error> {
         let url = self.offers_partition_url(partition);
         let url = format!("{url}?start={start}&count={count}");
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("get all offers {url}"),
-                e,
-            )
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(|| format!("get all offers {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::OK => {
-                let offer_records = response.json::<Vec<OfferRecord>>().await.map_err(|e| {
-                    OfferStoreError::deserialization_error(
-                        ServiceErrorSource::Upstream,
-                        format!("parsing all offers for {url}"),
-                        e,
-                    )
-                })?;
+                let offer_records = response
+                    .json::<Vec<OfferRecord>>()
+                    .await
+                    .with_foreign_context(
+                        || format!("parsing all offers for {url}"),
+                        ErrorOrigin::Upstream,
+                    )?;
                 Ok(offer_records)
             }
             status => Err(Self::general_error(
@@ -210,20 +207,20 @@ impl OfferStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post_offer(&self, offer: OfferRecord) -> Result<Option<Uuid>, Self::Error> {
+        let token = self.bearer()?;
         let response = self
             .client
             .post(&self.offer_url)
+            .bearer_auth(token.expose_secret())
             .json(&offer)
             .send()
             .await
-            .map_err(|e| {
-                OfferStoreError::http_error(
-                    ServiceErrorSource::Upstream,
-                    format!("post offer: {}, url: {}", offer.id, self.offer_url),
-                    e,
-                )
-            })?;
+            .with_foreign_context(
+                || format!("post offer: {}, url: {}", offer.id, self.offer_url),
+                ErrorOrigin::Upstream,
+            )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(offer.id)),
@@ -235,21 +232,18 @@ impl OfferStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put_offer(&self, offer: OfferRecord) -> Result<bool, Self::Error> {
         let url = self.offers_partition_id_url(&offer.partition, &offer.id);
+        let token = self.bearer()?;
         let response = self
             .client
             .put(&url)
+            .bearer_auth(token.expose_secret())
             .json(&offer)
             .send()
             .await
-            .map_err(|e| {
-                OfferStoreError::http_error(
-                    ServiceErrorSource::Upstream,
-                    format!("put offer {url}"),
-                    e,
-                )
-            })?;
+            .with_foreign_context(|| format!("put offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::CREATED => Ok(true),
@@ -258,15 +252,17 @@ impl OfferStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.offers_partition_id_url(partition, id);
-        let response = self.client.delete(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("delete offer {url}"),
-                e,
-            )
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .delete(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(|| format!("delete offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
@@ -278,31 +274,36 @@ impl OfferStore for HttpOfferStore {
 
 #[async_trait]
 impl OfferMetadataStore for HttpOfferStore {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_metadata(
         &self,
         partition: &str,
         id: &Uuid,
     ) -> Result<Option<OfferMetadata>, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("get offer metadata {url}"),
-                e,
-            )
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(
+                || format!("get offer metadata {url}"),
+                ErrorOrigin::Upstream,
+            )?;
 
         match response.status() {
             StatusCode::OK => {
-                let metadata = response.json::<OfferMetadata>().await.map_err(|e| {
-                    OfferStoreError::deserialization_error(
-                        ServiceErrorSource::Upstream,
-                        format!("parse offer metadata {url}"),
-                        e,
-                    )
-                })?;
+                let metadata = response
+                    .json::<OfferMetadata>()
+                    .await
+                    .with_foreign_context(
+                        || format!("parse offer metadata {url}"),
+                        ErrorOrigin::Upstream,
+                    )?;
                 Ok(Some(metadata))
             }
             StatusCode::NOT_FOUND => Ok(None),
@@ -313,6 +314,7 @@ impl OfferMetadataStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_all_metadata(
         &self,
         partition: &str,
@@ -321,23 +323,24 @@ impl OfferMetadataStore for HttpOfferStore {
     ) -> Result<Vec<OfferMetadata>, Self::Error> {
         let url = self.metadata_partition_url(partition);
         let url = format!("{url}?start={start}&count={count}");
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("get all metadata {url}"),
-                e,
-            )
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(|| format!("get all metadata {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::OK => {
-                let metadata_all = response.json::<Vec<OfferMetadata>>().await.map_err(|e| {
-                    OfferStoreError::deserialization_error(
-                        ServiceErrorSource::Upstream,
-                        format!("parse all metadata {url}"),
-                        e,
-                    )
-                })?;
+                let metadata_all = response
+                    .json::<Vec<OfferMetadata>>()
+                    .await
+                    .with_foreign_context(
+                        || format!("parse all metadata {url}"),
+                        ErrorOrigin::Upstream,
+                    )?;
                 Ok(metadata_all)
             }
             status => Err(Self::general_error(
@@ -347,23 +350,25 @@ impl OfferMetadataStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post_metadata(&self, metadata: OfferMetadata) -> Result<Option<Uuid>, Self::Error> {
+        let token = self.bearer()?;
         let response = self
             .client
             .post(&self.metadata_url)
+            .bearer_auth(token.expose_secret())
             .json(&metadata)
             .send()
             .await
-            .map_err(|e| {
-                OfferStoreError::http_error(
-                    ServiceErrorSource::Upstream,
+            .with_foreign_context(
+                || {
                     format!(
                         "post offer metadata {}, url: {}",
                         metadata.id, self.metadata_url
-                    ),
-                    e,
-                )
-            })?;
+                    )
+                },
+                ErrorOrigin::Upstream,
+            )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(metadata.id)),
@@ -378,21 +383,21 @@ impl OfferMetadataStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put_metadata(&self, metadata: OfferMetadata) -> Result<bool, Self::Error> {
         let url = self.metadata_partition_id_url(&metadata.partition, &metadata.id);
+        let token = self.bearer()?;
         let response = self
             .client
             .put(&url)
+            .bearer_auth(token.expose_secret())
             .json(&metadata)
             .send()
             .await
-            .map_err(|e| {
-                OfferStoreError::http_error(
-                    ServiceErrorSource::Upstream,
-                    format!("put offer metadata {url}"),
-                    e,
-                )
-            })?;
+            .with_foreign_context(
+                || format!("put offer metadata {url}"),
+                ErrorOrigin::Upstream,
+            )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(true),
@@ -404,15 +409,20 @@ impl OfferMetadataStore for HttpOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
-        let response = self.client.delete(&url).send().await.map_err(|e| {
-            OfferStoreError::http_error(
-                ServiceErrorSource::Upstream,
-                format!("delete offer metadata {url}"),
-                e,
-            )
-        })?;
+        let token = self.bearer()?;
+        let response = self
+            .client
+            .delete(&url)
+            .bearer_auth(token.expose_secret())
+            .send()
+            .await
+            .with_foreign_context(
+                || format!("delete offer metadata {url}"),
+                ErrorOrigin::Upstream,
+            )?;
 
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
@@ -427,20 +437,20 @@ impl OfferMetadataStore for HttpOfferStore {
 
 #[async_trait]
 impl HttpOfferClient for HttpOfferStore {
+    #[tracing::instrument(skip_all)]
     async fn health(&self) -> Result<(), <Self as OfferStore>::Error> {
+        let token = self.bearer()?;
         let response = self
             .client
             .get(&self.health_check_url)
+            .bearer_auth(token.expose_secret())
             .send()
             .await
-            .map_err(|e| {
-                OfferStoreError::http_error(ServiceErrorSource::Upstream, "health check", e)
-            })?;
+            .foreign_context("health check", ErrorOrigin::Upstream)?;
         if !response.status().is_success() {
-            return Err(OfferStoreError::http_status_error(
-                ServiceErrorSource::Upstream,
-                "health check",
-                response.status().as_u16(),
+            return Err(DefaultOfferStoreError::message(
+                ErrorOrigin::Upstream,
+                format!("http status {}: health check", response.status().as_u16()),
             ));
         }
         Ok(())
@@ -450,14 +460,31 @@ impl HttpOfferClient for HttpOfferStore {
 #[cfg(test)]
 mod tests {
     use crate::offer::http::HttpOfferStore;
+    use crate::secrets::{SecretStore, SecretStoreConfig, SecretStoreSecretConfig};
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
     use url::Url;
     use uuid::Uuid;
+
+    fn empty_secret_store() -> SecretStore {
+        SecretStore::create(&SecretStoreConfig {
+            ttl: 60.0,
+            secrets: BTreeMap::from([(
+                "TOKEN".to_owned(),
+                SecretStoreSecretConfig {
+                    path: PathBuf::from("/dev/null"),
+                },
+            )]),
+        })
+    }
 
     #[test]
     fn base_urls() {
         let client = HttpOfferStore::with_client(
             reqwest::Client::default(),
             Url::parse("https://offers-base.com").unwrap(),
+            empty_secret_store(),
+            "TOKEN".to_owned(),
         )
         .unwrap();
 
@@ -467,6 +494,8 @@ mod tests {
         let client = HttpOfferStore::with_client(
             reqwest::Client::default(),
             Url::parse("https://offers-base.com/").unwrap(),
+            empty_secret_store(),
+            "TOKEN".to_owned(),
         )
         .unwrap();
 

@@ -1,10 +1,21 @@
-use crate::{PingoraLnClientPool, PingoraLnMetrics, PingoraLnMetricsCache};
+use crate::{
+    PingoraLnClientPool, PingoraLnClientPoolError, PingoraLnMetrics, PingoraLnMetricsCache,
+};
 use async_trait::async_trait;
 use pingora_load_balancing::Backend;
-use switchgear_components::pool::error::LnPoolError;
 use switchgear_components::pool::LnClientPool;
+use switchgear_components::pool::error::LnPoolError;
+use switchgear_error::IntoBoxedTrait;
 use switchgear_service_api::discovery::DiscoveryBackend;
 use switchgear_service_api::offer::Offer;
+
+impl PingoraLnClientPoolError for LnPoolError {}
+
+impl IntoBoxedTrait<dyn PingoraLnClientPoolError> for LnPoolError {
+    fn into_boxed(self) -> Box<dyn PingoraLnClientPoolError> {
+        Box::new(self)
+    }
+}
 
 #[derive(Clone)]
 pub struct DefaultPingoraLnClientPool {
@@ -22,6 +33,7 @@ impl PingoraLnClientPool for DefaultPingoraLnClientPool {
     type Error = LnPoolError;
     type Key = Backend;
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice(
         &self,
         offer: &Offer,
@@ -34,6 +46,7 @@ impl PingoraLnClientPool for DefaultPingoraLnClientPool {
             .await
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self, key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
         let metrics = self.pool.get_metrics(key).await?;
         Ok(PingoraLnMetrics {
@@ -42,6 +55,7 @@ impl PingoraLnClientPool for DefaultPingoraLnClientPool {
         })
     }
 
+    #[tracing::instrument(skip_all)]
     fn connect(&self, key: Self::Key, backend: &DiscoveryBackend) -> Result<(), Self::Error> {
         self.pool.connect(key, backend)
     }

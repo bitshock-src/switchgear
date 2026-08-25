@@ -1,4 +1,4 @@
-use crate::offer::error::OfferStoreError;
+use crate::offer::error::DefaultOfferStoreError;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,7 +41,7 @@ impl Default for MemoryOfferStore {
 
 #[async_trait]
 impl OfferStore for MemoryOfferStore {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
     async fn get_offer(
         &self,
@@ -97,12 +97,13 @@ impl OfferStore for MemoryOfferStore {
         Ok(offers)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post_offer(&self, offer: OfferRecord) -> Result<Option<Uuid>, Self::Error> {
         let metadata_store = self.metadata.lock().await;
         let mut store = self.offer.lock().await;
 
         if !metadata_store.contains_key(&(offer.partition.to_string(), offer.offer.metadata_id)) {
-            return Err(OfferStoreError::invalid_input_error(
+            return Err(DefaultOfferStoreError::invalid_input_error(
                 format!("post offer {offer:?}"),
                 format!(
                     "metadata {} not found for offer {}",
@@ -124,12 +125,13 @@ impl OfferStore for MemoryOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put_offer(&self, offer: OfferRecord) -> Result<bool, Self::Error> {
         let metadata_store = self.metadata.lock().await;
         let mut store = self.offer.lock().await;
 
         if !metadata_store.contains_key(&(offer.partition.to_string(), offer.offer.metadata_id)) {
-            return Err(OfferStoreError::invalid_input_error(
+            return Err(DefaultOfferStoreError::invalid_input_error(
                 format!("put offer {offer:?}"),
                 format!(
                     "metadata {} not found for offer {}",
@@ -158,7 +160,7 @@ impl OfferStore for MemoryOfferStore {
 
 #[async_trait]
 impl OfferMetadataStore for MemoryOfferStore {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
     async fn get_metadata(
         &self,
@@ -230,6 +232,7 @@ impl OfferMetadataStore for MemoryOfferStore {
         Ok(was_new)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let offer_store = self.offer.lock().await;
         let mut metadata_store = self.metadata.lock().await;
@@ -239,7 +242,7 @@ impl OfferMetadataStore for MemoryOfferStore {
         });
 
         if metadata_in_use {
-            return Err(OfferStoreError::invalid_input_error(
+            return Err(DefaultOfferStoreError::invalid_input_error(
                 format!("delete metadata {partition}/{id}"),
                 format!("metadata {} is referenced by existing offers", id),
             ));

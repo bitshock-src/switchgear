@@ -2,7 +2,7 @@ use crate::try_create_cln_backend_implementation;
 use anyhow::anyhow;
 use bitcoin_hashes::Hash;
 use lightning_invoice::Bolt11Invoice;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use sha2::{Digest, Sha256};
 use std::str::FromStr;
 use std::time::Duration;

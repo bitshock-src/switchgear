@@ -1,7 +1,8 @@
 [package]
 name = "switchgear"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"
 documentation = "https://github.com/bitshock-src/switchgear"

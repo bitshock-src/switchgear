@@ -1,22 +1,25 @@
-use crate::common::client::{LnUrlTestClient, TcpProbe};
+use crate::common::client::{LnUrlTestClient, RawHttpClient, TcpProbe};
+use crate::common::context::Protocol;
 use crate::common::context::certs::gen_server_cert;
 use crate::common::context::token::generate_service_token;
-use crate::common::context::Protocol;
 use crate::common::context::{
     DiscoveryServiceConfigOverride, LnUrlBalancerServiceConfigOverride, OfferServiceConfigOverride,
     ServerConfigOverrides, Service, ServiceProfile,
 };
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use rcgen::{Issuer, KeyPair};
-use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::CertificateDer;
+use rustls::pki_types::pem::PemObject;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_components::offer::http::HttpOfferStore;
+use switchgear_components::secrets::{SecretStore, SecretStoreConfig, SecretStoreSecretConfig};
 use switchgear_server::config::TlsConfig;
+use switchgear_testing::credentials::otel::OtelCollector;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -46,7 +49,10 @@ pub struct ServerContext {
     offer_store_database_uri: String,
     discovery_store_database_uri: String,
 
-    secrets_path: Option<PathBuf>,
+    mysql_username_file: Option<PathBuf>,
+    mysql_password_file: Option<PathBuf>,
+    postgres_username_file: Option<PathBuf>,
+    postgres_password_file: Option<PathBuf>,
 
     discovery_store_authorization: Option<PathBuf>,
     offer_store_authorization: Option<PathBuf>,
@@ -70,6 +76,8 @@ pub struct ServerContext {
     server_config_overrides: ServerConfigOverrides,
 
     ln_trusted_roots_path: Option<PathBuf>,
+
+    otel_collector: OtelCollector,
 }
 
 impl ServerContext {
@@ -83,6 +91,7 @@ impl ServerContext {
         lnurl_service_profile: ServiceProfile,
         discovery_service_profile: ServiceProfile,
         offer_service_profile: ServiceProfile,
+        otel_collector: OtelCollector,
     ) -> anyhow::Result<Self> {
         let id = Uuid::new_v4();
 
@@ -148,16 +157,19 @@ impl ServerContext {
             pki_root_certificate_path.as_path(),
         )?;
 
+        let _ = discovery_authorization_token;
+        let _ = offer_authorization_token;
+
         let discovery_client = Self::create_discovery_client(
             discovery_service_profile.clone(),
             pki_root_certificate_path.as_path(),
-            discovery_authorization_token,
+            &discovery_authorization,
         )?;
 
         let offer_client = Self::create_offer_client(
             offer_service_profile.clone(),
             pki_root_certificate_path.as_path(),
-            offer_authorization_token,
+            &offer_authorization,
         )?;
 
         Ok(Self {
@@ -177,7 +189,10 @@ impl ServerContext {
                 "sqlite://{}?mode=rwc",
                 discovery_store_dir.join("discovery.db").to_string_lossy()
             ),
-            secrets_path: None,
+            mysql_username_file: None,
+            mysql_password_file: None,
+            postgres_username_file: None,
+            postgres_password_file: None,
 
             offer_store_database_uri: format!(
                 "sqlite://{}?mode=rwc",
@@ -244,6 +259,7 @@ impl ServerContext {
                 },
             },
             ln_trusted_roots_path: None,
+            otel_collector,
         })
     }
 
@@ -277,9 +293,10 @@ impl ServerContext {
     fn create_discovery_client(
         service_profile: ServiceProfile,
         root_certificate: &Path,
-        authorization: String,
+        authorization_path: &Path,
     ) -> anyhow::Result<HttpDiscoveryBackendStore> {
         let url = Self::get_service_url(service_profile.clone());
+        let secret_store = Self::adhoc_secret_store(authorization_path);
 
         match service_profile.protocol {
             Protocol::Https => {
@@ -297,7 +314,8 @@ impl ServerContext {
                     Duration::from_secs(10),
                     Duration::from_secs(10),
                     &certs,
-                    authorization,
+                    secret_store,
+                    "BEARER",
                 )?)
             }
             Protocol::Http => Ok(HttpDiscoveryBackendStore::create(
@@ -305,7 +323,8 @@ impl ServerContext {
                 Duration::from_secs(10),
                 Duration::from_secs(10),
                 &[],
-                authorization,
+                secret_store,
+                "BEARER",
             )?),
         }
     }
@@ -313,9 +332,10 @@ impl ServerContext {
     fn create_offer_client(
         service_profile: ServiceProfile,
         root_certificate: &Path,
-        authorization: String,
+        authorization_path: &Path,
     ) -> anyhow::Result<HttpOfferStore> {
         let url = Self::get_service_url(service_profile.clone());
+        let secret_store = Self::adhoc_secret_store(authorization_path);
 
         match service_profile.protocol {
             Protocol::Https => {
@@ -333,7 +353,8 @@ impl ServerContext {
                     Duration::from_secs(10),
                     Duration::from_secs(10),
                     &certs,
-                    authorization,
+                    secret_store,
+                    "BEARER",
                 )?)
             }
             Protocol::Http => Ok(HttpOfferStore::create(
@@ -341,9 +362,22 @@ impl ServerContext {
                 Duration::from_secs(10),
                 Duration::from_secs(10),
                 &[],
-                authorization,
+                secret_store,
+                "BEARER",
             )?),
         }
+    }
+
+    fn adhoc_secret_store(path: &Path) -> SecretStore {
+        SecretStore::create(&SecretStoreConfig {
+            ttl: 300.0,
+            secrets: BTreeMap::from([(
+                "BEARER".to_owned(),
+                SecretStoreSecretConfig {
+                    path: path.to_path_buf(),
+                },
+            )]),
+        })
     }
 
     pub fn set_discovery_store_url(&mut self, discovery_store_url: Option<String>) {
@@ -458,7 +492,9 @@ impl ServerContext {
                 command.env("SSL_CERT_FILE", path);
             }
             CertificateLocation::Arg => {
-                bail!("not supported: server cannot be configured with cli arguments for trusted root locations")
+                bail!(
+                    "not supported: server cannot be configured with cli arguments for trusted root locations"
+                )
             }
         }
 
@@ -484,8 +520,17 @@ impl ServerContext {
             command.arg(arg);
         }
 
-        if let Some(discovery_store_database_secrets_path) = &self.secrets_path {
-            command.env("SECRETS_PATH", discovery_store_database_secrets_path);
+        if let Some(mysql_username_file) = &self.mysql_username_file {
+            command.env("MYSQL_USERNAME_FILE", mysql_username_file);
+        }
+        if let Some(mysql_password_file) = &self.mysql_password_file {
+            command.env("MYSQL_PASSWORD_FILE", mysql_password_file);
+        }
+        if let Some(postgres_username_file) = &self.postgres_username_file {
+            command.env("POSTGRES_USERNAME_FILE", postgres_username_file);
+        }
+        if let Some(postgres_password_file) = &self.postgres_password_file {
+            command.env("POSTGRES_PASSWORD_FILE", postgres_password_file);
         }
 
         if let Some(tls) = &lnurl_svc.tls {
@@ -520,6 +565,57 @@ impl ServerContext {
         }
         if let Some(ln_trusted_roots_path) = &self.ln_trusted_roots_path {
             command.env("LN_TRUSTED_ROOTS", ln_trusted_roots_path);
+        }
+
+        command
+            .env(
+                "LNURL_SERVICE_OTLP_TRACING_ENDPOINT",
+                &self.otel_collector.grpc_endpoint,
+            )
+            .env(
+                "LNURL_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                &self.otel_collector.bearer_token_path,
+            )
+            .env(
+                "LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                &self.otel_collector.ca_cert_path,
+            )
+            .env(
+                "DISCOVERY_SERVICE_OTLP_TRACING_ENDPOINT",
+                &self.otel_collector.grpc_endpoint,
+            )
+            .env(
+                "DISCOVERY_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                &self.otel_collector.bearer_token_path,
+            )
+            .env(
+                "DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                &self.otel_collector.ca_cert_path,
+            )
+            .env(
+                "OFFER_SERVICE_OTLP_TRACING_ENDPOINT",
+                &self.otel_collector.grpc_endpoint,
+            )
+            .env(
+                "OFFER_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                &self.otel_collector.bearer_token_path,
+            )
+            .env(
+                "OFFER_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                &self.otel_collector.ca_cert_path,
+            );
+
+        if let Some(cert) = &self.otel_collector.client_cert_path {
+            command
+                .env("LNURL_SERVICE_OTLP_TRACING_CLIENT_CERT", cert)
+                .env("DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_CERT", cert)
+                .env("OFFER_SERVICE_OTLP_TRACING_CLIENT_CERT", cert);
+        }
+        if let Some(key) = &self.otel_collector.client_key_path {
+            command
+                .env("LNURL_SERVICE_OTLP_TRACING_CLIENT_KEY", key)
+                .env("DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_KEY", key)
+                .env("OFFER_SERVICE_OTLP_TRACING_CLIENT_KEY", key);
         }
         if has_rust_log {
             println!("[STDOUT] Executing command: {command:?}");
@@ -712,7 +808,47 @@ impl ServerContext {
         self.ln_trusted_roots_path = ln_trusted_roots_path;
     }
 
-    pub fn set_secrets_path(&mut self, secrets_path: Option<PathBuf>) {
-        self.secrets_path = secrets_path;
+    pub fn set_mysql_username_file(&mut self, path: Option<PathBuf>) {
+        self.mysql_username_file = path;
+    }
+
+    pub fn set_mysql_password_file(&mut self, path: Option<PathBuf>) {
+        self.mysql_password_file = path;
+    }
+
+    pub fn set_postgres_username_file(&mut self, path: Option<PathBuf>) {
+        self.postgres_username_file = path;
+    }
+
+    pub fn set_postgres_password_file(&mut self, path: Option<PathBuf>) {
+        self.postgres_password_file = path;
+    }
+
+    /// Point the swgr child at a different OTLP collector than the shared
+    /// container-backed one. `start_server` reads `self.otel_collector` when
+    /// wiring the `OTLP_TRACING_*` env vars, so this must be called before start.
+    pub fn set_otel_collector_override(&mut self, otel_collector: OtelCollector) {
+        self.otel_collector = otel_collector;
+    }
+
+    pub fn pki_root_certificate_path(&self) -> &Path {
+        &self.pki_root_certificate_path
+    }
+
+    /// Build a raw HTTP client for the given service on this server. Uses the
+    /// service's configured domain (not the raw IP) so TLS SAN validation
+    /// against the test PKI's cert-per-domain works — matching what the typed
+    /// clients do via `Self::get_service_url`.
+    pub fn raw_client_for(&self, service: Service) -> anyhow::Result<RawHttpClient> {
+        let profile = self.get_service_profile(service)?;
+        let base_url = Self::get_service_url(profile.clone());
+
+        let trusted_roots = if matches!(profile.protocol, Protocol::Https) {
+            let cert_data = std::fs::read(&self.pki_root_certificate_path)?;
+            vec![reqwest::Certificate::from_pem(&cert_data)?]
+        } else {
+            vec![]
+        };
+        RawHttpClient::create(base_url, trusted_roots)
     }
 }

@@ -1,15 +1,15 @@
 use crate::pool::error::LnPoolError;
-use crate::pool::lnd::grpc::config::{LndGrpcClientAuth, LndGrpcDiscoveryBackendImplementation};
+use crate::pool::lnd::grpc::config::LndGrpcDiscoveryBackendImplementation;
 use crate::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
+use crate::secrets::{SecretHeaderInterceptor, SecretStore};
 use async_trait::async_trait;
 use rustls::pki_types::CertificateDer;
 use sha2::Digest;
 use std::fs;
 use std::sync::Arc;
 use std::time::Duration;
-use switchgear_service_api::service::ServiceErrorSource;
+use switchgear_error::ForeignContext;
 use tokio::sync::Mutex;
-use tonic::service::Interceptor;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
 
 #[allow(clippy::all)]
@@ -25,16 +25,17 @@ pub struct TonicLndGrpcClient {
     features: Option<LnFeatures>,
     inner: Arc<Mutex<Option<Arc<InnerTonicLndGrpcClient>>>>,
     ca_certificates: Vec<Certificate>,
-    macaroon: String,
+    secrets: SecretStore,
 }
 
 impl TonicLndGrpcClient {
+    #[tracing::instrument(skip_all)]
     pub fn create(
         timeout: Duration,
         config: LndGrpcDiscoveryBackendImplementation,
         trusted_roots: &[CertificateDer],
     ) -> Result<Self, LnPoolError> {
-        let LndGrpcClientAuth::Path(auth) = &config.auth;
+        let auth = &config.auth;
 
         let mut ca_certificates = trusted_roots
             .iter()
@@ -45,30 +46,19 @@ impl TonicLndGrpcClient {
             .collect::<Vec<_>>();
 
         if let Some(tls_cert_path) = &auth.tls_cert_path {
-            let ca_certificate = fs::read(tls_cert_path).map_err(|e| {
-                LnPoolError::from_invalid_credentials(
-                    e.to_string(),
-                    ServiceErrorSource::Internal,
+            let ca_certificate = fs::read(tls_cert_path).with_foreign_context(
+                || {
                     format!(
-                        "loading LND credentials and reading CA certificate from path {}",
+                        "reading LND CA certificate from {}",
                         tls_cert_path.to_string_lossy()
-                    ),
-                )
-            })?;
+                    )
+                },
+                None,
+            )?;
             ca_certificates.push(Certificate::from_pem(&ca_certificate));
         }
 
-        let macaroon = fs::read(&auth.macaroon_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading LND macaroon from {}",
-                    auth.macaroon_path.to_string_lossy()
-                ),
-            )
-        })?;
-        let macaroon = hex::encode(&macaroon);
+        let secrets = SecretStore::create(&auth.secrets);
 
         Ok(Self {
             timeout,
@@ -78,10 +68,11 @@ impl TonicLndGrpcClient {
             }),
             inner: Arc::new(Default::default()),
             ca_certificates,
-            macaroon,
+            secrets,
         })
     }
 
+    #[tracing::instrument(skip_all)]
     async fn inner_connect(&self) -> Result<Arc<InnerTonicLndGrpcClient>, LnPoolError> {
         let mut inner = self.inner.lock().await;
         match inner.as_ref() {
@@ -90,7 +81,8 @@ impl TonicLndGrpcClient {
                     InnerTonicLndGrpcClient::connect(
                         self.timeout,
                         self.ca_certificates.clone(),
-                        self.macaroon.clone(),
+                        self.secrets.clone(),
+                        self.config.auth.macaroon_secret.clone(),
                         self.config.url.to_string(),
                         self.config.domain.as_deref(),
                         self.config.amp_invoice,
@@ -104,6 +96,7 @@ impl TonicLndGrpcClient {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn inner_disconnect(&self) {
         let mut inner = self.inner.lock().await;
         *inner = None;
@@ -120,6 +113,7 @@ impl TonicLndGrpcClient {
 impl LnRpcClient for TonicLndGrpcClient {
     type Error = LnPoolError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -138,6 +132,7 @@ impl LnRpcClient for TonicLndGrpcClient {
         r
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
         let inner = self.inner_connect().await?;
 
@@ -156,28 +151,25 @@ impl LnRpcClient for TonicLndGrpcClient {
 
 struct InnerTonicLndGrpcClient {
     client: LightningClient<
-        tonic::service::interceptor::InterceptedService<Channel, MacaroonInterceptor>,
+        tonic::service::interceptor::InterceptedService<Channel, SecretHeaderInterceptor>,
     >,
     url: String,
     amp_invoice: bool,
 }
 
 impl InnerTonicLndGrpcClient {
+    #[tracing::instrument(skip_all)]
     async fn connect(
         timeout: Duration,
         ca_certificates: Vec<Certificate>,
-        macaroon: String,
+        secrets: SecretStore,
+        macaroon_secret: String,
         url: String,
         domain: Option<&str>,
         amp_invoice: bool,
     ) -> Result<Self, LnPoolError> {
-        let endpoint = Channel::from_shared(url.clone()).map_err(|e| {
-            LnPoolError::from_invalid_configuration(
-                format!("Invalid endpoint URI: {}", e),
-                ServiceErrorSource::Internal,
-                format!("LND connecting to endpoint address {url}"),
-            )
-        })?;
+        let endpoint = Channel::from_shared(url.clone())
+            .with_foreign_context(|| format!("parsing LND endpoint address {url}"), None)?;
 
         let mut tls_config = ClientTlsConfig::new()
             .with_native_roots()
@@ -187,30 +179,20 @@ impl InnerTonicLndGrpcClient {
             tls_config = tls_config.domain_name(domain);
         }
 
-        let endpoint = endpoint.tls_config(tls_config).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!("loading LND TLS configuration into client for {url}"),
-            )
-        })?;
+        let endpoint = endpoint
+            .tls_config(tls_config)
+            .with_foreign_context(|| format!("configuring LND TLS for {url}"), None)?;
 
         let channel = endpoint
             .connect_timeout(timeout)
             .timeout(timeout)
             .connect()
             .await
-            .map_err(|e| {
-                LnPoolError::from_transport_error(
-                    e,
-                    ServiceErrorSource::Upstream,
-                    format!("connecting LND client to {url}"),
-                )
-            })?;
+            .with_foreign_context(|| format!("connecting LND client to {url}"), None)?;
 
-        let interceptor = MacaroonInterceptor { macaroon };
-
+        let interceptor = SecretHeaderInterceptor::macaroon_hex(secrets, macaroon_secret);
         let client = LightningClient::with_interceptor(channel, interceptor);
+
         Ok(Self {
             client,
             url,
@@ -218,6 +200,7 @@ impl InnerTonicLndGrpcClient {
         })
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -246,17 +229,13 @@ impl InnerTonicLndGrpcClient {
         let response = client
             .add_invoice(invoice_request)
             .await
-            .map_err(|e| {
-                LnPoolError::from_tonic_error(
-                    e,
-                    format!("LND get invoice from {}, requesting invoice", self.url),
-                )
-            })?
+            .with_foreign_context(|| format!("requesting LND invoice from {}", self.url), None)?
             .into_inner();
 
         Ok(response.payment_request)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let mut client = self.client.clone();
 
@@ -264,12 +243,10 @@ impl InnerTonicLndGrpcClient {
         let channels_balance_response = client
             .channel_balance(channel_balance_request)
             .await
-            .map_err(|e| {
-                LnPoolError::from_tonic_error(
-                    e,
-                    format!("LND get metrics for {}, requesting channels", self.url),
-                )
-            })?
+            .with_foreign_context(
+                || format!("querying LND channel balance for {}", self.url),
+                None,
+            )?
             .into_inner();
 
         let node_effective_inbound_msat = channels_balance_response
@@ -281,21 +258,5 @@ impl InnerTonicLndGrpcClient {
             healthy: true,
             node_effective_inbound_msat,
         })
-    }
-}
-
-#[derive(Clone)]
-struct MacaroonInterceptor {
-    macaroon: String,
-}
-
-impl Interceptor for MacaroonInterceptor {
-    fn call(&mut self, mut req: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
-        req.metadata_mut().insert(
-            "macaroon",
-            tonic::metadata::MetadataValue::try_from(self.macaroon.clone())
-                .map_err(|_| tonic::Status::invalid_argument("Invalid macaroon"))?,
-        );
-        Ok(req)
     }
 }

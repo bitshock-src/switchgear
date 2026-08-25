@@ -1,7 +1,8 @@
 [package]
 name = "switchgear-service"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Service layer implementations for Switchgear LNURL load balancer"
 documentation = "https://github.com/bitshock-src/switchgear"
@@ -21,16 +22,17 @@ chrono = { version = "0.4", features = ["serde"] }
 http = "1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
-log = "0.4"
 qrcode = { version = "0.14", default-features = false, features = ["image"] }
 secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
 serde = "1"
 serde_json = "1"
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
+switchgear-components.workspace = true
+switchgear-error.workspace = true
 switchgear-service-api.workspace = true
-thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["balance"] }
+tracing.workspace = true
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 

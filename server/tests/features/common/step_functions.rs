@@ -1,30 +1,34 @@
 use crate::common::context::cli::CliContext;
 use crate::common::context::global::GlobalContext;
+use crate::common::context::jaeger::TraceQuery;
 use crate::common::context::pay::OfferRequest;
 use crate::common::context::server::CertificateLocation;
 use crate::common::context::{Protocol, Service};
 use crate::common::helpers::{
-    check_all_services_health, check_services_listening_status, count_log_patterns,
-    get_invoice_from_request, get_lnurl_offer_from_request, get_offer_id_from_request,
-    get_offer_request, get_offer_request_mut, get_payee_from_context, get_payee_from_context_mut,
-    parse_lightning_invoice, request_and_validate_invoice_helper, validate_invoice_has_amount,
+    EcsRequestFilter, check_all_services_health, check_services_listening_status,
+    count_ecs_requests, get_invoice_from_request, get_lnurl_offer_from_request,
+    get_offer_id_from_request, get_offer_request, get_offer_request_mut, get_payee_from_context,
+    get_payee_from_context_mut, matches_ecs_request, parse_lightning_invoice,
+    read_active_stderr_lines, request_and_validate_invoice_helper, validate_invoice_has_amount,
     verify_exit_code, verify_single_service_status,
 };
 use crate::{anyhow_log, bail_log};
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{Duration as ChronoDuration, Utc};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use reqwest::{StatusCode, Url};
 use secp256k1::PublicKey;
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 use std::vec;
+use switchgear_components::pool::DiscoveryBackendImplementation;
 use switchgear_components::pool::cln::grpc::config::{
-    ClnGrpcClientAuth, ClnGrpcClientAuthPath, ClnGrpcDiscoveryBackendImplementation,
+    ClnGrpcClientAuth, ClnGrpcDiscoveryBackendImplementation,
 };
 use switchgear_components::pool::lnd::grpc::config::{
-    LndGrpcClientAuth, LndGrpcClientAuthPath, LndGrpcDiscoveryBackendImplementation,
+    LndGrpcClientAuth, LndGrpcDiscoveryBackendImplementation,
 };
-use switchgear_components::pool::DiscoveryBackendImplementation;
+use switchgear_components::secrets::{SecretStoreConfig, SecretStoreSecretConfig};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
     DiscoveryBackendStore,
@@ -227,34 +231,34 @@ pub async fn step_then_the_error_message_should_contain_configuration_parsing_de
     ctx: &mut GlobalContext,
 ) -> Result<()> {
     // Check stderr buffer for specific configuration parsing errors
-    if let Ok(stderr_lines) = ctx.get_active_stderr_buffer()?.lock() {
-        if !stderr_lines.is_empty() {
-            let mut detected_patterns = Vec::new();
-            let stderr_text = stderr_lines.join("\n");
+    if let Ok(stderr_lines) = ctx.get_active_stderr_buffer()?.lock()
+        && !stderr_lines.is_empty()
+    {
+        let mut detected_patterns = Vec::new();
+        let stderr_text = stderr_lines.join("\n");
 
-            // Assert on specific error content patterns
-            if stderr_text.contains("parsing YAML configuration") {
-                detected_patterns.push("Configuration parsing error");
-            }
-
-            if stderr_text.contains("did not find expected") {
-                detected_patterns.push("YAML syntax error");
-            }
-
-            if stderr_text.contains("while parsing a flow sequence") {
-                detected_patterns.push("Flow sequence parsing error");
-            }
-
-            if stderr_text.contains("server terminated with error") {
-                detected_patterns.push("Server termination error");
-            }
-
-            return if !detected_patterns.is_empty() {
-                Ok(())
-            } else {
-                bail_log!("Expected configuration parsing error patterns not found")
-            };
+        // Assert on specific error content patterns
+        if stderr_text.contains("parsing YAML configuration") {
+            detected_patterns.push("Configuration parsing error");
         }
+
+        if stderr_text.contains("did not find expected") {
+            detected_patterns.push("YAML syntax error");
+        }
+
+        if stderr_text.contains("while parsing a flow sequence") {
+            detected_patterns.push("Flow sequence parsing error");
+        }
+
+        if stderr_text.contains("server terminated with error") {
+            detected_patterns.push("Server termination error");
+        }
+
+        return if !detected_patterns.is_empty() {
+            Ok(())
+        } else {
+            bail_log!("Expected configuration parsing error patterns not found")
+        };
     }
 
     bail_log!("No stderr capture found for configuration parsing error assertion")
@@ -429,15 +433,32 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
             payee.ln_nodes.cln.public_key,
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
                 url: format!("https://{}", payee.ln_nodes.cln.address).parse()?,
-                auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
+                auth: ClnGrpcClientAuth {
                     ca_cert_path: if include_ca {
                         payee.ln_nodes.cln.ca_cert_path.clone().into()
                     } else {
                         None
                     },
-                    client_cert_path: payee.ln_nodes.cln.client_cert_path.clone(),
-                    client_key_path: payee.ln_nodes.cln.client_key_path.clone(),
-                }),
+                    client_cert_secret: "CLIENT_CERT".to_owned(),
+                    client_key_secret: "CLIENT_KEY".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([
+                            (
+                                "CLIENT_CERT".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_cert_path.clone(),
+                                },
+                            ),
+                            (
+                                "CLIENT_KEY".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_key_path.clone(),
+                                },
+                            ),
+                        ]),
+                    },
+                },
                 domain: None,
             }),
         ),
@@ -445,14 +466,23 @@ pub async fn step_when_the_payee_registers_their_lightning_node_as_a_backend(
             payee.ln_nodes.lnd.public_key,
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
                 url: format!("https://{}", payee.ln_nodes.lnd.address).parse()?,
-                auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                auth: LndGrpcClientAuth {
                     tls_cert_path: if include_ca {
                         payee.ln_nodes.lnd.tls_cert_path.clone().into()
                     } else {
                         None
                     },
-                    macaroon_path: payee.ln_nodes.lnd.macaroon_path.clone(),
-                }),
+                    macaroon_secret: "MACAROON".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([(
+                            "MACAROON".to_owned(),
+                            SecretStoreSecretConfig {
+                                path: payee.ln_nodes.lnd.macaroon_path.clone(),
+                            },
+                        )]),
+                    },
+                },
                 amp_invoice: false,
                 domain: None,
             }),
@@ -701,11 +731,28 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
             payee.ln_nodes.cln.public_key,
             DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
                 url: format!("https://{}", payee.ln_nodes.cln.address).parse()?,
-                auth: ClnGrpcClientAuth::Path(ClnGrpcClientAuthPath {
+                auth: ClnGrpcClientAuth {
                     ca_cert_path: payee.ln_nodes.cln.ca_cert_path.clone().into(),
-                    client_cert_path: payee.ln_nodes.cln.client_cert_path.clone(),
-                    client_key_path: payee.ln_nodes.cln.client_key_path.clone(),
-                }),
+                    client_cert_secret: "CLIENT_CERT".to_owned(),
+                    client_key_secret: "CLIENT_KEY".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([
+                            (
+                                "CLIENT_CERT".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_cert_path.clone(),
+                                },
+                            ),
+                            (
+                                "CLIENT_KEY".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_key_path.clone(),
+                                },
+                            ),
+                        ]),
+                    },
+                },
                 domain: None,
             }),
         ),
@@ -713,10 +760,19 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
             payee.ln_nodes.lnd.public_key,
             DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
                 url: format!("https://{}", payee.ln_nodes.lnd.address).parse()?,
-                auth: LndGrpcClientAuth::Path(LndGrpcClientAuthPath {
+                auth: LndGrpcClientAuth {
                     tls_cert_path: payee.ln_nodes.lnd.tls_cert_path.clone().into(),
-                    macaroon_path: payee.ln_nodes.lnd.macaroon_path.clone(),
-                }),
+                    macaroon_secret: "MACAROON".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([(
+                            "MACAROON".to_owned(),
+                            SecretStoreSecretConfig {
+                                path: payee.ln_nodes.lnd.macaroon_path.clone(),
+                            },
+                        )]),
+                    },
+                },
                 amp_invoice: false,
                 domain: None,
             }),
@@ -737,6 +793,89 @@ pub async fn register_payee_node_as_backend(ctx: &mut GlobalContext, payee_id: &
 
     client.post(backend.clone()).await?;
 
+    Ok(())
+}
+
+/// Register a discovery backend whose grpc URL points at a port with nothing
+/// listening. The backend's public_key still matches the payee's LN node
+/// (needed so the balancer/discovery layer picks it), but any attempt to open
+/// a client to it will fail at tonic connect — provoking `LnPoolError` and the
+/// `PingoraLnError` wrapping path.
+pub async fn register_payee_node_as_unreachable_backend(
+    ctx: &mut GlobalContext,
+    payee_id: &str,
+) -> Result<()> {
+    let payee = get_payee_from_context(ctx, payee_id)?;
+    let client = ctx.get_active_discovery_client()?;
+
+    // Port 1 is reserved for TCPMUX which is essentially never bound.
+    let dead_url: url::Url = "https://127.0.0.1:1".parse()?;
+
+    let (public_key, implementation) = match payee.target_ln_node.as_str() {
+        "cln" => (
+            payee.ln_nodes.cln.public_key,
+            DiscoveryBackendImplementation::ClnGrpc(ClnGrpcDiscoveryBackendImplementation {
+                url: dead_url,
+                auth: ClnGrpcClientAuth {
+                    ca_cert_path: payee.ln_nodes.cln.ca_cert_path.clone().into(),
+                    client_cert_secret: "CLIENT_CERT".to_owned(),
+                    client_key_secret: "CLIENT_KEY".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([
+                            (
+                                "CLIENT_CERT".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_cert_path.clone(),
+                                },
+                            ),
+                            (
+                                "CLIENT_KEY".to_owned(),
+                                SecretStoreSecretConfig {
+                                    path: payee.ln_nodes.cln.client_key_path.clone(),
+                                },
+                            ),
+                        ]),
+                    },
+                },
+                domain: None,
+            }),
+        ),
+        "lnd" => (
+            payee.ln_nodes.lnd.public_key,
+            DiscoveryBackendImplementation::LndGrpc(LndGrpcDiscoveryBackendImplementation {
+                url: dead_url,
+                auth: LndGrpcClientAuth {
+                    tls_cert_path: payee.ln_nodes.lnd.tls_cert_path.clone().into(),
+                    macaroon_secret: "MACAROON".to_owned(),
+                    secrets: SecretStoreConfig {
+                        ttl: 60.0,
+                        secrets: BTreeMap::from([(
+                            "MACAROON".to_owned(),
+                            SecretStoreSecretConfig {
+                                path: payee.ln_nodes.lnd.macaroon_path.clone(),
+                            },
+                        )]),
+                    },
+                },
+                amp_invoice: false,
+                domain: None,
+            }),
+        ),
+        _ => bail!("Invalid target ln_node"),
+    };
+
+    let backend = DiscoveryBackend {
+        public_key,
+        backend: DiscoveryBackendSparse {
+            name: None,
+            partitions: ["default".to_string()].into(),
+            weight: 100,
+            implementation: serde_json::to_vec(&implementation)?,
+            enabled: true,
+        },
+    };
+    client.post(backend).await?;
     Ok(())
 }
 
@@ -1258,301 +1397,644 @@ pub async fn step_when_i_try_to_get_a_missing_backend(
 // =============================================================================
 
 /// Step: "And the server logs should contain health check requests for all services"
-/// Verifies that health check requests are logged for all services (expected pattern: clf::{service} ... /health 200)
+/// Verifies that health check requests are logged for all services as ECS JSON
+/// (`service.name = swgr.<name>`, `url.path = /health`, `http.response.status_code = 200`, `log.level = INFO`).
 pub async fn step_and_the_server_logs_should_contain_health_check_requests_for_all_services(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
-    };
+    let stderr_lines = read_active_stderr_lines(ctx)?;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Expected patterns for health check logs: clf::{service_name} ... /health HTTP/1.1 200
-    let expected_services = [Service::LnUrl, Service::Discovery, Service::Offer];
-    let mut service_counts = std::collections::HashMap::new();
-
-    // Initialize counts
-    for service in &expected_services {
-        service_counts.insert(service.to_string(), 0);
-    }
-
-    // Iterate through each line and count matches
-    for line in &stderr_lines {
-        for service in &expected_services {
-            let clf_pattern = format!("clf::{service}");
-            if line.contains(&clf_pattern)
-                && line.contains("/health HTTP/1.1 200")
-                && line.contains(" INFO ")
-            {
-                *service_counts
-                    .get_mut(&service.to_string())
-                    .ok_or_else(|| anyhow_log!("could not find service {service}"))? += 1;
-            }
+    for service in ["lnurl", "discovery", "offer"] {
+        let filter = EcsRequestFilter {
+            service: Some(service),
+            path_exact: Some("/health"),
+            status: Some(200),
+            level: Some("INFO"),
+            ..Default::default()
+        };
+        let count = count_ecs_requests(&stderr_lines, &filter);
+        if count < 1 {
+            bail_log!(
+                "❌ No health check request logged for {service} (expected service.name=swgr.{service}, url.path=/health, status=200, level=INFO)"
+            );
         }
     }
-
-    // Verify exact expected counts for each service (at least 1 health check per service)
-    let expected_min_count = 1;
-    let mut service_errors = Vec::new();
-    let mut found_services = Vec::new();
-
-    for (service, count) in &service_counts {
-        if *count < expected_min_count {
-            service_errors.push(format!(
-                "{service}:expected≥{expected_min_count},got{count}",
-            ));
-        } else {
-            found_services.push(format!("{service}:{count}"));
-        }
-    }
-
-    if service_errors.is_empty() {
-        Ok(())
-    } else {
-        let error_msg = format!("❌ Health check log count mismatch: {service_errors:?}. Found: {found_services:?} (expected: clf::{{service}} ... /health HTTP/1.1 200 INFO)");
-        bail_log!(error_msg)
-    }
+    Ok(())
 }
 
 /// Step: "And the server logs should contain backend registration requests"
-/// Verifies that backend registration requests are logged
+/// Verifies POST /discovery → 201 was logged by the discovery service.
 pub async fn step_and_the_server_logs_should_contain_backend_registration_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("POST"),
+        path_exact: Some("/discovery"),
+        status: Some(201),
+        level: Some("INFO"),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let server_logs = stderr_lines.join("\n");
-
-    // Look for backend registration patterns: clf::discovery ... POST /discovery/default HTTP/1.1 201
-    let registration_patterns = ["clf::discovery", "POST /discovery HTTP/1.1 201", " INFO "];
-    let expected_count = 1; // We register exactly 1 backend in the test
-    let registration_count = count_log_patterns(&server_logs, &registration_patterns);
-
-    if registration_count == expected_count {
+    let expected_count = 1;
+    let count = count_ecs_requests(&stderr_lines, &filter);
+    if count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Backend registration log count mismatch: expected={expected_count}, got={registration_count} (pattern: clf::discovery ... POST /discovery/default HTTP/1.1 201 INFO)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Backend registration log count mismatch: expected={expected_count}, got={count} (POST /discovery 201 INFO on service=discovery)"
+        )
     }
 }
 
 /// Step: "And the server logs should contain offer retrieval requests"
-/// Verifies that offer retrieval requests are logged
+/// Verifies GET /offers/default/... → 200 was logged by the lnurl service. The
+/// old CLF-shape assertion counted both the plain offer GET and the invoice GET
+/// (both start with `/offers/default/`); the count expectation is preserved.
 pub async fn step_and_the_server_logs_should_contain_offer_retrieval_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/default/"),
+        status: Some(200),
+        level: Some("INFO"),
+        ..Default::default()
     };
+    let count = count_ecs_requests(&stderr_lines, &filter);
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Look for offer retrieval patterns: clf::lnurl ... GET /offers/default/{uuid} HTTP/1.1 200
-    let mut offer_count = 0;
-
-    for line in &stderr_lines {
-        if line.contains("clf::lnurl")
-            && line.contains("GET /offers/default/")
-            && line.contains("HTTP/1.1 200")
-            && line.contains(" INFO ")
-        {
-            // Verify the URI pattern matches the full path with UUID
-            if let Some(get_start) = line.find("GET /offers/default/") {
-                let uri_part = &line[get_start..];
-                if let Some(http_start) = uri_part.find(" HTTP/1.1") {
-                    let full_uri = &uri_part[..http_start];
-                    // Verify it has the UUID pattern: GET /offers/default/{uuid}
-                    if full_uri.len() > "GET /offers/default/".len() + 30 {
-                        // UUID is 36 chars
-                        offer_count += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    let expected_count = 2; // We make multiple offer-related requests (1 explicit + health checks)
-    if offer_count == expected_count {
+    let expected_count = 2;
+    if count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Offer retrieval log count mismatch: expected={expected_count}, got={offer_count} (pattern: clf::lnurl ... GET /offers/default/{{uuid}} HTTP/1.1 200 INFO)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Offer retrieval log count mismatch: expected={expected_count}, got={count} (GET /offers/default/... 200 INFO on service=lnurl)"
+        )
     }
 }
 
 /// Step: "And the server logs should contain invoice generation requests"
-/// Verifies that invoice generation requests are logged
+/// Verifies GET /offers/default/{uuid}/invoice?amount={msat} → 200 was logged by the lnurl service.
 pub async fn step_and_the_server_logs_should_contain_invoice_generation_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
-    };
+    let stderr_lines = read_active_stderr_lines(ctx)?;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Look for invoice generation patterns: clf::lnurl ... GET /offers/default/{uuid}/invoice?amount={msat} HTTP/1.1 200
-    let mut invoice_count = 0;
-
-    for line in &stderr_lines {
-        if line.contains("clf::lnurl")
-            && line.contains("GET /offers/default/")
-            && line.contains("/invoice?amount=")
-            && line.contains("HTTP/1.1 200")
-            && line.contains(" INFO ")
-        {
-            // Verify the URI pattern matches the full invoice path with UUID and amount
-            if let Some(get_start) = line.find("GET ") {
-                let uri_part = &line[get_start..];
-                if let Some(http_start) = uri_part.find(" HTTP/1.1") {
-                    let full_uri = &uri_part[4..http_start]; // Skip "GET "
-                                                             // Verify it has invoice pattern with UUID and amount query param
-                    if full_uri.contains("/offers/default/")
-                        && full_uri.contains("/invoice?amount=")
-                    {
-                        // Further verify it has reasonable UUID length (offers/default/{uuid}/invoice?amount=)
-                        if full_uri.len() > "/offers/default/".len() + 30 {
-                            // UUID is 36 chars
-                            invoice_count += 1;
-                        }
-                    }
-                }
+    let count = stderr_lines
+        .iter()
+        .filter(|line| {
+            let filter = EcsRequestFilter {
+                service: Some("lnurl"),
+                method: Some("GET"),
+                path_prefix: Some("/offers/default/"),
+                query_prefix: Some("amount="),
+                status: Some(200),
+                level: Some("INFO"),
+                ..Default::default()
+            };
+            if !matches_ecs_request(line, &filter) {
+                return false;
             }
-        }
-    }
+            let Some(v) = crate::common::helpers::parse_ecs_line(line) else {
+                return false;
+            };
+            v.get("url.path")
+                .and_then(|x| x.as_str())
+                .is_some_and(|p| p.ends_with("/invoice"))
+        })
+        .count();
 
-    let expected_count = 1; // We make exactly 1 invoice generation request in the test
-    if invoice_count == expected_count {
+    let expected_count = 1;
+    if count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Invoice generation log count mismatch: expected={expected_count}, got={invoice_count} (pattern: clf::lnurl ... GET /offers/default/{{uuid}}/invoice?amount={{msat}} HTTP/1.1 200 INFO)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Invoice generation log count mismatch: expected={expected_count}, got={count} (GET /offers/default/{{uuid}}/invoice?amount={{msat}} 200 INFO on service=lnurl)"
+        )
     }
 }
 
 /// Step: "And the server logs should contain 404 error responses"
-/// Verifies that 404 error responses are logged
+/// Verifies 404 responses across all three services were logged at WARN.
 pub async fn step_and_the_server_logs_should_contain_404_error_responses(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
-    };
+    let stderr_lines = read_active_stderr_lines(ctx)?;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Look for 404 error patterns: clf::{service} ... HTTP/1.1 404
     let mut error_404_count = 0;
-
-    for line in &stderr_lines {
-        if (line.contains("clf::lnurl")
-            || line.contains("clf::discovery")
-            || line.contains("clf::offer"))
-            && line.contains("HTTP/1.1 404")
-            && line.contains(" WARN ")
-        {
-            error_404_count += 1;
-        }
+    for service in ["lnurl", "discovery", "offer"] {
+        let category = if service == "lnurl" { "web" } else { "api" };
+        let filter = EcsRequestFilter {
+            service: Some(service),
+            status: Some(404),
+            level: Some("WARN"),
+            event_kind: Some("event"),
+            event_category: Some(category),
+            event_outcome: Some("failure"),
+            ..Default::default()
+        };
+        error_404_count += count_ecs_requests(&stderr_lines, &filter);
     }
 
-    let expected_count = 3; // We make 3 requests that result in 404: non-existent endpoint + non-existent offer + 1 discovery GET request
+    let expected_count = 3;
     if error_404_count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ 404 error log count mismatch: expected={expected_count}, got={error_404_count} (pattern: clf::{{service}} ... HTTP/1.1 404 WARN)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ 404 error log count mismatch: expected={expected_count}, got={error_404_count} (status=404 WARN across lnurl/discovery/offer)"
+        )
     }
 }
 
 /// Step: "And the server logs should contain invalid offer error responses"
-/// Verifies that invalid offer error responses are logged
+/// Verifies invalid-offer 404 responses were logged by the lnurl service at WARN.
 pub async fn step_and_the_server_logs_should_contain_invalid_offer_error_responses(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        status: Some(404),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("web"),
+        event_outcome: Some("failure"),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let server_logs = stderr_lines.join("\n");
-
-    // Look for invalid offer error patterns: clf::lnurl ... HTTP/1.1 404
-    let invalid_offer_patterns = ["clf::lnurl", "HTTP/1.1 404", " WARN "];
-    let expected_count = 2; // We make 2 requests to lnurl service that result in 404: non-existent endpoint + non-existent offer
-    let invalid_offer_count = count_log_patterns(&server_logs, &invalid_offer_patterns);
-
-    if invalid_offer_count == expected_count {
+    let expected_count = 2;
+    let count = count_ecs_requests(&stderr_lines, &filter);
+    if count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Invalid offer error log count mismatch: expected={expected_count}, got={invalid_offer_count} (pattern: clf::lnurl ... HTTP/1.1 404 WARN)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Invalid offer error log count mismatch: expected={expected_count}, got={count} (status=404 WARN on service=lnurl)"
+        )
     }
 }
 
-/// Step: "And the server logs should contain invalid backend get errors"
-/// Verifies that invalid backend get errors are logged
-pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
+/// Step: "And the server logs should contain a 502 no-backend invoice error"
+/// Verifies GET /offers/.../invoice → 502 was logged by the lnurl service at
+/// ERROR, matching the shape produced when the balancer can't select a backend.
+pub async fn step_and_the_server_logs_should_contain_invoice_no_backend_error(
     ctx: &mut GlobalContext,
-    invalid_backend_patterns: &[&str],
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/"),
+        status: Some(502),
+        level: Some("ERROR"),
+        event_kind: Some("event"),
+        event_category: Some("web"),
+        event_outcome: Some("failure"),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let server_logs = stderr_lines.join("\n");
-
-    let expected_count = 1; // We make exactly 1 invalid backend GET request in the test
-    let invalid_backend_count = count_log_patterns(&server_logs, invalid_backend_patterns);
-
-    if invalid_backend_count == expected_count {
+    let count = count_ecs_requests(&lines, &filter);
+    let expected_count = 1;
+    if count == expected_count {
         Ok(())
     } else {
-        let error_msg = format!("❌ Invalid backend GET error log count mismatch: expected={expected_count}, got={invalid_backend_count} (pattern: clf::discovery ... GET /discovery/url/aHR0cDovL2Zha2UuY29tLw 404 WARN)");
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Invoice no-backend log count mismatch: expected={expected_count}, got={count} (GET /offers/... 502 ERROR on service=lnurl, event.category=web)"
+        )
     }
+}
+
+/// Step: "And the server logs should contain a 400 invoice bad-amount error"
+/// Verifies GET /offers/.../invoice with an out-of-range amount → 400 was logged.
+pub async fn step_and_the_server_logs_should_contain_invoice_bad_amount_error(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/"),
+        status: Some(400),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("web"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let count = count_ecs_requests(&lines, &filter);
+    let expected_count = 1;
+    if count == expected_count {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Invoice bad-amount log count mismatch: expected={expected_count}, got={count} (GET /offers/... 400 WARN on service=lnurl, event.category=web)"
+        )
+    }
+}
+
+/// Step: "And the server logs should contain a 409 duplicate-backend conflict"
+/// Verifies POST /discovery → 409 was logged by the discovery service at WARN
+/// (the shape produced when the same backend is re-registered).
+pub async fn step_and_the_server_logs_should_contain_backend_conflict_error(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("POST"),
+        path_exact: Some("/discovery"),
+        status: Some(409),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("api"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let count = count_ecs_requests(&lines, &filter);
+    let expected_count = 1;
+    if count == expected_count {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Backend conflict log count mismatch: expected={expected_count}, got={count} (POST /discovery 409 WARN on service=discovery, event.category=api)"
+        )
+    }
+}
+
+/// Step: "When the payer requests an invoice with a specific amount expecting failure"
+/// Variant of the invoice callback step that lets tests choose the amount so
+/// they can drive validation branches (0, over max, etc.).
+pub async fn step_when_the_payer_requests_an_invoice_with_amount_expecting_failure(
+    ctx: &mut GlobalContext,
+    payee_id: &str,
+    protocol: &Protocol,
+    amount_msat: usize,
+) -> Result<()> {
+    let payee = ctx
+        .get_payee(payee_id)
+        .ok_or_else(|| anyhow_log!("No {} payee found", payee_id))?;
+    let (_offer_key, offer_request) = get_offer_request(payee, payee_id)?;
+    let lnurl_offer = get_lnurl_offer_from_request(offer_request, payee_id)?;
+    let callback_url = lnurl_offer.callback.as_str();
+    if !callback_url.starts_with(&protocol.to_string()) {
+        bail_log!("Callback URL is not expected protocol: {}", protocol);
+    }
+    let client = ctx.get_active_lnurl_client()?;
+    let response = client.get_invoice(lnurl_offer, amount_msat).await;
+    if response.is_ok() {
+        bail_log!("expected failure, received {:?}", response);
+    }
+    Ok(())
+}
+
+/// Step: "And the server logs should contain invalid backend get errors"
+/// Verifies GET /discovery/{missing_backend_pubkey} → 404 was logged by the
+/// discovery service at WARN.
+pub async fn step_and_the_server_logs_should_contain_invalid_backend_get_errors(
+    ctx: &mut GlobalContext,
+    missing_backend_pubkey: &PublicKey,
+) -> Result<()> {
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let path = format!("/discovery/{missing_backend_pubkey}");
+    let filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("GET"),
+        path_exact: Some(&path),
+        status: Some(404),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("api"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let expected_count = 1;
+    let count = count_ecs_requests(&stderr_lines, &filter);
+    if count == expected_count {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Invalid backend GET error log count mismatch: expected={expected_count}, got={count} (GET {path} 404 WARN on service=discovery)"
+        )
+    }
+}
+
+/// Step: raw HTTP POST /discovery without a bearer token — provokes
+/// CrudError::unauthorized (report §1 line 138).
+pub async fn step_when_i_post_backend_without_auth(ctx: &mut GlobalContext) -> Result<()> {
+    let raw = ctx.active_raw_client_for(Service::Discovery)?;
+    let resp = raw
+        .post_json("/discovery", None, "{}")
+        .await
+        .context("posting unauthenticated /discovery")?;
+    if resp.status() != StatusCode::UNAUTHORIZED {
+        bail_log!(
+            "expected 401 UNAUTHORIZED, got {} body={:?}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Step: raw HTTP GET /offers/{partition}?count=<huge> — provokes
+/// OfferCrudError::bad → CrudError::bad (report §3 → §1 line 98).
+pub async fn step_when_i_get_offers_with_over_limit_count(
+    ctx: &mut GlobalContext,
+    partition: &str,
+    count: usize,
+) -> Result<()> {
+    let bearer = ctx.active_service_token(Service::Offer)?;
+    let raw = ctx.active_raw_client_for(Service::Offer)?;
+    let resp = raw
+        .get_with_bearer(&format!("/offers/{partition}?count={count}"), &bearer)
+        .await
+        .context("GET /offers/{partition}?count=... (over limit)")?;
+    if resp.status() != StatusCode::BAD_REQUEST {
+        bail_log!(
+            "expected 400 BAD_REQUEST, got {} body={:?}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Step: raw HTTP GET /offers/default/not-a-uuid on the lnurl service —
+/// provokes UuidParam::from_request_parts rejection with 404.
+pub async fn step_when_i_get_offer_with_invalid_uuid(
+    ctx: &mut GlobalContext,
+    partition: &str,
+) -> Result<()> {
+    let raw = ctx.active_raw_client_for(Service::LnUrl)?;
+    let resp = raw
+        .get(&format!("/offers/{partition}/not-a-uuid"))
+        .await
+        .context("GET /offers/{partition}/not-a-uuid")?;
+    if resp.status() != StatusCode::NOT_FOUND {
+        bail_log!(
+            "expected 404 NOT_FOUND, got {} body={:?}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Step: raw HTTP POST /discovery with malformed JSON body (with valid bearer)
+/// on the discovery service — provokes the Json extractor rejection.
+pub async fn step_when_i_post_backend_with_malformed_json(ctx: &mut GlobalContext) -> Result<()> {
+    let bearer = ctx.active_service_token(Service::Discovery)?;
+    let raw = ctx.active_raw_client_for(Service::Discovery)?;
+    let resp = raw
+        .post_json("/discovery", Some(&bearer), "{not-json")
+        .await
+        .context("POST /discovery (malformed JSON)")?;
+    if !resp.status().is_client_error() {
+        bail_log!(
+            "expected 4xx from Json rejection, got {} body={:?}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Step: raw HTTP GET /offers/{partition}/{uuid}/invoice?amount=abc on the
+/// lnurl service — provokes the Query extractor rejection with 400.
+pub async fn step_when_i_get_invoice_with_non_numeric_amount(
+    ctx: &mut GlobalContext,
+    partition: &str,
+) -> Result<()> {
+    let raw = ctx.active_raw_client_for(Service::LnUrl)?;
+    let id = Uuid::new_v4();
+    let resp = raw
+        .get(&format!("/offers/{partition}/{id}/invoice?amount=abc"))
+        .await
+        .context("GET /offers/{partition}/{id}/invoice?amount=abc")?;
+    if resp.status() != StatusCode::BAD_REQUEST {
+        bail_log!(
+            "expected 400 BAD_REQUEST, got {} body={:?}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
+/// Step: hit the lnurl offer endpoint on the active server and expect any
+/// non-success status. Used for tests where the offer store is unreachable
+/// (dead http-store URL) and the fetch fails at the transport layer.
+pub async fn step_when_i_request_offer_expecting_failure(
+    ctx: &mut GlobalContext,
+    partition: &str,
+) -> Result<()> {
+    let client = ctx.get_active_lnurl_client()?;
+    let id = Uuid::new_v4();
+    let result = client.get_offer(partition, &id).await;
+    if result.is_ok() {
+        bail_log!("expected failure requesting /offers/{partition}/{id}, got Ok");
+    }
+    Ok(())
+}
+
+/// Step: assert a 401 was logged on the discovery service.
+pub async fn step_and_the_server_logs_should_contain_unauthorized_backend_error(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("POST"),
+        path_exact: Some("/discovery"),
+        status: Some(401),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("api"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let count = count_ecs_requests(&lines, &filter);
+    if count == 1 {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Unauthorized log count mismatch: expected=1, got={count} (POST /discovery 401 WARN on service=discovery, event.category=api)"
+        )
+    }
+}
+
+/// Step: assert a 400 was logged on the offer service for a GET /offers/... .
+pub async fn step_and_the_server_logs_should_contain_offers_bad_request_error(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("offer"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/"),
+        status: Some(400),
+        level: Some("WARN"),
+        event_kind: Some("event"),
+        event_category: Some("api"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let count = count_ecs_requests(&lines, &filter);
+    if count == 1 {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Bad-request log count mismatch: expected=1, got={count} (GET /offers/... 400 WARN on service=offer, event.category=api)"
+        )
+    }
+}
+
+/// Step: assert a 502 was logged on the lnurl service for the offer path,
+/// matching the shape produced when the HTTP offer store's URL is dead.
+pub async fn step_and_the_server_logs_should_contain_offer_upstream_error(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let lines = read_active_stderr_lines(ctx)?;
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/"),
+        status: Some(502),
+        level: Some("ERROR"),
+        event_kind: Some("event"),
+        event_category: Some("web"),
+        event_outcome: Some("failure"),
+        ..Default::default()
+    };
+    let count = count_ecs_requests(&lines, &filter);
+    if count == 1 {
+        Ok(())
+    } else {
+        bail_log!(
+            "❌ Offer upstream-error log count mismatch: expected=1, got={count} (GET /offers/... 502 ERROR on service=lnurl, event.category=web)"
+        )
+    }
+}
+
+/// Locate the first ECS log line matching `filter` in the active server's
+/// stderr and extract its `trace.id` and `span.id` fields. Both must be
+/// present — they are populated by `RequestLogger` from the OTel context that
+/// was current when the summary event was emitted.
+pub fn extract_ecs_correlation_ids_matching(
+    ctx: &mut GlobalContext,
+    filter: &EcsRequestFilter<'_>,
+) -> Result<(String, String)> {
+    let stderr_lines = ctx
+        .get_active_stderr_buffer()?
+        .lock()
+        .map(|l| l.clone())
+        .map_err(|_| anyhow!("failed to lock stderr buffer"))?;
+
+    let line = stderr_lines
+        .iter()
+        .find(|line| matches_ecs_request(line, filter))
+        .ok_or_else(|| {
+            anyhow!(
+                "❌ No ECS log line matched filter {:?} for correlation extraction",
+                filter
+            )
+        })?;
+    let v = crate::common::helpers::parse_ecs_line(line)
+        .ok_or_else(|| anyhow!("failed to parse ECS line as JSON: {line}"))?;
+    let trace_id = v
+        .get("trace.id")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow!("❌ ECS line missing trace.id (filter {:?}): {line}", filter))?
+        .to_string();
+    let span_id = v
+        .get("span.id")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| anyhow!("❌ ECS line missing span.id (filter {:?}): {line}", filter))?
+        .to_string();
+    Ok((trace_id, span_id))
+}
+
+/// Combined ECS↔OTel correlation step: locate the `RequestLogger` INFO summary
+/// line for the request identified by `(ecs_service, method, path_prefix,
+/// status)`, extract its `trace.id`/`span.id`, then assert those match the
+/// Jaeger trace's `traceID` and its root span's `spanID` (scoped to
+/// `jaeger_service_name` + `jaeger_operation`). The RequestLogger emits at
+/// INFO regardless of response status, and that line is where the OTel-context
+/// capture happens — so callers don't need to pass a level.
+#[allow(clippy::too_many_arguments)]
+pub async fn step_and_ecs_line_should_correlate_with_otel_root_span(
+    ctx: &mut GlobalContext,
+    ecs_service: &str,
+    method: &str,
+    path_prefix: &str,
+    status: u64,
+    jaeger_operation: &str,
+    jaeger_service_name: &str,
+) -> Result<()> {
+    let filter = EcsRequestFilter {
+        service: Some(ecs_service),
+        method: Some(method),
+        path_prefix: Some(path_prefix),
+        status: Some(status),
+        level: Some("INFO"),
+        ..Default::default()
+    };
+    let (ecs_trace_id, ecs_span_id) = extract_ecs_correlation_ids_matching(ctx, &filter)?;
+    step_and_jaeger_root_span_should_match_ecs_correlation(
+        ctx,
+        jaeger_operation,
+        jaeger_service_name,
+        &ecs_trace_id,
+        &ecs_span_id,
+    )
+    .await
+}
+
+/// Waits for the Jaeger trace whose `traceID` matches `ecs_trace_id` (scoped
+/// by `service_name` + `operation`) and asserts that its root span's `spanID`
+/// equals `ecs_span_id`. Used to prove the ECS log record's `trace.id` /
+/// `span.id` (populated by the ECS formatter from `Span::current().context()`
+/// at emit time) correlate to the OTLP root span for the same request.
+pub async fn step_and_jaeger_root_span_should_match_ecs_correlation(
+    ctx: &mut GlobalContext,
+    operation: &str,
+    service_name: &str,
+    ecs_trace_id: &str,
+    ecs_span_id: &str,
+) -> Result<()> {
+    let query = TraceQuery::service(service_name).operation(operation);
+    let op = operation.to_string();
+    let expected_service = service_name.to_string();
+    let expected_trace_id = ecs_trace_id.to_string();
+    let trace = ctx
+        .jaeger()
+        .wait_for_trace(&query, |t| {
+            t.trace_id == expected_trace_id
+                && !t.spans_by_operation(&op).is_empty()
+                && t.find_service_name().is_some_and(|s| s == expected_service)
+        })
+        .await
+        .with_context(|| {
+            format!(
+                "❌ Jaeger correlation lookup failed: expected traceID={ecs_trace_id} \
+                 for operation={operation} service.name={service_name}"
+            )
+        })?;
+
+    let root = trace
+        .root_span()
+        .ok_or_else(|| anyhow!("matched Jaeger trace {} has no root span", trace.trace_id))?;
+    if root.span_id != ecs_span_id {
+        bail_log!(
+            "❌ ECS/OTLP span.id mismatch: ecs.span.id={ecs_span_id}, root.spanID={} (trace.id={})",
+            root.span_id,
+            trace.trace_id
+        );
+    }
+    Ok(())
 }
 
 // =============================================================================
@@ -1618,264 +2100,198 @@ pub async fn step_when_i_stop_all_servers(ctx: &mut GlobalContext) -> Result<()>
 }
 
 /// Step: "Then server 1 logs should contain offer creation requests"
-/// Validates that server 1 logs contain expected offer creation patterns
+/// Verifies POST /metadata → 201 and POST /offers → 201 both logged by the offer service.
 pub async fn step_then_server_1_logs_should_contain_offer_creation_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stdout buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let metadata_filter = EcsRequestFilter {
+        service: Some("offer"),
+        method: Some("POST"),
+        path_exact: Some("/metadata"),
+        status: Some(201),
+        ..Default::default()
     };
+    let offer_filter = EcsRequestFilter {
+        service: Some("offer"),
+        method: Some("POST"),
+        path_exact: Some("/offers"),
+        status: Some(201),
+        ..Default::default()
+    };
+    let metadata_found = count_ecs_requests(&stderr_lines, &metadata_filter) > 0;
+    let offer_found = count_ecs_requests(&stderr_lines, &offer_filter) > 0;
 
-    // Look for offer creation patterns
-    let mut metadata_creation_found = false;
-    let mut offer_creation_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::offer") && line.contains("POST /metadata HTTP/1.1 201") {
-            metadata_creation_found = true;
-        }
-        if line.contains("clf::offer") && line.contains("POST /offers HTTP/1.1 201") {
-            offer_creation_found = true;
-        }
-    }
-
-    if metadata_creation_found && offer_creation_found {
+    if metadata_found && offer_found {
         Ok(())
     } else {
-        let error_msg = format!(
-            "❌ Server 1 offer creation logs missing: metadata={metadata_creation_found}, offer={offer_creation_found}",
-
-        );
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Server 1 offer creation logs missing: metadata={metadata_found}, offer={offer_found}"
+        )
     }
 }
 
 /// Step: "And server 1 logs should contain backend registration requests"
-/// Validates that server 1 logs contain expected backend registration patterns
+/// Verifies POST /discovery → 201 was logged by the discovery service.
 pub async fn step_and_server_1_logs_should_contain_backend_registration_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("POST"),
+        path_exact: Some("/discovery"),
+        status: Some(201),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Look for backend registration patterns
-    let mut backend_registration_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::discovery") && line.contains("POST /discovery HTTP/1.1 201") {
-            backend_registration_found = true;
-            break;
-        }
-    }
-
-    if backend_registration_found {
+    if count_ecs_requests(&stderr_lines, &filter) > 0 {
         Ok(())
     } else {
-        let error_msg = "❌ Server 1 backend registration logs missing";
-        bail_log!(error_msg)
+        bail_log!("❌ Server 1 backend registration logs missing")
     }
 }
 
 /// Step: "And server 1 logs should contain health check requests for offers and discovery services"
-/// Validates that server 1 logs contain health check patterns for offers and discovery services
+/// Verifies GET /health → 200 logged by both the offer and discovery services.
 pub async fn step_and_server_1_logs_should_contain_health_check_requests_for_offers_and_discovery_services(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let health_filter = |service: &'static str| EcsRequestFilter {
+        service: Some(service),
+        method: Some("GET"),
+        path_exact: Some("/health"),
+        status: Some(200),
+        ..Default::default()
     };
+    let offers_found = count_ecs_requests(&stderr_lines, &health_filter("offer")) > 0;
+    let discovery_found = count_ecs_requests(&stderr_lines, &health_filter("discovery")) > 0;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let mut offers_health_found = false;
-    let mut discovery_health_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::offer") && line.contains("GET /health HTTP/1.1 200") {
-            offers_health_found = true;
-        }
-        if line.contains("clf::discovery") && line.contains("GET /health HTTP/1.1 200") {
-            discovery_health_found = true;
-        }
-    }
-
-    if offers_health_found && discovery_health_found {
+    if offers_found && discovery_found {
         Ok(())
     } else {
-        let error_msg = format!(
-            "❌ Server 1 health check logs missing: offers={offers_health_found}, discovery={discovery_health_found}",
-
-        );
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Server 1 health check logs missing: offers={offers_found}, discovery={discovery_found}"
+        )
     }
 }
 
 /// Step: "And server 1 logs should contain HTTP requests from server 2 for offers and discovery"
-/// Validates that server 1 logs show HTTP requests from server 2 for offers and discovery services
+/// Verifies server 1 saw HTTP requests from server 2's stores.
 pub async fn step_and_server_1_logs_should_contain_http_requests_from_server_2_for_offers_and_discovery(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let offers_found = stderr_lines.iter().any(|line| {
+        for prefix in ["/offers/default/", "/metadata/default/"] {
+            let filter = EcsRequestFilter {
+                service: Some("offer"),
+                method: Some("GET"),
+                path_prefix: Some(prefix),
+                status: Some(200),
+                ..Default::default()
+            };
+            if matches_ecs_request(line, &filter) {
+                return true;
+            }
+        }
+        false
+    });
+
+    let discovery_filter = EcsRequestFilter {
+        service: Some("discovery"),
+        method: Some("GET"),
+        path_prefix: Some("/discovery"),
+        status: Some(200),
+        ..Default::default()
     };
+    let discovery_found = count_ecs_requests(&stderr_lines, &discovery_filter) > 0;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    // Look for HTTP requests from server 2 to server 1's services
-    let mut offers_http_request_found = false;
-    let mut discovery_http_request_found = false;
-
-    for line in &stderr_lines {
-        // Look for offer requests from HTTP stores (server 2 accessing server 1's offers service)
-        if line.contains("clf::offer")
-            && (line.contains("GET /offers/default/") || line.contains("GET /metadata/default/"))
-            && line.contains("HTTP/1.1 200")
-        {
-            offers_http_request_found = true;
-        }
-
-        // Look for discovery requests from HTTP stores (server 2 accessing server 1's discovery service)
-        if line.contains("clf::discovery")
-            && line.contains("GET /discovery")
-            && line.contains("HTTP/1.1 200")
-        {
-            discovery_http_request_found = true;
-        }
-    }
-
-    if offers_http_request_found && discovery_http_request_found {
+    if offers_found && discovery_found {
         Ok(())
     } else {
-        let error_msg = format!(
-            "❌ Server 1 HTTP requests from server 2 missing: offers={offers_http_request_found}, discovery={discovery_http_request_found}",
-        );
-        bail_log!(error_msg)
+        bail_log!(
+            "❌ Server 1 HTTP requests from server 2 missing: offers={offers_found}, discovery={discovery_found}"
+        )
     }
 }
 
 /// Step: "And server 2 logs should contain offer retrieval requests via HTTP stores"
-/// Validates that server 2 logs contain patterns showing HTTP store usage for offers
+/// Verifies GET /offers/default/... → 200 was logged by the lnurl service on server 2.
 pub async fn step_and_server_2_logs_should_contain_offer_retrieval_requests_via_http_stores(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_prefix: Some("/offers/default/"),
+        status: Some(200),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let mut offer_retrieval_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::lnurl")
-            && line.contains("GET /offers/default/")
-            && line.contains("HTTP/1.1 200")
-        {
-            offer_retrieval_found = true;
-            break;
-        }
-    }
-
-    if offer_retrieval_found {
+    if count_ecs_requests(&stderr_lines, &filter) > 0 {
         Ok(())
     } else {
-        let error_msg = "❌ Server 2 offer retrieval via HTTP stores logs missing";
-        bail_log!(error_msg)
+        bail_log!("❌ Server 2 offer retrieval via HTTP stores logs missing")
     }
 }
 
 /// Step: "And server 2 logs should contain invoice generation requests"
-/// Validates that server 2 logs contain invoice generation patterns
+/// Verifies GET /offers/default/{uuid}/invoice → 200 was logged by the lnurl service on server 2.
 pub async fn step_and_server_2_logs_should_contain_invoice_generation_requests(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
-    };
+    let stderr_lines = read_active_stderr_lines(ctx)?;
 
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let mut invoice_generation_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::lnurl")
-            && line.contains("GET /offers/default/")
-            && line.contains("/invoice")
-            && line.contains("HTTP/1.1 200")
-        {
-            invoice_generation_found = true;
-            break;
+    let found = stderr_lines.iter().any(|line| {
+        let filter = EcsRequestFilter {
+            service: Some("lnurl"),
+            method: Some("GET"),
+            path_prefix: Some("/offers/default/"),
+            status: Some(200),
+            ..Default::default()
+        };
+        if !matches_ecs_request(line, &filter) {
+            return false;
         }
-    }
+        let Some(v) = crate::common::helpers::parse_ecs_line(line) else {
+            return false;
+        };
+        v.get("url.path")
+            .and_then(|x| x.as_str())
+            .is_some_and(|p| p.ends_with("/invoice"))
+    });
 
-    if invoice_generation_found {
+    if found {
         Ok(())
     } else {
-        let error_msg = "❌ Server 2 invoice generation logs missing";
-        bail_log!(error_msg)
+        bail_log!("❌ Server 2 invoice generation logs missing")
     }
 }
 
 /// Step: "And server 2 logs should contain health check requests for lnurl service"
-/// Validates that server 2 logs contain health check patterns for lnurl service
+/// Verifies GET /health → 200 logged by the lnurl service on server 2.
 pub async fn step_and_server_2_logs_should_contain_health_check_requests_for_lnurl_service(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get captured server logs from stderr buffer
-    let stderr_lines = if let Ok(lines) = ctx.get_active_stderr_buffer()?.lock() {
-        lines.clone()
-    } else {
-        bail_log!("Failed to lock stderr buffer");
+    let stderr_lines = read_active_stderr_lines(ctx)?;
+
+    let filter = EcsRequestFilter {
+        service: Some("lnurl"),
+        method: Some("GET"),
+        path_exact: Some("/health"),
+        status: Some(200),
+        ..Default::default()
     };
-
-    if stderr_lines.is_empty() {
-        bail_log!("No stderr logs captured");
-    }
-
-    let mut lnurl_health_found = false;
-
-    for line in &stderr_lines {
-        if line.contains("clf::lnurl") && line.contains("GET /health HTTP/1.1 200") {
-            lnurl_health_found = true;
-            break;
-        }
-    }
-
-    if lnurl_health_found {
+    if count_ecs_requests(&stderr_lines, &filter) > 0 {
         Ok(())
     } else {
-        let error_msg = "❌ Server 2 lnurl health check logs missing";
-        bail_log!(error_msg)
+        bail_log!("❌ Server 2 lnurl health check logs missing")
     }
 }
 

@@ -1,7 +1,6 @@
 # Distributed deployment configuration
 # All services configured with HTTP storage for remote connections
 # Use service enablement flags to run specific services
-
 lnurl-service:
   partitions: [ "default" ]
   address: "${LNURL_SERVICE_ADDRESS:-127.0.0.1:8080}"
@@ -25,7 +24,24 @@ lnurl-service:
   bech32-qr-scale: 8
   bech32-qr-light: 255
   bech32-qr-dark: 0
-
+  otlp:
+    tracing:
+      endpoint: "${LNURL_SERVICE_OTLP_TRACING_ENDPOINT:-http://127.0.0.1:4317}"
+      auth-token: "OTEL_AUTH_TOKEN"
+      trusted-roots: ${LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOTS:-}
+      trusted-root-address: ${LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOT_ADDRESS:-}
+      client-identity:
+        cert-secret: "OTEL_CLIENT_CERT"
+        key-secret: "OTEL_CLIENT_KEY"
+      secrets:
+        ttl: 300.0
+        secrets:
+          OTEL_AUTH_TOKEN:
+            path: "${LNURL_SERVICE_OTLP_TRACING_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
+          OTEL_CLIENT_CERT:
+            path: "${LNURL_SERVICE_OTLP_TRACING_CLIENT_CERT:-}"
+          OTEL_CLIENT_KEY:
+            path: "${LNURL_SERVICE_OTLP_TRACING_CLIENT_KEY:-}"
 # Remote storage configuration
 # Connect to external discovery and offers services
 store:
@@ -35,13 +51,22 @@ store:
     connect-timeout-secs: 2.0
     total-timeout-secs: 2.0
     trusted-roots: ${OFFER_STORE_HTTP_TRUSTED_ROOTS:-}
-    authorization: "${OFFER_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/offer-authorization.token}"
-    
+    authorization: "OFFER_STORE_HTTP_BEARER"
+    secrets:
+      ttl: 300.0
+      secrets:
+        OFFER_STORE_HTTP_BEARER:
+          path: "${OFFER_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/offer-authorization.token}"
+
   discover:
     type: "http"
     base-url: "${DISCOVERY_STORE_HTTP_BASE_URL:-https://127.0.0.1:8081}"  # Update to your discovery service URL
     connect-timeout-secs: 2.0
     total-timeout-secs: 2.0
     trusted-roots: ${DISCOVERY_STORE_HTTP_TRUSTED_ROOTS:-}
-    authorization: "${DISCOVERY_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/discovery-authorization.token}"
-
+    authorization: "DISCOVERY_STORE_HTTP_BEARER"
+    secrets:
+      ttl: 300.0
+      secrets:
+        DISCOVERY_STORE_HTTP_BEARER:
+          path: "${DISCOVERY_STORE_HTTP_AUTHORIZATION:-/etc/ssl/certs/discovery-authorization.token}"

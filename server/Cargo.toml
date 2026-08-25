@@ -1,7 +1,8 @@
 [package]
 name = "switchgear-server"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"
 documentation = "https://github.com/bitshock-src/switchgear"
@@ -13,45 +14,58 @@ categories = ["command-line-utilities", "network-programming", "web-programming"
 publish = true
 
 [dependencies]
-anyhow = "1"
 async-trait = "0.1"
 axum-server = { version = "0.7", default-features = false, features = ["tokio-rustls", "tls-rustls"] }
 backoff = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 dotenvy = "0.15"
-env_logger = "0.11"
 futures-util = "0.3"
+hyper-rustls = { version = "0.27", default-features = false, features = ["http2", "aws-lc-rs", "logging"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
 jemallocator = "0.5"
 jsonwebtoken = "10"
 log = "0.4"
+opentelemetry = "0.32"
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace", "tls-aws-lc", "tls-roots", "internal-logs"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
 pingora-load-balancing = { version = "0.6", default-features = false }
 pkcs8 = { version = "0.10", features = ["pem"] }
 rand = "0.8"
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+rustls-native-certs = "0.8"
 rustls-pemfile = "2"
 secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
+secrecy.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde-saphyr = "0.0.10"
 serde_json = "1"
+serif = "0.2"
 shellexpand = "3"
 signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
-simplelog = {version = "0.12", features = ["paris"] }
-strfmt = "0.2"
 switchgear-components.workspace = true
+switchgear-error.workspace = true
 switchgear-pingora.workspace = true
 switchgear-service-api.workspace = true
 switchgear-service.workspace = true
 tokio = { version = "1", features = ["full"] }
+tonic = "0.14"
+tracing.workspace = true
+tracing-ecs-formatter.workspace = true
+tracing-opentelemetry = "0.33"
+tracing-subscriber.workspace = true
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
 [dev-dependencies]
+anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
+insta = { version = "1", features = ["json", "redactions"] }
 jemallocator = "0.5"
 lightning-invoice = { version = "0.34", features = ["serde", "std"] }
+opentelemetry-proto = { version = "0.32", features = ["gen-tonic", "trace"] }
 rand = "0.8"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "aws_lc_rs", "pem"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots-no-provider"] }
@@ -59,6 +73,7 @@ serde-saphyr = "0.0.10"
 switchgear-testing.workspace = true
 sysinfo = "0.37"
 tempfile = "3"
+tokio-stream = "0.1"
 toml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 

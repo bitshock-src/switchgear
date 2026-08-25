@@ -1,0 +1,40 @@
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # Bearer-token auth for the OTLP receiver. Token is fetched from the
+  # credentials-server at startup (see entrypoint.sh) and shared with the test
+  # framework via the credentials tarball.
+  bearertokenauth:
+    scheme: Bearer
+    filename: /tmp/otel_collector_token
+
+receivers:
+  # TLS-only gRPC receiver — there is no cleartext transport. The cert + key
+  # are fetched from the credentials-server at startup (see entrypoint.sh);
+  # the cert is valid for every host the collector is reachable under
+  # (localhost / docker / otel-collector), so exporters verify it against the
+  # endpoint host they already resolve.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:${env:OTEL_GRPC_PORT}
+        include_metadata: true
+        auth:
+          authenticator: bearertokenauth
+        tls:
+          cert_file: /tmp/otel_collector_cert
+          key_file: /tmp/otel_collector_key
+          client_ca_file: /tmp/otel_collector_client_ca
+
+exporters:
+  otlp_grpc/jaeger:
+    endpoint: ${env:JAEGER_HOSTNAME}:${env:JAEGER_OTLP_GRPC_PORT}
+    tls:
+      insecure: true
+
+service:
+  extensions: [health_check, bearertokenauth]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp_grpc/jaeger]

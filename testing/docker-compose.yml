@@ -180,6 +180,81 @@ services:
       retries: 5
       start_period: 10s
 
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    container_name: jaeger
+    hostname: "${JAEGER_HOSTNAME}"
+    ports:
+      - "${JAEGER_QUERY_PORT}:${JAEGER_QUERY_PORT}"
+    networks:
+      - services
+    restart: unless-stopped
+    healthcheck:
+      # `jaegertracing/jaeger:latest` (v2) is distroless — no curl/wget; the
+      # busybox sidecar below performs the actual healthcheck via the shared
+      # network namespace. Keep this stanza empty-disabled so docker-compose
+      # treats jaeger as up as soon as the process boots.
+      disable: true
+      test: noop
+
+  jaeger-health:
+    image: busybox:latest
+    container_name: jaeger-health
+    command: ["tail", "-f", "/dev/null"]
+    network_mode: "service:jaeger"
+    depends_on:
+      jaeger:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${JAEGER_QUERY_PORT}/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  otel-collector:
+    build:
+      context: ./otel-collector
+      dockerfile: Dockerfile
+    container_name: otel-collector
+    hostname: "${OTEL_GRPC_HOSTNAME}"
+    environment:
+      - OTEL_GRPC_PORT=${OTEL_GRPC_PORT}
+      - JAEGER_HOSTNAME=${JAEGER_HOSTNAME}
+      - JAEGER_OTLP_GRPC_PORT=${JAEGER_OTLP_GRPC_PORT}
+      # Needed by entrypoint.sh to fetch the TLS cert + key + bearer token.
+      - CREDENTIALS_SERVER_HOSTNAME=${CREDENTIALS_SERVER_HOSTNAME}
+      - CREDENTIALS_SERVER_PORT=8888
+    depends_on:
+      jaeger-health:
+        condition: service_healthy
+      # The collector fetches its TLS material + bearer token from the
+      # credentials-server, so it must be up before the collector starts.
+      credentials-server:
+        condition: service_healthy
+    ports:
+      - "${OTEL_GRPC_PORT}:${OTEL_GRPC_PORT}"
+    networks:
+      - services
+    restart: unless-stopped
+
+  otel-collector-health:
+    image: busybox:latest
+    container_name: otel-collector-health
+    command: ["tail", "-f", "/dev/null"]
+    network_mode: "service:otel-collector"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133/"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
 volumes:
   shared:
     external: false

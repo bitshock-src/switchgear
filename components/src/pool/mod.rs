@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client_pool::LnClientPool;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(tag = "type")]
 pub enum DiscoveryBackendImplementation {

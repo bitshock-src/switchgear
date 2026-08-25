@@ -1,10 +1,11 @@
-use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
 use crate::axum::header::no_cache_headers;
+use crate::discovery::Json;
+use crate::discovery::error::DiscoveryCrudError;
 use crate::discovery::state::DiscoveryState;
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, HeaderValue};
-use axum::{extract::State, Json};
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
     DiscoveryBackendStore, DiscoveryBackends,
@@ -13,31 +14,35 @@ use switchgear_service_api::discovery::{
 pub struct DiscoveryHandlers;
 
 impl DiscoveryHandlers {
+    #[tracing::instrument(skip_all)]
     pub async fn get_backend<S>(
         Path(public_key): Path<String>,
         State(state): State<DiscoveryState<S>>,
-    ) -> Result<JsonCrudResponse<DiscoveryBackend>, CrudError>
+    ) -> Result<JsonCrudResponse<DiscoveryBackend>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+        let public_key = public_key
+            .parse()
+            .foreign_context("parsing discovery backend public key", None)?;
 
         let backend = state
             .store()
             .get(&public_key)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-            .ok_or(CrudError::not_found())?;
+            .chained_context("fetching discovery backend", None)?
+            .ok_or_else(DiscoveryCrudError::not_found)?;
 
         let headers = no_cache_headers();
 
         Ok(JsonCrudResponse::ok(backend, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_backends<S>(
         headers: HeaderMap,
         State(state): State<DiscoveryState<S>>,
-    ) -> Result<JsonCrudResponse<Vec<DiscoveryBackend>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<DiscoveryBackend>>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
@@ -45,9 +50,10 @@ impl DiscoveryHandlers {
             .get(http::header::IF_NONE_MATCH)
             .map(|h| {
                 h.to_str()
-                    .map_err(|_| CrudError::bad())
+                    .foreign_context("reading if-none-match header value", None)
                     .and_then(|etag_str| {
-                        DiscoveryBackends::etag_from_str(etag_str).map_err(|_| CrudError::bad())
+                        DiscoveryBackends::etag_from_str(etag_str)
+                            .foreign_context("parsing if-none-match etag", ErrorOrigin::Downstream)
                     })
             })
             .transpose()?;
@@ -56,10 +62,14 @@ impl DiscoveryHandlers {
             .store()
             .get_all(etag_request)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("listing discovery backends", None)?;
 
         let mut headers = no_cache_headers();
-        headers.insert(http::header::ETAG, backends.etag_string().try_into()?);
+        headers.insert(
+            http::header::ETAG,
+            HeaderValue::from_str(&backends.etag_string())
+                .foreign_context("building discovery backends etag header", None)?,
+        );
 
         match backends.backends {
             None => Ok(JsonCrudResponse::not_modified(headers)),
@@ -67,10 +77,11 @@ impl DiscoveryHandlers {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn post_backend<S>(
         State(state): State<DiscoveryState<S>>,
-        Json(backend): Json<DiscoveryBackend>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        Json { value: backend, .. }: Json<DiscoveryBackend>,
+    ) -> Result<JsonCrudResponse<()>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
@@ -80,25 +91,29 @@ impl DiscoveryHandlers {
             .store()
             .post(backend)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("creating discovery backend", None)?;
 
-        let location = HeaderValue::from_str(&location)?;
+        let location = HeaderValue::from_str(&location)
+            .foreign_context("building discovery backend location header", None)?;
 
         match result {
             Some(_) => Ok(JsonCrudResponse::created_location(location)),
-            None => Err(CrudError::conflict(location)),
+            None => Err(DiscoveryCrudError::conflict(location)),
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn put_backend<S>(
         State(state): State<DiscoveryState<S>>,
         Path(public_key): Path<String>,
-        Json(backend): Json<DiscoveryBackendSparse>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        Json { value: backend, .. }: Json<DiscoveryBackendSparse>,
+    ) -> Result<JsonCrudResponse<()>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+        let public_key = public_key
+            .parse()
+            .foreign_context("parsing discovery backend public key", None)?;
 
         let backend = DiscoveryBackend {
             public_key,
@@ -109,7 +124,7 @@ impl DiscoveryHandlers {
             .store()
             .put(backend)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("updating discovery backend", None)?;
 
         if was_created {
             Ok(JsonCrudResponse::created())
@@ -118,15 +133,18 @@ impl DiscoveryHandlers {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn patch_backend<S>(
         State(state): State<DiscoveryState<S>>,
         Path(public_key): Path<String>,
-        Json(backend): Json<DiscoveryBackendPatchSparse>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        Json { value: backend, .. }: Json<DiscoveryBackendPatchSparse>,
+    ) -> Result<JsonCrudResponse<()>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+        let public_key = public_key
+            .parse()
+            .foreign_context("parsing discovery backend public key", None)?;
 
         let backend = DiscoveryBackendPatch {
             public_key,
@@ -137,33 +155,36 @@ impl DiscoveryHandlers {
             .store()
             .patch(backend)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("patching discovery backend", None)?;
 
         if patched {
             Ok(JsonCrudResponse::no_content())
         } else {
-            Err(CrudError::not_found())
+            Err(DiscoveryCrudError::not_found())
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn delete_backend<S>(
         Path(public_key): Path<String>,
         State(state): State<DiscoveryState<S>>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+    ) -> Result<JsonCrudResponse<()>, DiscoveryCrudError>
     where
         S: DiscoveryBackendStore,
     {
-        let public_key = public_key.parse().map_err(|_| CrudError::bad())?;
+        let public_key = public_key
+            .parse()
+            .foreign_context("parsing discovery backend public key", None)?;
 
-        if state
+        let deleted = state
             .store()
             .delete(&public_key)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-        {
+            .chained_context("deleting discovery backend", None)?;
+        if deleted {
             Ok(JsonCrudResponse::no_content())
         } else {
-            Err(CrudError::not_found())
+            Err(DiscoveryCrudError::not_found())
         }
     }
 }

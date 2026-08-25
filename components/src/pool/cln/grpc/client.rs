@@ -1,16 +1,20 @@
 use crate::pool::cln::grpc::config::{ClnGrpcClientAuth, ClnGrpcDiscoveryBackendImplementation};
 use crate::pool::error::LnPoolError;
 use crate::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
+use crate::secrets::{ClientCertResolver, SecretStore};
 use async_trait::async_trait;
 use hex::ToHex;
-use rustls::pki_types::CertificateDer;
+use hyper_rustls::{FixedServerNameResolver, HttpsConnectorBuilder};
+use rustls::crypto::CryptoProvider;
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::{ClientConfig, RootCertStore};
 use sha2::Digest;
-use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use switchgear_service_api::service::ServiceErrorSource;
+use switchgear_error::{ErrorOrigin, ForeignContext};
 use tokio::sync::Mutex;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
+use tonic::transport::{Channel, Endpoint};
 
 #[allow(clippy::all)]
 pub mod cln {
@@ -22,78 +26,36 @@ use cln::node_client::NodeClient;
 pub struct TonicClnGrpcClient {
     timeout: Duration,
     config: ClnGrpcDiscoveryBackendImplementation,
+    trusted_roots: Vec<CertificateDer<'static>>,
     features: Option<LnFeatures>,
     inner: Arc<Mutex<Option<Arc<InnerTonicClnGrpcClient>>>>,
-    ca_certificates: Vec<Certificate>,
-    identity: Identity,
+    secrets: SecretStore,
 }
 
 impl TonicClnGrpcClient {
+    #[tracing::instrument(skip_all)]
     pub fn create(
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
         trusted_roots: &[CertificateDer],
     ) -> Result<Self, LnPoolError> {
-        let ClnGrpcClientAuth::Path(auth) = &config.auth;
-
-        let mut ca_certificates = trusted_roots
-            .iter()
-            .map(|c| {
-                let c = Self::certificate_der_as_pem(c);
-                Certificate::from_pem(&c)
-            })
-            .collect::<Vec<_>>();
-
-        if let Some(ca_cert_path) = &auth.ca_cert_path {
-            let ca_certificate = fs::read(ca_cert_path).map_err(|e| {
-                LnPoolError::from_invalid_credentials(
-                    e.to_string(),
-                    ServiceErrorSource::Internal,
-                    format!(
-                        "loading CLN credentials and reading CA certificate from path {}",
-                        ca_cert_path.to_string_lossy()
-                    ),
-                )
-            })?;
-            ca_certificates.push(Certificate::from_pem(&ca_certificate));
-        }
-
-        let client_cert = fs::read(&auth.client_cert_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading CLN credentials and reading client certificate from path {}",
-                    auth.client_cert_path.to_string_lossy()
-                ),
-            )
-        })?;
-
-        let client_key = fs::read(&auth.client_key_path).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "loading CLN credentials and reading client key from path {}",
-                    auth.client_key_path.to_string_lossy()
-                ),
-            )
-        })?;
-
-        let identity = Identity::from_pem(client_cert, client_key);
-
+        let secrets = SecretStore::create(&config.auth.secrets);
         Ok(Self {
             timeout,
             config,
+            trusted_roots: trusted_roots
+                .iter()
+                .map(|c| c.clone().into_owned())
+                .collect(),
             features: Some(LnFeatures {
                 invoice_from_desc_hash: false,
             }),
             inner: Arc::new(Default::default()),
-            ca_certificates,
-            identity,
+            secrets,
         })
     }
 
+    #[tracing::instrument(skip_all)]
     async fn inner_connect(&self) -> Result<Arc<InnerTonicClnGrpcClient>, LnPoolError> {
         let mut inner = self.inner.lock().await;
         match inner.as_ref() {
@@ -101,8 +63,9 @@ impl TonicClnGrpcClient {
                 let inner_connect = Arc::new(
                     InnerTonicClnGrpcClient::connect(
                         self.timeout,
-                        self.ca_certificates.clone(),
-                        self.identity.clone(),
+                        &self.trusted_roots,
+                        &self.config.auth,
+                        self.secrets.clone(),
                         self.config.url.to_string(),
                         self.config.domain.as_deref(),
                     )
@@ -115,15 +78,10 @@ impl TonicClnGrpcClient {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn inner_disconnect(&self) {
         let mut inner = self.inner.lock().await;
         *inner = None;
-    }
-
-    fn certificate_der_as_pem(certificate: &CertificateDer) -> String {
-        use base64::Engine;
-        let base64_cert = base64::engine::general_purpose::STANDARD.encode(certificate.as_ref());
-        format!("-----BEGIN CERTIFICATE-----\n{base64_cert}\n-----END CERTIFICATE-----")
     }
 }
 
@@ -131,6 +89,7 @@ impl TonicClnGrpcClient {
 impl LnRpcClient for TonicClnGrpcClient {
     type Error = LnPoolError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -149,6 +108,7 @@ impl LnRpcClient for TonicClnGrpcClient {
         r
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, Self::Error> {
         let inner = self.inner_connect().await?;
 
@@ -171,55 +131,47 @@ struct InnerTonicClnGrpcClient {
 }
 
 impl InnerTonicClnGrpcClient {
+    #[tracing::instrument(skip_all)]
     async fn connect(
         timeout: Duration,
-        ca_certificates: Vec<Certificate>,
-        identity: Identity,
+        trusted_roots: &[CertificateDer<'static>],
+        auth: &ClnGrpcClientAuth,
+        secrets: SecretStore,
         url: String,
         domain: Option<&str>,
     ) -> Result<Self, LnPoolError> {
-        let endpoint = Channel::from_shared(url.clone()).map_err(|e| {
-            LnPoolError::from_invalid_configuration(
-                format!("Invalid endpoint URI: {}", e),
-                ServiceErrorSource::Internal,
-                format!("CLN connecting to endpoint address {url}"),
-            )
-        })?;
+        let tls_config = build_client_tls_config(trusted_roots, auth, &secrets)?;
 
-        let mut tls_config = ClientTlsConfig::new()
-            .with_native_roots()
-            .ca_certificates(ca_certificates)
-            .identity(identity);
-
+        let mut connector_builder = HttpsConnectorBuilder::new()
+            .with_tls_config(tls_config)
+            .https_or_http();
         if let Some(domain) = domain {
-            tls_config = tls_config.domain_name(domain);
+            let name: ServerName<'static> =
+                ServerName::try_from(domain.to_owned()).map_err(|e| {
+                    LnPoolError::message(
+                        ErrorOrigin::Internal,
+                        format!("parsing CLN domain {domain} as TLS server name: {e}"),
+                    )
+                })?;
+            connector_builder =
+                connector_builder.with_server_name_resolver(FixedServerNameResolver::new(name));
         }
+        let https = connector_builder.enable_http2().build();
 
-        let endpoint = endpoint.tls_config(tls_config).map_err(|e| {
-            LnPoolError::from_invalid_credentials(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!("loading CLN TLS configuration into client for {url}"),
-            )
-        })?;
-
-        let channel = endpoint
+        let endpoint = Endpoint::from_shared(url.clone())
+            .with_foreign_context(|| format!("parsing CLN endpoint address {url}"), None)?
             .connect_timeout(timeout)
-            .timeout(timeout)
-            .connect()
-            .await
-            .map_err(|e| {
-                LnPoolError::from_transport_error(
-                    e,
-                    ServiceErrorSource::Upstream,
-                    format!("connecting CLN client to {url}"),
-                )
-            })?;
+            .timeout(timeout);
 
-        let client = NodeClient::new(channel);
-        Ok(Self { client, url })
+        let channel = Channel::new(https, endpoint);
+
+        Ok(Self {
+            client: NodeClient::new(channel),
+            url,
+        })
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -233,27 +185,22 @@ impl InnerTonicClnGrpcClient {
                 (d.to_string(), Some(true), hash.encode_hex())
             }
             Bolt11InvoiceDescription::Hash(_) => {
-                return Err(LnPoolError::from_invalid_configuration(
-                    "hash descriptions unsupported".to_string(),
-                    ServiceErrorSource::Internal,
+                return Err(LnPoolError::message(
+                    ErrorOrigin::Internal,
                     format!(
-                        "CLN get invoice from {}, parsing invoice description",
+                        "generating CLN invoice from {}, resolving invoice description: hash descriptions unsupported",
                         self.url
                     ),
-                ))
+                ));
             }
         };
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| {
-            LnPoolError::from_invalid_configuration(
-                e.to_string(),
-                ServiceErrorSource::Internal,
-                format!(
-                    "CLN get invoice from {}, getting current time for label",
-                    self.url
-                ),
-            )
-        })?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .with_foreign_context(
+                || format!("computing invoice label timestamp for CLN {}", self.url),
+                None,
+            )?;
         let label = format!("{label}:{}", now.as_nanos());
 
         let mut client = self.client.clone();
@@ -276,17 +223,13 @@ impl InnerTonicClnGrpcClient {
         let response = client
             .invoice(request)
             .await
-            .map_err(|e| {
-                LnPoolError::from_tonic_error(
-                    e,
-                    format!("CLN get invoice from {}, requesting invoice", self.url),
-                )
-            })?
+            .with_foreign_context(|| format!("requesting CLN invoice from {}", self.url), None)?
             .into_inner();
 
         Ok(response.bolt11)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let channels_request = cln::ListpeerchannelsRequest {
             id: None,
@@ -296,12 +239,10 @@ impl InnerTonicClnGrpcClient {
         let channels_response = client
             .list_peer_channels(channels_request)
             .await
-            .map_err(|e| {
-                LnPoolError::from_tonic_error(
-                    e,
-                    format!("CLN get metrics for {}, requesting channels", self.url),
-                )
-            })?
+            .with_foreign_context(
+                || format!("listing CLN peer channels for {}", self.url),
+                None,
+            )?
             .into_inner();
 
         let mut node_effective_inbound_msat = 0u64;
@@ -324,4 +265,52 @@ impl InnerTonicClnGrpcClient {
             node_effective_inbound_msat,
         })
     }
+}
+
+fn build_client_tls_config(
+    trusted_roots: &[CertificateDer<'static>],
+    auth: &ClnGrpcClientAuth,
+    secrets: &SecretStore,
+) -> Result<ClientConfig, LnPoolError> {
+    let crypto = CryptoProvider::get_default()
+        .ok_or_else(|| {
+            LnPoolError::message(
+                ErrorOrigin::Internal,
+                "no rustls crypto provider installed for CLN gRPC client",
+            )
+        })?
+        .clone();
+
+    let mut roots = RootCertStore::empty();
+    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    for root in trusted_roots {
+        roots.add(root.clone()).with_foreign_context(
+            || "adding pool trusted root to CLN roots".to_string(),
+            ErrorOrigin::Internal,
+        )?;
+    }
+    if let Some(ca_cert_path) = auth.ca_cert_path.as_ref() {
+        let pem = std::fs::read(ca_cert_path).with_foreign_context(
+            || format!("reading CLN CA certificate from {}", ca_cert_path.display()),
+            None,
+        )?;
+        let extra: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(&pem)
+            .collect::<Result<_, _>>()
+            .with_foreign_context(
+                || format!("parsing CLN CA certificate from {}", ca_cert_path.display()),
+                None,
+            )?;
+        roots.add_parsable_certificates(extra);
+    }
+
+    Ok(ClientConfig::builder_with_provider(crypto.clone())
+        .with_safe_default_protocol_versions()
+        .expect("rustls safe default protocol versions")
+        .with_root_certificates(roots)
+        .with_client_cert_resolver(Arc::new(ClientCertResolver::new(
+            secrets.clone(),
+            auth.client_cert_secret.clone(),
+            auth.client_key_secret.clone(),
+            crypto,
+        ))))
 }

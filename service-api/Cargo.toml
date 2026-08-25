@@ -1,7 +1,8 @@
 [package]
 name = "switchgear-service-api"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Service layer API for Switchgear LNURL load balancer"
 documentation = "https://github.com/bitshock-src/switchgear"
@@ -16,6 +17,7 @@ publish = true
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
+switchgear-error.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 email_address = "0.2"
 hex = "0.4"

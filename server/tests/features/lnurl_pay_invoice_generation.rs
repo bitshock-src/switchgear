@@ -1,9 +1,9 @@
+use crate::FEATURE_TEST_CONFIG_PATH;
+use crate::common::context::Protocol;
 use crate::common::context::global::GlobalContext;
 use crate::common::context::server::CertificateLocation;
-use crate::common::context::Protocol;
 use crate::common::helpers::get_payee_from_context;
 use crate::common::step_functions::*;
-use crate::FEATURE_TEST_CONFIG_PATH;
 use anyhow::bail;
 use std::path::PathBuf;
 

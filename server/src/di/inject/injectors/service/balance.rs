@@ -1,16 +1,25 @@
+use crate::di::error::DiError;
 use crate::di::inject::injectors::balance::BalancerInjector;
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 use crate::di::inject::injectors::service::tls::load_server_x509_credentials;
+use crate::di::inject::injectors::service::tracing::{ServiceSubscriber, build_service_subscriber};
 use crate::di::inject::injectors::store::offer::OfferStoreInjector;
-use anyhow::{anyhow, Context};
-use log::{info, warn};
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
-use switchgear_components::axum::middleware::logger::ClfLogger;
+use switchgear_components::axum::middleware::logger::RequestLogger;
+use switchgear_components::axum::middleware::{
+    OtelAxumLayer, StripTraceContextLayer, WithSubscriberLayer,
+};
 use switchgear_components::offer::provider::StoreOfferProvider;
+use switchgear_error::{ChainedContext, ForeignContext};
+use switchgear_service::host::AllowedHosts;
 use switchgear_service::scheme::Scheme;
 use switchgear_service::{LnUrlBalancerService, LnUrlPayState};
+use tracing::{info, warn};
+
+const SERVICE_NAME: &str = "swgr.lnurl";
 
 pub struct BalancerServiceInjector {
     config: ServerConfigInjector,
@@ -36,7 +45,8 @@ impl BalancerServiceInjector {
 
     pub async fn connect(
         &self,
-    ) -> anyhow::Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>>>>>> {
+        otel_providers: &mut Vec<(&'static str, SdkTracerProvider)>,
+    ) -> Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>>>>>, DiError> {
         if !self.enablement.lnurl_enabled() {
             return Ok(None);
         }
@@ -46,39 +56,52 @@ impl BalancerServiceInjector {
             .get()
             .lnurl_service
             .as_ref()
-            .ok_or_else(|| anyhow!("lnurl service enabled but has no config"))?;
+            .ok_or_else(|| DiError::internal("lnurl service enabled but has no config"))?;
+
+        let ServiceSubscriber { dispatch, provider } =
+            build_service_subscriber(SERVICE_NAME, service_config.otlp.as_ref())
+                .chained_context("building lnurl service tracing subscriber", None)?;
+        if let Some(p) = provider {
+            otel_providers.push((SERVICE_NAME, p));
+        }
 
         let balancer = self
             .balancer_injector
             .get()
             .await?
-            .ok_or_else(|| anyhow!("lnurl service enabled but has no balancer"))?;
+            .ok_or_else(|| DiError::internal("lnurl service enabled but has no balancer"))?;
 
         let offer_store = self
             .offer_store
             .get()
             .await?
-            .ok_or_else(|| anyhow!("lnurl service enabled but has no offer store"))?;
+            .ok_or_else(|| DiError::internal("lnurl service enabled but has no offer store"))?;
 
         let offer_store = StoreOfferProvider::new(offer_store);
 
-        let listener = TcpListener::bind(service_config.address).with_context(|| {
-            format!(
-                "binding TCP listener for lnurl service to address {}",
-                service_config.address
-            )
-        })?;
-        let local_addr = listener
-            .local_addr()
-            .with_context(|| "verifying lnurl service address")?;
-
-        let acceptor = if let Some(tls) = &service_config.tls {
-            let acceptor = load_server_x509_credentials(tls).with_context(|| {
+        let listener = TcpListener::bind(service_config.address).with_foreign_context(
+            || {
                 format!(
-                    "loading tls certificate for lnurl service {}",
+                    "binding TCP listener for lnurl service to address {}",
                     service_config.address
                 )
-            })?;
+            },
+            None,
+        )?;
+        let local_addr = listener
+            .local_addr()
+            .foreign_context("verifying lnurl service address", None)?;
+
+        let acceptor = if let Some(tls) = &service_config.tls {
+            let acceptor = load_server_x509_credentials(tls).with_chained_context(
+                || {
+                    format!(
+                        "loading tls certificate for lnurl service {}",
+                        service_config.address
+                    )
+                },
+                None,
+            )?;
             info!("lnurl service with TLS, listening on: {local_addr}");
             Some(acceptor)
         } else {
@@ -89,19 +112,24 @@ impl BalancerServiceInjector {
         let scheme = if acceptor.is_some() { "https" } else { "http" };
         let scheme = Scheme(scheme.to_string());
 
+        let allowed_hosts = AllowedHosts(service_config.allowed_hosts.clone());
+
         let router = LnUrlBalancerService::router(LnUrlPayState::new(
             service_config.partitions.clone(),
             offer_store,
             balancer,
             service_config.invoice_expiry_secs,
             scheme,
-            service_config.allowed_hosts.clone(),
+            allowed_hosts,
             service_config.comment_allowed,
             service_config.bech32_qr_scale,
             service_config.bech32_qr_light,
             service_config.bech32_qr_dark,
         ))
-        .layer(ClfLogger::new("lnurl"))
+        .layer(RequestLogger::new())
+        .layer(OtelAxumLayer::default())
+        .layer(StripTraceContextLayer)
+        .layer(WithSubscriberLayer::new(dispatch))
         .into_make_service_with_connect_info::<SocketAddr>();
 
         let f = async move {

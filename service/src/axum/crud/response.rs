@@ -1,6 +1,6 @@
+use axum::http::StatusCode;
 use axum::http::{HeaderMap, HeaderValue};
 use axum::response::{IntoResponse, Response};
-use switchgear_service_api::service::StatusCode;
 
 pub struct JsonCrudResponse<T> {
     body: Option<T>,

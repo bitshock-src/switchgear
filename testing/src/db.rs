@@ -36,7 +36,7 @@ impl TestMysqlDatabase {
                     Err(_) => return,
                 };
 
-                let _ = sqlx::query(&format!("CREATE DATABASE {db_name_c}"))
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {db_name_c}")))
                     .execute(&pool)
                     .await;
             });
@@ -94,9 +94,11 @@ impl Drop for TestMysqlDatabase {
                     Err(_) => return,
                 };
 
-                let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
-                    .execute(&pool)
-                    .await;
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "DROP DATABASE IF EXISTS {db_name}"
+                )))
+                .execute(&pool)
+                .await;
             });
         })
         .join();
@@ -140,7 +142,7 @@ impl TestPostgresDatabase {
                     Err(_) => return,
                 };
 
-                let _ = sqlx::query(&format!("CREATE DATABASE {db_name_c}"))
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {db_name_c}")))
                     .execute(&pool)
                     .await;
             });
@@ -202,12 +204,14 @@ impl Drop for TestPostgresDatabase {
                     Err(_) => return,
                 };
 
-                let _ = sqlx::query(&format!("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <>  pg_backend_pid()"))
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}' AND pid <>  pg_backend_pid()")))
                     .execute(&pool).await;
 
-                let _ = sqlx::query(&format!("DROP DATABASE IF EXISTS {db_name}"))
-                    .execute(&pool)
-                    .await;
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+                    "DROP DATABASE IF EXISTS {db_name}"
+                )))
+                .execute(&pool)
+                .await;
             });
         })
             .join();

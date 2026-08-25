@@ -1,10 +1,10 @@
-use crate::axum::crud::error::{CrudError, WwwAuthenticateError};
+use crate::axum::crud::error::{WwwAuthenticateError, unauthorized_response};
 use axum::{
     extract::{FromRequestParts, Request},
-    response::{IntoResponse, Response},
+    response::Response,
 };
-use axum_extra::headers::{authorization::Bearer, Authorization};
 use axum_extra::TypedHeader;
+use axum_extra::headers::{Authorization, authorization::Bearer};
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -92,16 +92,16 @@ where
                         let req = Request::from_parts(parts, body);
                         inner.call(req).await
                     } else {
-                        let error_response =
-                            CrudError::unauthorized(&realm, WwwAuthenticateError::InvalidToken);
-                        Ok(error_response.into_response())
+                        Ok(unauthorized_response(
+                            &realm,
+                            WwwAuthenticateError::InvalidToken,
+                        ))
                     }
                 }
-                Err(_) => {
-                    let error_response =
-                        CrudError::unauthorized(&realm, WwwAuthenticateError::MissingToken);
-                    Ok(error_response.into_response())
-                }
+                Err(_) => Ok(unauthorized_response(
+                    &realm,
+                    WwwAuthenticateError::MissingToken,
+                )),
             }
         })
     }
