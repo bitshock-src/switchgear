@@ -46,7 +46,7 @@ jobs:
           MAX_WAIT=300
           ELAPSED=0
           while [ ! -f ./compose-ready ] && [ $ELAPSED -lt $MAX_WAIT ]; do
-            docker compose ps --format "table {{.Service}}\t{{.Status}}"
+            docker compose --env-file ./testing.env ps --format "table {{.Service}}\t{{.Status}}" || true
             sleep 1
             ELAPSED=$((ELAPSED + 1))
           done
