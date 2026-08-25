@@ -1,12 +1,14 @@
 use crate::offer::Offer;
-use crate::service::HasServiceErrorSource;
 use async_trait::async_trait;
-use std::error::Error;
+use switchgear_error::ContextError;
+use switchgear_error::IntoBoxedTrait;
 use tokio::sync::watch;
+
+pub trait LnBalancerError: ContextError {}
 
 #[async_trait]
 pub trait LnBalancer {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: LnBalancerError + IntoBoxedTrait<dyn LnBalancerError>;
 
     async fn get_invoice(
         &self,

@@ -1,13 +1,14 @@
 use crate::commands::cli_write_all;
-use anyhow::Context;
+use crate::commands::error::CliError;
 use clap::Subcommand;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use p256::ecdsa::SigningKey;
 use pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use rand::thread_rng;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use switchgear_error::ForeignContext;
 
 #[derive(Subcommand, Debug)]
 pub enum TokenCommands {
@@ -73,47 +74,63 @@ pub fn mint<T: Serialize>(
     encoding_key_path: &Path,
     output: Option<&Path>,
     token: T,
-) -> anyhow::Result<()> {
-    let encoding_key = std::fs::read(encoding_key_path).with_context(|| {
-        format!(
-            "reading private key: {}",
-            encoding_key_path.to_string_lossy()
-        )
-    })?;
-    let encoding_key = EncodingKey::from_ec_pem(&encoding_key).with_context(|| {
-        format!(
-            "parsing private key: {}",
-            encoding_key_path.to_string_lossy()
-        )
-    })?;
+) -> Result<(), CliError> {
+    let encoding_key = std::fs::read(encoding_key_path).with_foreign_context(
+        || {
+            format!(
+                "reading private key: {}",
+                encoding_key_path.to_string_lossy()
+            )
+        },
+        None,
+    )?;
+    let encoding_key = EncodingKey::from_ec_pem(&encoding_key).with_foreign_context(
+        || {
+            format!(
+                "parsing private key: {}",
+                encoding_key_path.to_string_lossy()
+            )
+        },
+        None,
+    )?;
 
     let header = Header::new(Algorithm::ES256);
-    let token = encode(&header, &token, &encoding_key).with_context(|| {
-        format!(
-            "encoding token with private key: {}",
-            encoding_key_path.to_string_lossy()
-        )
-    })?;
+    let token = encode(&header, &token, &encoding_key).with_foreign_context(
+        || {
+            format!(
+                "encoding token with private key: {}",
+                encoding_key_path.to_string_lossy()
+            )
+        },
+        None,
+    )?;
 
-    cli_write_all(output, token.as_bytes()).with_context(|| {
-        format!(
-            "writing token to: {}",
-            output.map_or_else(|| "stdout".to_string(), |p| p.to_string_lossy().to_string())
-        )
-    })?;
+    cli_write_all(output, token.as_bytes()).with_foreign_context(
+        || {
+            format!(
+                "writing token to: {}",
+                output.map_or_else(|| "stdout".to_string(), |p| p.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
 
     Ok(())
 }
 
-pub fn ecdsa_prime256v1_pkcs8_pem_keypair() -> anyhow::Result<(String, String)> {
+pub fn ecdsa_prime256v1_pkcs8_pem_keypair() -> Result<(String, String), CliError> {
     let mut rng = thread_rng();
     let discovery_key_pair = SigningKey::random(&mut rng);
 
     let public_key = *discovery_key_pair.verifying_key();
-    let public_key = public_key.to_public_key_pem(LineEnding::default())?;
+    let public_key = public_key
+        .to_public_key_pem(LineEnding::default())
+        .foreign_context("encoding public key to pkcs8 pem", None)?;
 
     let private_key = discovery_key_pair;
-    let private_key = private_key.to_pkcs8_pem(LineEnding::default())?;
+    let private_key = private_key
+        .to_pkcs8_pem(LineEnding::default())
+        .foreign_context("encoding private key to pkcs8 pem", None)?;
 
     Ok((public_key, private_key.to_string()))
 }
@@ -123,15 +140,19 @@ pub fn key_pair_io(
     private_key: &str,
     public_path: &Path,
     private_path: &Path,
-) -> anyhow::Result<()> {
-    fs::write(public_path, public_key.as_bytes())
-        .with_context(|| format!("writing public key to: {}", public_path.to_string_lossy()))?;
-    fs::write(private_path, private_key.as_bytes())
-        .with_context(|| format!("writing private key to: {}", private_path.to_string_lossy()))?;
+) -> Result<(), CliError> {
+    fs::write(public_path, public_key.as_bytes()).with_foreign_context(
+        || format!("writing public key to: {}", public_path.to_string_lossy()),
+        None,
+    )?;
+    fs::write(private_path, private_key.as_bytes()).with_foreign_context(
+        || format!("writing private key to: {}", private_path.to_string_lossy()),
+        None,
+    )?;
     Ok(())
 }
 
-pub fn key(public_path: &Path, private_path: &Path) -> anyhow::Result<()> {
+pub fn key(public_path: &Path, private_path: &Path) -> Result<(), CliError> {
     let (public_key, private_key) = ecdsa_prime256v1_pkcs8_pem_keypair()?;
     key_pair_io(&public_key, &private_key, public_path, private_path)?;
     Ok(())

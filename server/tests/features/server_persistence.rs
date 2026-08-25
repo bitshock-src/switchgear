@@ -1,8 +1,8 @@
+use crate::FEATURE_TEST_CONFIG_PATH;
+use crate::common::context::Protocol;
 use crate::common::context::global::GlobalContext;
 use crate::common::context::server::CertificateLocation;
-use crate::common::context::Protocol;
 use crate::common::step_functions::*;
-use crate::FEATURE_TEST_CONFIG_PATH;
 use std::cmp::PartialEq;
 use std::path::PathBuf;
 use switchgear_testing::credentials::db::{DbCredentials, TestDatabase};
@@ -292,9 +292,26 @@ async fn test_complete_persistence_lifecycle_impl(db_type: DbType, db_uri_type: 
     ctx.activate_server(server1);
 
     if db_uri_type == DbUriType::AddressNameWithSecrets {
-        let secrets_path = manifest_dir.join("config/persistence-secrets.env");
-        ctx.set_secrets_path(server1, secrets_path.into())
-            .expect("assert");
+        ctx.set_mysql_username_file(
+            server1,
+            Some(manifest_dir.join("config/persistence-offer-mysql-username")),
+        )
+        .expect("assert");
+        ctx.set_mysql_password_file(
+            server1,
+            Some(manifest_dir.join("config/persistence-offer-mysql-password")),
+        )
+        .expect("assert");
+        ctx.set_postgres_username_file(
+            server1,
+            Some(manifest_dir.join("config/persistence-discovery-postgres-username")),
+        )
+        .expect("assert");
+        ctx.set_postgres_password_file(
+            server1,
+            Some(manifest_dir.join("config/persistence-discovery-postgres-password")),
+        )
+        .expect("assert");
     }
 
     // First server instance: Start server and create persistent data

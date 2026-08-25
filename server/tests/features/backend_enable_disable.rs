@@ -1,7 +1,7 @@
-use crate::common::context::global::GlobalContext;
-use crate::common::context::Protocol;
-use crate::common::step_functions::*;
 use crate::FEATURE_TEST_CONFIG_PATH;
+use crate::common::context::Protocol;
+use crate::common::context::global::GlobalContext;
+use crate::common::step_functions::*;
 use std::path::PathBuf;
 use std::time::Duration;
 

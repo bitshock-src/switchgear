@@ -6,6 +6,7 @@ use tar::Archive;
 
 pub mod db;
 pub mod lightning;
+pub mod otel;
 
 pub fn download_credentials(credentials_dir: &Path, credentials_url: &str) -> anyhow::Result<()> {
     let download_path = credentials_dir.join("credentials.tar.gz");

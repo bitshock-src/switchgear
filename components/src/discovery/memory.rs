@@ -1,9 +1,9 @@
-use crate::discovery::error::DiscoveryBackendStoreError;
+use crate::discovery::error::DefaultDiscoveryBackendStoreError;
 use async_trait::async_trait;
 use secp256k1::PublicKey;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
 };
@@ -38,7 +38,7 @@ impl MemoryDiscoveryBackendStore {
 
 #[async_trait]
 impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
-    type Error = DiscoveryBackendStoreError;
+    type Error = DefaultDiscoveryBackendStoreError;
 
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;

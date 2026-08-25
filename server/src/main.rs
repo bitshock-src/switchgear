@@ -1,36 +1,40 @@
 mod commands;
 mod config;
 mod di;
+mod error;
 mod signals;
 
 use crate::commands::offer::metadata::OfferMetadataManagementCommands;
 use crate::commands::offer::record::OfferRecordManagementCommands;
-use anyhow::anyhow;
+use crate::di::inject::injectors::config::ServerConfigInjector;
+use crate::di::inject::injectors::service::tracing::TracingSystemInjector;
+use crate::error::{ServerError, ServerErrorAccumulator};
 use clap::{Parser, Subcommand};
-use commands::discovery::backend::DiscoveryBackendManagementCommands;
 use commands::discovery::DiscoveryCommands;
+use commands::discovery::backend::DiscoveryBackendManagementCommands;
 use commands::offer::OfferCommands;
 use commands::services::ServiceEnablement;
 use commands::token::TokenCommands;
-use log::{error, LevelFilter};
-use simplelog::{ColorChoice, ConfigBuilder, TermLogger, TerminalMode};
+use log::LevelFilter as LogLevelFilter;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 
 /// lnurl load balance server
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
-struct CliArgs {
-    /// log level; overrides RUST_LOG
+pub(crate) struct CliArgs {
+    /// log level (CLI subcommands only; `swgr service` reads RUST_LOG)
     #[clap(short, long, value_parser)]
-    log_level: Option<LevelFilter>,
+    pub(crate) log_level: Option<LogLevelFilter>,
 
     #[clap(subcommand)]
-    command: RootCommands,
+    pub(crate) command: RootCommands,
 }
 
 #[derive(Subcommand, Debug)]
-enum RootCommands {
+pub(crate) enum RootCommands {
     /// Run Switchgear services
     Service {
         /// Path to the YAML configuration file.
@@ -56,54 +60,37 @@ static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 async fn main() -> ExitCode {
     let args = CliArgs::parse();
 
-    if let RootCommands::Service { .. } = args.command {
-        match args.log_level {
-            None => {
-                if let Err(e) = env_logger::try_init() {
-                    eprintln!("failed to initialize env_logger: {e}");
-                    return ExitCode::FAILURE;
-                }
-            }
-            Some(level) => {
-                if let Err(e) = env_logger::builder().filter_level(level).try_init() {
-                    eprintln!("failed to initialize env_logger: {e}");
-                    return ExitCode::FAILURE;
-                }
-            }
-        }
-    } else {
-        let level = args.log_level.unwrap_or(LevelFilter::Info);
-        if let Err(e) = TermLogger::init(
-            level,
-            ConfigBuilder::new()
-                .set_time_level(LevelFilter::Off)
-                .build(),
-            TerminalMode::Stderr,
-            ColorChoice::Auto,
-        ) {
-            eprintln!("failed to initialize TermLogger: {e}");
-            return ExitCode::FAILURE;
-        }
+    if let Err(e) = TracingSystemInjector::init(&args) {
+        eprintln!("failed to initialize tracing: {e}");
+        return ExitCode::FAILURE;
     }
 
     match _main(args).await {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            error!("{e:?}");
+        Err(err) => {
+            for leaf in err.flatten() {
+                leaf.emit_event("swgr failure");
+            }
             ExitCode::FAILURE
         }
     }
 }
 
-async fn _main(args: CliArgs) -> anyhow::Result<()> {
+async fn _main(args: CliArgs) -> Result<(), ServerError> {
     rustls::crypto::aws_lc_rs::default_provider()
         .install_default()
-        .map_err(|_| anyhow!("failed to stand up rustls encryption platform"))?;
+        .map_err(|_| ServerError::internal("failed to stand up rustls encryption platform"))?;
 
-    match args.command {
-        RootCommands::Service { config, enablement } => {
-            commands::services::execute(config, enablement).await
-        }
+    let mut otel_providers: Vec<(&'static str, SdkTracerProvider)> = Vec::new();
+    let mut errors = ServerErrorAccumulator::new();
+
+    let cli_result: Result<(), crate::commands::error::CliError> = match args.command {
+        RootCommands::Service { config, enablement } => match ServerConfigInjector::new(config)
+            .chained_context("loading server configuration", None)
+        {
+            Ok(ci) => commands::services::execute(ci, enablement, &mut otel_providers).await,
+            Err(e) => Err(e),
+        },
         RootCommands::Offer(offer) => match offer {
             OfferCommands::Token(token) => match token {
                 TokenCommands::Mint {
@@ -315,5 +302,44 @@ async fn _main(args: CliArgs) -> anyhow::Result<()> {
                 } => commands::discovery::backend::delete_backend(&address, &client).await,
             },
         },
+    };
+
+    let result: Result<(), ServerError> =
+        cli_result.with_chained_context(|| format!("cli command '{}'", summarize_command()), None);
+    errors.push_result(result);
+
+    let mut shutdowns = tokio::task::JoinSet::new();
+    for (name, provider) in otel_providers {
+        shutdowns.spawn_blocking(move || (name, provider.shutdown()));
     }
+    while let Some(res) = shutdowns.join_next().await {
+        match res {
+            Ok((_, Ok(()))) => {}
+            Ok((name, Err(e))) => {
+                let r: Result<(), ServerError> = Err(e).with_foreign_context(
+                    || format!("shutting down otel tracer provider for {name}"),
+                    ErrorOrigin::Internal,
+                );
+                errors.push_result(r);
+            }
+            Err(e) => {
+                let r: Result<(), ServerError> =
+                    Err(e).foreign_context("otel shutdown task join failed", ErrorOrigin::Internal);
+                errors.push_result(r);
+            }
+        }
+    }
+
+    errors.finish()
+}
+
+fn summarize_command() -> String {
+    let matches = <CliArgs as clap::CommandFactory>::command().get_matches();
+    let mut parts: Vec<&str> = Vec::new();
+    let mut cur = &matches;
+    while let Some((name, sub)) = cur.subcommand() {
+        parts.push(name);
+        cur = sub;
+    }
+    parts.join(" ")
 }

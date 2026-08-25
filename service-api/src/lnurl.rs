@@ -1,6 +1,6 @@
 use crate::offer::{OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse};
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::de::{Error, SeqAccess, Visitor};
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -203,7 +203,7 @@ mod test {
         LnUrlError, LnUrlErrorStatus, LnUrlInvoice, LnUrlOffer, LnUrlOfferMetadata, LnUrlOfferTag,
     };
     use crate::offer::{OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse};
-    use bitcoin_hashes::{sha256, Hash};
+    use bitcoin_hashes::{Hash, sha256};
     use lightning_invoice::{Currency, InvoiceBuilder, PaymentSecret};
     use secp256k1_0_29::{Secp256k1, SecretKey};
     use std::time::SystemTime;
@@ -278,10 +278,12 @@ mod test {
 
         let result: Result<LnUrlOfferMetadata, _> = serde_json::from_str(json);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing required 'text/plain' metadata"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Missing required 'text/plain' metadata")
+        );
     }
 
     #[test]

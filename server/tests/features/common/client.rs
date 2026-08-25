@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use reqwest::{Certificate, Client, ClientBuilder, Url};
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -127,6 +127,78 @@ impl LnUrlTestClient {
             .send()
             .await
             .with_context(|| format!("GET request to path: {path}"))
+    }
+}
+
+/// Minimal HTTP client for negative-path tests where we need to bypass the
+/// typed HttpDiscoveryBackendStore / HttpOfferStore clients — e.g. sending
+/// requests with no bearer token, or a body the typed clients wouldn't emit.
+#[derive(Clone, Debug)]
+pub struct RawHttpClient {
+    client: Client,
+    base_url: String,
+}
+
+impl RawHttpClient {
+    pub fn create(base_url: String, trusted_roots: Vec<Certificate>) -> anyhow::Result<Self> {
+        let mut builder = ClientBuilder::new();
+        for root in trusted_roots {
+            builder = builder.add_root_certificate(root);
+        }
+        let client = builder
+            .use_rustls_tls()
+            .timeout(Duration::from_secs(10))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .with_context(|| format!("creating raw http client with base url: {base_url}"))?;
+        Ok(Self { client, base_url })
+    }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub async fn get(&self, path: &str) -> anyhow::Result<reqwest::Response> {
+        let url = format!("{}{path}", self.base_url);
+        self.client
+            .get(&url)
+            .send()
+            .await
+            .with_context(|| format!("GET {url}"))
+    }
+
+    pub async fn get_with_bearer(
+        &self,
+        path: &str,
+        bearer: &str,
+    ) -> anyhow::Result<reqwest::Response> {
+        let url = format!("{}{path}", self.base_url);
+        self.client
+            .get(&url)
+            .bearer_auth(bearer)
+            .send()
+            .await
+            .with_context(|| format!("GET {url} (with bearer)"))
+    }
+
+    pub async fn post_json(
+        &self,
+        path: &str,
+        bearer: Option<&str>,
+        body: &str,
+    ) -> anyhow::Result<reqwest::Response> {
+        let url = format!("{}{path}", self.base_url);
+        let mut req = self
+            .client
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body.to_string());
+        if let Some(b) = bearer {
+            req = req.bearer_auth(b);
+        }
+        req.send()
+            .await
+            .with_context(|| format!("POST {url} (bearer={})", bearer.is_some()))
     }
 }
 

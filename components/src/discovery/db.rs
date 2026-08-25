@@ -1,21 +1,30 @@
-use crate::discovery::error::DiscoveryBackendStoreError;
+use crate::discovery::error::DefaultDiscoveryBackendStoreError;
+use crate::secrets::SecretStore;
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, EntityTrait, FromJsonQueryResult,
-    QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DatabaseConnectionType,
+    EntityTrait, ExprTrait, FromJsonQueryResult, QueryFilter, QueryOrder, QuerySelect, Set,
+    TransactionTrait,
 };
 use secp256k1::PublicKey;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use switchgear_migration::{MigratorTrait, DISCOVERY_BACKEND_GET_ALL_ETAG_ID};
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
+use switchgear_migration::{DISCOVERY_BACKEND_GET_ALL_ETAG_ID, MigratorTrait};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendSparse, DiscoveryBackendStore,
     DiscoveryBackends,
 };
-use switchgear_service_api::service::ServiceErrorSource;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+use tokio::time::MissedTickBehavior;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, FromJsonQueryResult)]
 pub struct DiscoveryBackendPartitions(BTreeSet<String>);
@@ -57,68 +66,206 @@ pub mod etag {
     impl ActiveModelBehavior for ActiveModel {}
 }
 
+#[derive(Clone)]
+struct CredentialRotation {
+    inner: Arc<CredentialRotationInner>,
+}
+
+struct CredentialRotationInner {
+    db: DatabaseConnection,
+    uri_template: String,
+    secrets: SecretStore,
+    last_applied: Mutex<SecretString>,
+    shutdown_tx: Mutex<Option<watch::Sender<bool>>>,
+    join: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl std::fmt::Debug for CredentialRotation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialRotation").finish_non_exhaustive()
+    }
+}
+
+impl CredentialRotation {
+    fn spawn(
+        db: DatabaseConnection,
+        uri_template: String,
+        secrets: SecretStore,
+        initial: SecretString,
+    ) -> Result<Self, DefaultDiscoveryBackendStoreError> {
+        let (tx, rx) = watch::channel(false);
+        let inner = Arc::new(CredentialRotationInner {
+            db,
+            uri_template,
+            secrets,
+            last_applied: Mutex::new(initial),
+            shutdown_tx: Mutex::new(Some(tx)),
+            join: Mutex::new(None),
+        });
+        let inner_task = inner.clone();
+        let handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(inner_task.secrets.ttl() / 3);
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            let mut rx = rx;
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        if let Err(e) = Self::refresh(&inner_task) {
+                            tracing::warn!(error = %e, "discovery DSN rotation refresh failed");
+                        }
+                    }
+                    _ = rx.changed() => {
+                        if *rx.borrow() { return; }
+                    }
+                }
+            }
+        });
+        {
+            let Ok(mut join) = inner.join.lock() else {
+                return Err(DefaultDiscoveryBackendStoreError::message(
+                    ErrorOrigin::Internal,
+                    "storing discovery DSN rotation task handle",
+                ));
+            };
+            *join = Some(handle);
+        }
+        Ok(Self { inner })
+    }
+
+    fn refresh(inner: &CredentialRotationInner) -> Result<(), DefaultDiscoveryBackendStoreError> {
+        let new = inner
+            .secrets
+            .replace(&inner.uri_template)
+            .chained_context("re-resolving discovery database URI secrets", None)?;
+
+        let Ok(mut last) = inner.last_applied.lock() else {
+            return Err(DefaultDiscoveryBackendStoreError::message(
+                ErrorOrigin::Internal,
+                "reading last applied discovery DSN for rotation",
+            ));
+        };
+        if last.expose_secret() == new.expose_secret() {
+            return Ok(());
+        }
+
+        match &inner.db.inner {
+            DatabaseConnectionType::SqlxPostgresPoolConnection(_) => {
+                let opts = sqlx::postgres::PgConnectOptions::from_str(new.expose_secret())
+                    .foreign_context("parsing rotated postgres DSN", ErrorOrigin::Internal)?;
+                inner
+                    .db
+                    .get_postgres_connection_pool()
+                    .set_connect_options(opts);
+            }
+            DatabaseConnectionType::SqlxMySqlPoolConnection(_) => {
+                let opts = sqlx::mysql::MySqlConnectOptions::from_str(new.expose_secret())
+                    .foreign_context("parsing rotated mysql DSN", ErrorOrigin::Internal)?;
+                inner
+                    .db
+                    .get_mysql_connection_pool()
+                    .set_connect_options(opts);
+            }
+            _ => {}
+        }
+        *last = new;
+        Ok(())
+    }
+
+    async fn shutdown(&self) -> Result<(), DefaultDiscoveryBackendStoreError> {
+        let tx = {
+            let Ok(mut shutdown_tx) = self.inner.shutdown_tx.lock() else {
+                return Err(DefaultDiscoveryBackendStoreError::message(
+                    ErrorOrigin::Internal,
+                    "signalling discovery DSN rotation task to stop",
+                ));
+            };
+            shutdown_tx.take()
+        };
+        if let Some(tx) = tx {
+            let _ = tx.send(true);
+        }
+
+        let handle = {
+            let Ok(mut join) = self.inner.join.lock() else {
+                return Err(DefaultDiscoveryBackendStoreError::message(
+                    ErrorOrigin::Internal,
+                    "taking discovery DSN rotation task handle for join",
+                ));
+            };
+            join.take()
+        };
+
+        if let Some(h) = handle
+            && let Err(e) = h.await
+        {
+            tracing::warn!(error = %e, "discovery DSN rotation task join failed");
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct DbDiscoveryBackendStore {
     db: DatabaseConnection,
+    rotation: Option<CredentialRotation>,
 }
 
 impl DbDiscoveryBackendStore {
+    #[tracing::instrument(skip_all)]
     pub async fn connect(
         uri: &str,
+        secrets: Option<&SecretStore>,
         max_connections: u32,
-    ) -> Result<Self, DiscoveryBackendStoreError> {
-        let mut opt = sea_orm::ConnectOptions::new(uri);
-        opt.max_connections(max_connections);
-        let db = Database::connect(opt).await.map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "connecting to discovery backend database",
-                e,
-            )
-        })?;
+        connect_timeout_secs: f64,
+        acquire_timeout_secs: f64,
+    ) -> Result<Self, DefaultDiscoveryBackendStoreError> {
+        let resolved = match secrets {
+            Some(s) => s
+                .replace(uri)
+                .chained_context("resolving discovery database URI secrets", None)?,
+            None => SecretString::from(uri.to_owned()),
+        };
+        let mut opt = sea_orm::ConnectOptions::new(resolved.expose_secret());
+        opt.max_connections(max_connections)
+            .connect_timeout(Duration::from_secs_f64(connect_timeout_secs))
+            .acquire_timeout(Duration::from_secs_f64(acquire_timeout_secs));
+        let db = Database::connect(opt).await.foreign_context(
+            "connecting to discovery backend database",
+            ErrorOrigin::Internal,
+        )?;
 
-        Ok(Self::from_db(db))
+        let rotation = secrets
+            .map(|s| CredentialRotation::spawn(db.clone(), uri.to_owned(), s.clone(), resolved))
+            .transpose()?;
+
+        Ok(Self { db, rotation })
     }
 
-    pub async fn migrate_up(&self) -> Result<(), DiscoveryBackendStoreError> {
+    #[tracing::instrument(skip_all)]
+    pub async fn migrate_up(&self) -> Result<(), DefaultDiscoveryBackendStoreError> {
         switchgear_migration::DiscoveryBackendMigrator::up(&self.db, None)
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    "migrating database up",
-                    e,
-                )
-            })?;
+            .foreign_context("migrating database up", ErrorOrigin::Internal)?;
         Ok(())
     }
 
-    pub async fn migrate_down(&self) -> Result<(), DiscoveryBackendStoreError> {
+    #[tracing::instrument(skip_all)]
+    pub async fn migrate_down(&self) -> Result<(), DefaultDiscoveryBackendStoreError> {
         switchgear_migration::DiscoveryBackendMigrator::down(&self.db, None)
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    "migrating database down",
-                    e,
-                )
-            })?;
+            .foreign_context("migrating database down", ErrorOrigin::Internal)?;
         Ok(())
     }
 
-    pub fn from_db(db: DatabaseConnection) -> Self {
-        Self { db }
-    }
-
-    fn model_to_domain(model: Model) -> Result<DiscoveryBackend, DiscoveryBackendStoreError> {
+    #[tracing::instrument(skip_all)]
+    fn model_to_domain(
+        model: Model,
+    ) -> Result<DiscoveryBackend, DefaultDiscoveryBackendStoreError> {
         Ok(DiscoveryBackend {
-            public_key: PublicKey::from_slice(&model.id).map_err(|e| {
-                DiscoveryBackendStoreError::internal_error(
-                    ServiceErrorSource::Internal,
-                    format!("deserializing public key {:?} from database", model.id),
-                    format!("deserializing failure: {e}"),
-                )
-            })?,
+            public_key: PublicKey::from_slice(&model.id).with_foreign_context(
+                || format!("deserializing public key {:?} from database", model.id),
+                ErrorOrigin::Internal,
+            )?,
             backend: DiscoveryBackendSparse {
                 name: model.name,
                 partitions: model.partitions.0,
@@ -132,19 +279,17 @@ impl DbDiscoveryBackendStore {
 
 #[async_trait]
 impl DiscoveryBackendStore for DbDiscoveryBackendStore {
-    type Error = DiscoveryBackendStoreError;
+    type Error = DefaultDiscoveryBackendStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let result = Entity::find_by_id(public_key.serialize())
             .one(&self.db)
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    format!("fetching backend for public key {public_key}",),
-                    e,
-                )
-            })?;
+            .with_foreign_context(
+                || format!("fetching backend for public key {public_key}"),
+                ErrorOrigin::Internal,
+            )?;
 
         match result {
             Some(model) => Ok(Some(Self::model_to_domain(model)?)),
@@ -152,17 +297,12 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
         let response_etag = etag::Entity::find_by_id(DISCOVERY_BACKEND_GET_ALL_ETAG_ID)
             .one(&self.db)
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
-                    "fetching etag value",
-                    e,
-                )
-            })?
+            .foreign_context("fetching etag value", ErrorOrigin::Internal)?
             .map(|e| e.value as u64)
             .unwrap_or(0);
 
@@ -177,13 +317,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 .order_by_asc(Column::Id)
                 .all(&self.db)
                 .await
-                .map_err(|e| {
-                    DiscoveryBackendStoreError::from_db(
-                        ServiceErrorSource::Internal,
-                        "fetching all backends",
-                        e,
-                    )
-                })?;
+                .foreign_context("fetching all backends", ErrorOrigin::Internal)?;
 
             let backends = models
                 .into_iter()
@@ -196,6 +330,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let now = Utc::now();
         let active_model = ActiveModel {
@@ -232,40 +367,29 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 })
             })
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_tx(
-                    ServiceErrorSource::Internal,
-                    "post transaction",
-                    e,
-                )
-            })?;
+            .foreign_context("post transaction", ErrorOrigin::Internal)?;
 
-        etag_result.transpose().map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "incrementing etag value",
-                e,
-            )
-        })?;
+        etag_result
+            .transpose()
+            .foreign_context("incrementing etag value", ErrorOrigin::Internal)?;
 
         match insert_result {
             Ok(_) => Ok(Some(backend.public_key)),
-            // PostgreSQL unique constraint violation
-            Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
-                db_err,
-            )))) if db_err.is_unique_violation() => Ok(None),
-            // SQLite unique constraint violation
-            Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx::Error::Database(
-                db_err,
-            )))) if db_err.is_unique_violation() => Ok(None),
-            Err(e) => Err(DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
+            // Unique constraint violation (Postgres via Query, SQLite via Exec)
+            Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
+            | Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
+                if matches!(sqlx_err.as_ref(), sqlx::Error::Database(db_err) if db_err.is_unique_violation()) =>
+            {
+                Ok(None)
+            }
+            Err(e) => Err(e).foreign_context(
                 format!("inserting backend for public key {}", backend.public_key),
-                e,
-            )),
+                ErrorOrigin::Internal,
+            ),
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let now = Utc::now();
         let future_timestamp = now + chrono::Duration::seconds(1);
@@ -335,46 +459,31 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 },
             )
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_tx(
-                    ServiceErrorSource::Internal,
-                    "put transaction",
-                    e,
-                )
-            })?;
+            .foreign_context("put transaction", ErrorOrigin::Internal)?;
 
-        upsert_result.map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                format!("upserting backend for public key {}", backend.public_key),
-                e,
-            )
-        })?;
+        upsert_result.with_foreign_context(
+            || format!("upserting backend for public key {}", backend.public_key),
+            ErrorOrigin::Internal,
+        )?;
 
-        etag_result.transpose().map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "incrementing etag value",
-                e,
-            )
-        })?;
+        etag_result
+            .transpose()
+            .foreign_context("incrementing etag value", ErrorOrigin::Internal)?;
 
         let result = fetch_result
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_db(
-                    ServiceErrorSource::Internal,
+            .with_foreign_context(
+                || {
                     format!(
                         "fetching backend after upsert for public key {}",
                         backend.public_key
-                    ),
-                    e,
-                )
-            })?
+                    )
+                },
+                ErrorOrigin::Internal,
+            )?
             .ok_or_else(|| {
-                DiscoveryBackendStoreError::internal_error(
-                    ServiceErrorSource::Internal,
-                    "upsert succeeded but record not found",
-                    "Record should exist after successful upsert".to_string(),
+                DefaultDiscoveryBackendStoreError::message(
+                    ErrorOrigin::Internal,
+                    "upsert succeeded but record not found: Record should exist after successful upsert",
                 )
             })?;
 
@@ -382,6 +491,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         Ok(result.0 == result.1)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
         let mut update =
             Entity::update_many().filter(Column::Id.eq(backend.public_key.serialize().as_slice()));
@@ -434,33 +544,21 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 })
             })
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_tx(
-                    ServiceErrorSource::Internal,
-                    "patch transaction",
-                    e,
-                )
-            })?;
+            .foreign_context("patch transaction", ErrorOrigin::Internal)?;
 
-        etag_result.transpose().map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "incrementing etag value",
-                e,
-            )
-        })?;
+        etag_result
+            .transpose()
+            .foreign_context("incrementing etag value", ErrorOrigin::Internal)?;
 
-        let result = patch_result.map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                format!("patching backend for public key {}", backend.public_key),
-                e,
-            )
-        })?;
+        let result = patch_result.with_foreign_context(
+            || format!("patching backend for public key {}", backend.public_key),
+            ErrorOrigin::Internal,
+        )?;
 
         Ok(result.rows_affected > 0)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
         let id = public_key.serialize();
 
@@ -494,30 +592,24 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 })
             })
             .await
-            .map_err(|e| {
-                DiscoveryBackendStoreError::from_tx(
-                    ServiceErrorSource::Internal,
-                    "delete transaction",
-                    e,
-                )
-            })?;
+            .foreign_context("delete transaction", ErrorOrigin::Internal)?;
 
-        etag_result.transpose().map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                "incrementing etag value",
-                e,
-            )
-        })?;
+        etag_result
+            .transpose()
+            .foreign_context("incrementing etag value", ErrorOrigin::Internal)?;
 
-        let result = delete_result.map_err(|e| {
-            DiscoveryBackendStoreError::from_db(
-                ServiceErrorSource::Internal,
-                format!("deleting backend for public key {public_key}"),
-                e,
-            )
-        })?;
+        let result = delete_result.with_foreign_context(
+            || format!("deleting backend for public key {public_key}"),
+            ErrorOrigin::Internal,
+        )?;
 
         Ok(result.rows_affected > 0)
+    }
+
+    async fn disconnect(&self) -> Result<(), Self::Error> {
+        if let Some(r) = &self.rotation {
+            r.shutdown().await?;
+        }
+        Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use crate::commands::error::{CliError, CliErrorAccumulator};
 use crate::di::inject::injectors::balance::BalancerInjector;
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 use crate::di::inject::injectors::service::balance::BalancerServiceInjector;
@@ -7,12 +8,14 @@ use crate::di::inject::injectors::service::offer::OfferServiceInjector;
 use crate::di::inject::injectors::store::discovery::DiscoveryStoreInjector;
 use crate::di::inject::injectors::store::offer::OfferStoreInjector;
 use crate::signals::get_signals_fut;
-use anyhow::{anyhow, Context};
 use clap::ValueEnum;
-use log::info;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use signal_hook::low_level::signal_name;
-use std::path::PathBuf;
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
+use switchgear_service_api::discovery::DiscoveryBackendStore;
+use switchgear_service_api::offer::OfferStore;
 use tokio::sync::watch;
+use tracing::info;
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq, Hash)]
 #[clap(rename_all = "kebab-case")]
@@ -25,14 +28,15 @@ pub enum ServiceEnablement {
 }
 
 pub async fn execute(
-    config_path: PathBuf,
+    config_injector: ServerConfigInjector,
     enablement: Vec<ServiceEnablement>,
-) -> anyhow::Result<()> {
+    otel_providers: &mut Vec<(&'static str, SdkTracerProvider)>,
+) -> Result<(), CliError> {
     info!("starting services");
 
-    let (signals_fut, signals_handle) = get_signals_fut()?;
+    let (signals_fut, signals_handle) = get_signals_fut()
+        .foreign_context("registering OS signal handlers", ErrorOrigin::Internal)?;
 
-    let config_injector = ServerConfigInjector::new(config_path)?;
     let enablement_injector = ServiceEnablementInjector::new(enablement);
 
     let discovery_store_injector = DiscoveryStoreInjector::new(config_injector.clone());
@@ -69,7 +73,10 @@ pub async fn execute(
         balancer_injector.clone(),
     );
 
-    let discovery_service_fut = discovery_service_injector.connect().await?;
+    let discovery_service_fut = discovery_service_injector
+        .connect(otel_providers)
+        .await
+        .chained_context("connecting discovery service", None)?;
     let discovery_service_fut = async move {
         match discovery_service_fut {
             None => std::future::pending().await,
@@ -77,7 +84,10 @@ pub async fn execute(
         }
     };
 
-    let offer_service_fut = offer_service_injector.connect().await?;
+    let offer_service_fut = offer_service_injector
+        .connect(otel_providers)
+        .await
+        .chained_context("connecting offer service", None)?;
     let offer_service_fut = async move {
         match offer_service_fut {
             None => std::future::pending().await,
@@ -85,7 +95,10 @@ pub async fn execute(
         }
     };
 
-    let balancer_service_fut = balancer_service_injector.connect().await?;
+    let balancer_service_fut = balancer_service_injector
+        .connect(otel_providers)
+        .await
+        .chained_context("connecting lnurl service", None)?;
     let balancer_service_fut = async move {
         match balancer_service_fut {
             None => std::future::pending().await,
@@ -97,7 +110,8 @@ pub async fn execute(
         watch::channel(false);
     let background_balancer_service_fut = background_balancer_service_injector
         .start(load_balancer_background_shutdown_rx)
-        .await?;
+        .await
+        .chained_context("starting background balancer service", None)?;
     let load_balancer_background_handle = tokio::spawn(async move {
         if let Some(f) = background_balancer_service_fut {
             f.await
@@ -106,55 +120,83 @@ pub async fn execute(
         }
     });
 
-    let mut errors = vec![];
+    let mut errors = CliErrorAccumulator::new();
 
-    if let Err(e) = tokio::select! {
+    let select_result: Result<(), CliError> = tokio::select! {
         lnurl_result = balancer_service_fut => {
-            lnurl_result.with_context(|| "running lnurl HTTP service")
+            lnurl_result.foreign_context("running lnurl HTTP service", ErrorOrigin::Internal)
         }
-
         discovery_result = discovery_service_fut => {
-            discovery_result.with_context(|| "running discovery HTTP service")
+            discovery_result.foreign_context("running discovery HTTP service", ErrorOrigin::Internal)
         }
-
         offers_result = offer_service_fut => {
-            offers_result.with_context(|| "running offers HTTP service")
+            offers_result.foreign_context("running offers HTTP service", ErrorOrigin::Internal)
         }
-
         signal = signals_fut => match signal {
-            None => {
-                Err(anyhow!("monitoring OS signals"))
-            }
+            None => Err(CliError::internal("monitoring OS signals")),
             Some(signal) => {
                 let signal_str = signal_name(signal).unwrap_or("unknown");
                 info!("received signal: {signal_str}, terminating");
                 Ok(())
             }
         }
-    } {
-        errors.push(e);
-    }
+    };
+    errors.push_result(select_result);
 
-    // Shutdown background service
     info!("shutting down load balancer background services");
     let _ = load_balancer_background_shutdown_tx.send(true);
 
-    if let Err(e) = load_balancer_background_handle
-        .await
-        .with_context(|| "waiting for load balancer background services to terminate")
-    {
-        errors.push(e);
-    }
+    let join_result = load_balancer_background_handle.await.foreign_context(
+        "waiting for load balancer background services to terminate",
+        ErrorOrigin::Internal,
+    );
+    let join_result: Result<(), CliError> = match join_result {
+        Ok(inner) => inner.foreign_context(
+            "load balancer background services returned error",
+            ErrorOrigin::Internal,
+        ),
+        Err(e) => Err(e),
+    };
+    errors.push_result(join_result);
 
     info!("load balancer background services shut down");
+
+    info!("disconnecting stores");
+
+    let discovery_disconnect = async {
+        match discovery_store_injector.get().await {
+            Ok(Some(store)) => store
+                .disconnect()
+                .await
+                .chained_context("disconnecting discovery store", None),
+            Ok(None) => Ok(()),
+            Err(e) => Err(e).chained_context("resolving discovery store for disconnect", None),
+        }
+    };
+    let offer_disconnect = async {
+        match offer_store_injector.get().await {
+            Ok(Some(store)) => store
+                .disconnect()
+                .await
+                .chained_context("disconnecting offer store", None),
+            Ok(None) => Ok(()),
+            Err(e) => Err(e).chained_context("resolving offer store for disconnect", None),
+        }
+    };
+
+    let (discovery_res, offer_res): (Result<(), CliError>, Result<(), CliError>) =
+        tokio::join!(discovery_disconnect, offer_disconnect);
+    errors.push_result(discovery_res);
+    errors.push_result(offer_res);
+
+    info!("stores disconnected");
 
     signals_handle.close();
     info!("signal stream closed");
 
-    if errors.is_empty() {
+    let result = errors.finish();
+    if result.is_ok() {
         info!("server terminated clean");
-        Ok(())
-    } else {
-        Err(anyhow!("server terminated with errors:\n{:?}", errors))
     }
+    result
 }

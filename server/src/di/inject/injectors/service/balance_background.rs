@@ -1,6 +1,6 @@
+use crate::di::error::DiError;
 use crate::di::inject::injectors::balance::BalancerInjector;
 use crate::di::inject::injectors::config::ServiceEnablementInjector;
-use anyhow::anyhow;
 
 use std::future::Future;
 use std::pin::Pin;
@@ -23,7 +23,7 @@ impl BackgroundBalancerServiceInjector {
     pub async fn start(
         &self,
         shutdown_rx: watch::Receiver<bool>,
-    ) -> anyhow::Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>> {
+    ) -> Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>> + Send>>>, DiError> {
         if !self.enablement.lnurl_enabled() {
             return Ok(None);
         }
@@ -32,7 +32,7 @@ impl BackgroundBalancerServiceInjector {
             .balancer_injector
             .get()
             .await?
-            .ok_or_else(|| anyhow!("lnurl service enabled but has no balancer"))?;
+            .ok_or_else(|| DiError::internal("lnurl service enabled but has no balancer"))?;
 
         let f = async move {
             balancer.start(shutdown_rx).await;

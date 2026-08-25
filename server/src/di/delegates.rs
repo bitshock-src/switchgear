@@ -2,18 +2,18 @@ use crate::di::macros::{
     delegate_to_discovery_store_variants, delegate_to_ln_balancer_variants,
     delegate_to_offer_store_variants,
 };
-use anyhow::Result;
 use async_trait::async_trait;
 use pingora_load_balancing::selection::{Consistent, Random, RoundRobin};
 use secp256k1::PublicKey;
 use switchgear_components::discovery::db::DbDiscoveryBackendStore;
-use switchgear_components::discovery::error::DiscoveryBackendStoreError;
+use switchgear_components::discovery::error::DefaultDiscoveryBackendStoreError;
 use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
 use switchgear_components::offer::db::DbOfferStore;
-use switchgear_components::offer::error::OfferStoreError;
+use switchgear_components::offer::error::DefaultOfferStoreError;
 use switchgear_components::offer::http::HttpOfferStore;
 use switchgear_components::offer::memory::MemoryOfferStore;
+use switchgear_pingora::PingoraBackoffProvider;
 use switchgear_pingora::backoff::{
     BackoffInstance, ExponentialBackoffProvider, StopBackoffProvider,
 };
@@ -22,7 +22,6 @@ use switchgear_pingora::balance::{
 };
 use switchgear_pingora::error::PingoraLnError;
 use switchgear_pingora::pool::DefaultPingoraLnClientPool;
-use switchgear_pingora::PingoraBackoffProvider;
 use switchgear_service_api::balance::{LnBalancer, LnBalancerBackgroundServices};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
@@ -101,7 +100,7 @@ pub enum OfferStoreDelegate {
 
 #[async_trait]
 impl OfferStore for OfferStoreDelegate {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
     async fn get_offer(
         &self,
@@ -138,11 +137,15 @@ impl OfferStore for OfferStoreDelegate {
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         delegate_to_offer_store_variants!(self, delete_offer, partition, id).await
     }
+
+    async fn disconnect(&self) -> Result<(), Self::Error> {
+        delegate_to_offer_store_variants!(self, disconnect).await
+    }
 }
 
 #[async_trait]
 impl OfferMetadataStore for OfferStoreDelegate {
-    type Error = OfferStoreError;
+    type Error = DefaultOfferStoreError;
 
     async fn get_metadata(
         &self,
@@ -191,7 +194,7 @@ pub enum DiscoveryBackendStoreDelegate {
 
 #[async_trait]
 impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
-    type Error = DiscoveryBackendStoreError;
+    type Error = DefaultDiscoveryBackendStoreError;
 
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
         delegate_to_discovery_store_variants!(self, get, public_key).await
@@ -218,6 +221,10 @@ impl DiscoveryBackendStore for DiscoveryBackendStoreDelegate {
 
     async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
         delegate_to_discovery_store_variants!(self, delete, public_key).await
+    }
+
+    async fn disconnect(&self) -> Result<(), Self::Error> {
+        delegate_to_discovery_store_variants!(self, disconnect).await
     }
 }
 

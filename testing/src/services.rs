@@ -8,6 +8,13 @@ pub struct IntegrationTestServices {
     postgres: String,
     mysql: String,
     lightning: LightningIntegrationTestServices,
+    otel: OtelIntegrationTestServices,
+}
+
+#[derive(Debug, Clone)]
+pub struct OtelIntegrationTestServices {
+    pub grpc_endpoint: String,
+    pub jaeger_query_endpoint: String,
 }
 
 #[derive(Debug, Clone)]
@@ -56,11 +63,27 @@ impl IntegrationTestServices {
             Self::env_or_panic("LND_PORT")
         );
 
+        let grpc_endpoint = format!(
+            "https://{}:{}",
+            Self::env_or_panic("OTEL_GRPC_HOSTNAME"),
+            Self::env_or_panic("OTEL_GRPC_PORT")
+        );
+
+        let jaeger_query_endpoint = format!(
+            "http://{}:{}",
+            Self::env_or_panic("JAEGER_HOSTNAME"),
+            Self::env_or_panic("JAEGER_QUERY_PORT")
+        );
+
         Self {
             credentials,
             postgres,
             mysql,
             lightning: LightningIntegrationTestServices { cln, lnd },
+            otel: OtelIntegrationTestServices {
+                grpc_endpoint,
+                jaeger_query_endpoint,
+            },
         }
     }
 
@@ -94,5 +117,9 @@ See testing/README.md to configure integration tests and services.
 
     pub fn lightning(&self) -> &LightningIntegrationTestServices {
         &self.lightning
+    }
+
+    pub fn otel(&self) -> &OtelIntegrationTestServices {
+        &self.otel
     }
 }

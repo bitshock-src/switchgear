@@ -1,14 +1,14 @@
 use anyhow::bail;
 use axum::routing::{delete, get, patch, post, put};
 use axum::{
+    Json, Router,
     extract::{Path as AxumPath, State},
     http,
     http::{HeaderMap, StatusCode},
-    Json, Router,
 };
 use hex;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
@@ -22,6 +22,7 @@ use switchgear_service_api::offer::{
     OfferStore,
 };
 use switchgear_testing::ports::PortAllocator;
+use tempfile::TempDir;
 use tokio::net::TcpListener as TokioTcpListener;
 use tokio::sync::Notify;
 use tokio::time::{sleep as tokio_sleep, timeout};
@@ -355,6 +356,9 @@ pub struct TestService {
     shutdown_notify: Arc<Notify>,
     pub discovery_authorization: String,
     pub offer_authorization: String,
+    pub discovery_authorization_path: PathBuf,
+    pub offer_authorization_path: PathBuf,
+    _auth_dir: TempDir,
 }
 
 impl TestService {
@@ -421,6 +425,12 @@ impl TestService {
                 .await
         });
 
+        let auth_dir = TempDir::new()?;
+        let discovery_authorization_path = auth_dir.path().join("discovery-bearer.token");
+        let offer_authorization_path = auth_dir.path().join("offer-bearer.token");
+        std::fs::write(&discovery_authorization_path, b"mock-bearer-token")?;
+        std::fs::write(&offer_authorization_path, b"mock-bearer-token")?;
+
         let service = TestService {
             discovery_port,
             offer_port,
@@ -429,6 +439,9 @@ impl TestService {
             shutdown_notify,
             discovery_authorization: "mock-bearer-token".to_string(),
             offer_authorization: "mock-bearer-token".to_string(),
+            discovery_authorization_path,
+            offer_authorization_path,
+            _auth_dir: auth_dir,
         };
 
         service.wait_for_startup().await?;

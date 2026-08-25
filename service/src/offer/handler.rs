@@ -1,12 +1,12 @@
-use crate::axum::crud::error::CrudError;
 use crate::axum::crud::response::JsonCrudResponse;
-use crate::axum::extract::uuid::UuidParam;
 use crate::axum::header::no_cache_headers;
+use crate::offer::error::OfferCrudError;
 use crate::offer::state::OfferState;
-use axum::extract::Query;
+use crate::offer::{Json, Query, UuidParam};
+use axum::extract::State;
 use axum::http::HeaderValue;
-use axum::{extract::State, Json};
 use serde::Deserialize;
+use switchgear_error::{ChainedContext, ForeignContext};
 use switchgear_service_api::offer::{
     OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
     OfferStore,
@@ -32,11 +32,12 @@ pub struct GetOfferQueryParameters {
 pub struct OfferHandlers;
 
 impl OfferHandlers {
+    #[tracing::instrument(skip_all)]
     pub async fn get_offer<S, M>(
-        Query(params): Query<GetOfferQueryParameters>,
-        UuidParam { partition, id }: UuidParam,
+        Query { value: params, .. }: Query<GetOfferQueryParameters>,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<OfferRecord>, CrudError>
+    ) -> Result<JsonCrudResponse<OfferRecord>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -45,42 +46,46 @@ impl OfferHandlers {
             .offer_store()
             .get_offer(&partition, &id, params.sparse)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-            .ok_or(CrudError::not_found())?;
+            .chained_context("fetching offer", None)?
+            .ok_or_else(OfferCrudError::not_found)?;
 
         let headers = no_cache_headers();
 
         Ok(JsonCrudResponse::ok(offer, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_offers<S, M>(
         axum::extract::Path(partition): axum::extract::Path<String>,
-        Query(params): Query<GetAllOffersQueryParameters>,
+        Query { value: params, .. }: Query<GetAllOffersQueryParameters>,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<Vec<OfferRecord>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<OfferRecord>>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
         let count = params.count.unwrap_or(state.max_page_size());
         if count > state.max_page_size() {
-            return Err(CrudError::bad());
+            return Err(OfferCrudError::bad());
         }
         let offers = state
             .offer_store()
             .get_offers(&partition, params.start.unwrap_or(0), count)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("listing offers", None)?;
 
         let headers = no_cache_headers();
 
         Ok(JsonCrudResponse::ok(offers, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn post_offer<S, M>(
         State(state): State<OfferState<S, M>>,
-        Json(mut offer): Json<OfferRecord>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        Json {
+            value: mut offer, ..
+        }: Json<OfferRecord>,
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -92,21 +97,23 @@ impl OfferHandlers {
             .offer_store()
             .post_offer(offer)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("creating offer", None)?;
 
-        let location = HeaderValue::from_str(&location)?;
+        let location = HeaderValue::from_str(&location)
+            .foreign_context("building offer location header", None)?;
 
         match result {
             Some(_) => Ok(JsonCrudResponse::created_location(location)),
-            None => Err(CrudError::conflict(location)),
+            None => Err(OfferCrudError::conflict(location)),
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn put_offer<S, M>(
         State(state): State<OfferState<S, M>>,
-        UuidParam { partition, id }: UuidParam,
-        Json(offer): Json<OfferRecordSparse>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        UuidParam { partition, id, .. }: UuidParam,
+        Json { value: offer, .. }: Json<OfferRecordSparse>,
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -123,7 +130,7 @@ impl OfferHandlers {
             .offer_store()
             .put_offer(offer)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("updating offer", None)?;
 
         if was_created {
             Ok(JsonCrudResponse::created())
@@ -132,30 +139,32 @@ impl OfferHandlers {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn delete_offer<S, M>(
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
-        if state
+        let deleted = state
             .offer_store()
             .delete_offer(&partition, &id)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-        {
+            .chained_context("deleting offer", None)?;
+        if deleted {
             Ok(JsonCrudResponse::no_content())
         } else {
-            Err(CrudError::not_found())
+            Err(OfferCrudError::not_found())
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_metadata<S, M>(
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<OfferMetadata>, CrudError>
+    ) -> Result<JsonCrudResponse<OfferMetadata>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -164,42 +173,46 @@ impl OfferHandlers {
             .metadata_store()
             .get_metadata(&partition, &id)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-            .ok_or(CrudError::not_found())?;
+            .chained_context("fetching metadata", None)?
+            .ok_or_else(OfferCrudError::not_found)?;
 
         let headers = no_cache_headers();
 
         Ok(JsonCrudResponse::ok(metadata, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn get_all_metadata<S, M>(
         axum::extract::Path(partition): axum::extract::Path<String>,
-        Query(params): Query<GetAllMetadataQueryParameters>,
+        Query { value: params, .. }: Query<GetAllMetadataQueryParameters>,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<Vec<OfferMetadata>>, CrudError>
+    ) -> Result<JsonCrudResponse<Vec<OfferMetadata>>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
         let count = params.count.unwrap_or(state.max_page_size());
         if count > state.max_page_size() {
-            return Err(CrudError::bad());
+            return Err(OfferCrudError::bad());
         }
         let metadata = state
             .metadata_store()
             .get_all_metadata(&partition, params.start.unwrap_or(0), count)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("listing metadata", None)?;
 
         let headers = no_cache_headers();
 
         Ok(JsonCrudResponse::ok(metadata, headers))
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn post_metadata<S, M>(
         State(state): State<OfferState<S, M>>,
-        Json(metadata): Json<OfferMetadata>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        Json {
+            value: metadata, ..
+        }: Json<OfferMetadata>,
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -210,21 +223,25 @@ impl OfferHandlers {
             .metadata_store()
             .post_metadata(metadata)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("creating metadata", None)?;
 
-        let location = HeaderValue::from_str(&location)?;
+        let location = HeaderValue::from_str(&location)
+            .foreign_context("building metadata location header", None)?;
 
         match result {
             Some(_) => Ok(JsonCrudResponse::created_location(location)),
-            None => Err(CrudError::conflict(location)),
+            None => Err(OfferCrudError::conflict(location)),
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn put_metadata<S, M>(
         State(state): State<OfferState<S, M>>,
-        UuidParam { partition, id }: UuidParam,
-        Json(metadata): Json<OfferMetadataSparse>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+        UuidParam { partition, id, .. }: UuidParam,
+        Json {
+            value: metadata, ..
+        }: Json<OfferMetadataSparse>,
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
@@ -239,7 +256,7 @@ impl OfferHandlers {
             .metadata_store()
             .put_metadata(metadata)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?;
+            .chained_context("updating metadata", None)?;
 
         if was_created {
             Ok(JsonCrudResponse::created())
@@ -248,23 +265,24 @@ impl OfferHandlers {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub async fn delete_metadata<S, M>(
-        UuidParam { partition, id }: UuidParam,
+        UuidParam { partition, id, .. }: UuidParam,
         State(state): State<OfferState<S, M>>,
-    ) -> Result<JsonCrudResponse<()>, CrudError>
+    ) -> Result<JsonCrudResponse<()>, OfferCrudError>
     where
         S: OfferStore,
         M: OfferMetadataStore,
     {
-        if state
+        let deleted = state
             .metadata_store()
             .delete_metadata(&partition, &id)
             .await
-            .map_err(|e| crate::crud_error_from_service!(e))?
-        {
+            .chained_context("deleting metadata", None)?;
+        if deleted {
             Ok(JsonCrudResponse::no_content())
         } else {
-            Err(CrudError::not_found())
+            Err(OfferCrudError::not_found())
         }
     }
 }

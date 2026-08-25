@@ -2,10 +2,10 @@ use crate::axum::auth::BearerTokenAuthLayer;
 use crate::offer::auth::OfferBearerTokenValidator;
 use crate::offer::handler::OfferHandlers;
 use crate::offer::state::OfferState;
-use axum::routing::{delete, get, post, put};
 use axum::Router;
+use axum::http::StatusCode;
+use axum::routing::{delete, get, post, put};
 use switchgear_service_api::offer::{OfferMetadataStore, OfferStore};
-use switchgear_service_api::service::StatusCode;
 
 #[derive(Debug)]
 pub struct OfferService;
@@ -64,7 +64,7 @@ mod tests {
     use axum::http::StatusCode;
     use axum_test::TestServer;
     use chrono::{Duration, Utc};
-    use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, encode};
     use p256::ecdsa::SigningKey;
     use p256::pkcs8::EncodePrivateKey;
     use p256::pkcs8::EncodePublicKey;
@@ -839,6 +839,35 @@ mod tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn api_when_invalid_json_then_returns_bad_request() {
+        let server = create_empty_test_server();
+
+        let response = server
+            .server
+            .post("/offers")
+            .authorization_bearer(server.authorization.clone())
+            .text("invalid json")
+            .content_type("application/json")
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn api_when_invalid_content_type_then_returns_unsupported_media_type() {
+        let server = create_empty_test_server();
+
+        let response = server
+            .server
+            .post("/offers")
+            .authorization_bearer(server.authorization.clone())
+            .text("invalid json")
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     }
 
     #[tokio::test]

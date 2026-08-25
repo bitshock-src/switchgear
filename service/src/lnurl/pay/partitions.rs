@@ -1,4 +1,4 @@
-use crate::axum::extract::uuid::UuidParam;
+use crate::lnurl::pay::UuidParam;
 use crate::lnurl::pay::error::LnUrlPayServiceError;
 use axum::{
     extract::{FromRequestParts, Request},
@@ -65,8 +65,8 @@ where
 
             let uuid_param = match UuidParam::from_request_parts(&mut parts, &()).await {
                 Ok(param) => param,
-                Err(status) => {
-                    return Ok(status.into_response());
+                Err(err) => {
+                    return Ok(err.into_response());
                 }
             };
 
@@ -74,9 +74,10 @@ where
                 let req = Request::from_parts(parts, body);
                 inner.call(req).await
             } else {
-                let error_response =
-                    LnUrlPayServiceError::not_found(format!("offer not found: {}", uuid_param.id));
-                Ok(error_response.into_response())
+                Ok(
+                    LnUrlPayServiceError::not_found(format!("offer not found: {}", uuid_param.id))
+                        .into_response(),
+                )
             }
         })
     }

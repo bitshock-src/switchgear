@@ -1,15 +1,23 @@
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 
+use crate::di::error::DiError;
 use crate::di::inject::injectors::service::tls::load_server_x509_credentials;
+use crate::di::inject::injectors::service::tracing::{ServiceSubscriber, build_service_subscriber};
 use crate::di::inject::injectors::store::offer::OfferStoreInjector;
-use anyhow::{anyhow, Context};
 use jsonwebtoken::DecodingKey;
-use log::{info, warn};
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
-use switchgear_components::axum::middleware::logger::ClfLogger;
+use switchgear_components::axum::middleware::logger::RequestLogger;
+use switchgear_components::axum::middleware::{
+    OtelAxumLayer, OtelInResponseLayer, WithSubscriberLayer,
+};
+use switchgear_error::{ChainedContext, ForeignContext};
 use switchgear_service::{OfferService, OfferState};
+use tracing::{info, warn};
+
+const SERVICE_NAME: &str = "swgr.offer";
 
 pub struct OfferServiceInjector {
     config: ServerConfigInjector,
@@ -32,7 +40,8 @@ impl OfferServiceInjector {
 
     pub async fn connect(
         &self,
-    ) -> anyhow::Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>>>>>> {
+        otel_providers: &mut Vec<(&'static str, SdkTracerProvider)>,
+    ) -> Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>>>>>, DiError> {
         if !self.enablement.offer_enabled() {
             return Ok(None);
         }
@@ -42,32 +51,44 @@ impl OfferServiceInjector {
             .get()
             .offer_service
             .as_ref()
-            .ok_or_else(|| anyhow!("offer service enabled but has no config"))?;
+            .ok_or_else(|| DiError::internal("offer service enabled but has no config"))?;
 
-        let store = match self.store_injector.get().await? {
-            None => {
-                return Err(anyhow::anyhow!("offer service enabled but has no store"));
-            }
-            Some(s) => s,
-        };
+        let ServiceSubscriber { dispatch, provider } =
+            build_service_subscriber(SERVICE_NAME, service_config.otlp.as_ref())
+                .chained_context("building offer service tracing subscriber", None)?;
+        if let Some(p) = provider {
+            otel_providers.push((SERVICE_NAME, p));
+        }
 
-        let listener = TcpListener::bind(service_config.address).with_context(|| {
-            format!(
-                "binding TCP listener for offer service to address {}",
-                service_config.address
-            )
-        })?;
-        let local_addr = listener
-            .local_addr()
-            .with_context(|| "verifying offer service address")?;
+        let store = self
+            .store_injector
+            .get()
+            .await?
+            .ok_or_else(|| DiError::internal("offer service enabled but has no store"))?;
 
-        let acceptor = if let Some(tls) = &service_config.tls {
-            let acceptor = load_server_x509_credentials(tls).with_context(|| {
+        let listener = TcpListener::bind(service_config.address).with_foreign_context(
+            || {
                 format!(
-                    "loading tls certificate for offer service {}",
+                    "binding TCP listener for offer service to address {}",
                     service_config.address
                 )
-            })?;
+            },
+            None,
+        )?;
+        let local_addr = listener
+            .local_addr()
+            .foreign_context("verifying offer service address", None)?;
+
+        let acceptor = if let Some(tls) = &service_config.tls {
+            let acceptor = load_server_x509_credentials(tls).with_chained_context(
+                || {
+                    format!(
+                        "loading tls certificate for offer service {}",
+                        service_config.address
+                    )
+                },
+                None,
+            )?;
             info!("offer service with TLS, listening on: {local_addr}");
             Some(acceptor)
         } else {
@@ -76,18 +97,24 @@ impl OfferServiceInjector {
         };
 
         let auth_authority_pem = std::fs::read(service_config.auth_authority.as_path())
-            .with_context(|| {
+            .with_foreign_context(
+                || {
+                    format!(
+                        "reading auth authority from: {}",
+                        service_config.auth_authority.to_string_lossy()
+                    )
+                },
+                None,
+            )?;
+        let auth_authority = DecodingKey::from_ec_pem(&auth_authority_pem).with_foreign_context(
+            || {
                 format!(
-                    "reading auth authority from: {}",
+                    "decoding auth authority from: {}",
                     service_config.auth_authority.to_string_lossy()
                 )
-            })?;
-        let auth_authority = DecodingKey::from_ec_pem(&auth_authority_pem).with_context(|| {
-            format!(
-                "decoding auth authority from: {}",
-                service_config.auth_authority.to_string_lossy()
-            )
-        })?;
+            },
+            None,
+        )?;
 
         let router = OfferService::router(OfferState::new(
             store.clone(),
@@ -95,7 +122,10 @@ impl OfferServiceInjector {
             auth_authority,
             service_config.max_page_size,
         ))
-        .layer(ClfLogger::new("offer"))
+        .layer(RequestLogger::new())
+        .layer(OtelInResponseLayer)
+        .layer(OtelAxumLayer::default())
+        .layer(WithSubscriberLayer::new(dispatch))
         .into_make_service_with_connect_info::<SocketAddr>();
 
         let f = async move {

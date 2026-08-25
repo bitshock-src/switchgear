@@ -5,6 +5,7 @@ pub(crate) mod offer;
 #[cfg(test)]
 mod testing;
 
+pub use axum::extract::host;
 pub use axum::extract::scheme;
 
 pub use crate::discovery::auth::DiscoveryAudience;

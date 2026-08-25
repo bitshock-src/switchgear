@@ -2,8 +2,8 @@ use crate::testing::error::TestError;
 use async_trait::async_trait;
 use indexmap::IndexMap;
 use secp256k1::PublicKey;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
 };

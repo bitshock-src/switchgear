@@ -1,15 +1,16 @@
 use crate::config::DiscoveryStoreConfig;
 use crate::di::delegates::DiscoveryBackendStoreDelegate;
+use crate::di::error::DiError;
 use crate::di::inject::injectors::config::ServerConfigInjector;
 use crate::di::inject::injectors::store::tls::load_server_certificate;
-use anyhow::{anyhow, Context};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::str::from_utf8;
 use std::time::Duration;
 use switchgear_components::discovery::db::DbDiscoveryBackendStore;
 use switchgear_components::discovery::http::HttpDiscoveryBackendStore;
 use switchgear_components::discovery::memory::MemoryDiscoveryBackendStore;
+use switchgear_components::secrets::SecretStore;
+use switchgear_error::ChainedContext;
 
 #[derive(Clone)]
 pub struct DiscoveryStoreInjector {
@@ -25,40 +26,48 @@ impl DiscoveryStoreInjector {
         }
     }
 
-    pub async fn get(&self) -> anyhow::Result<Option<DiscoveryBackendStoreDelegate>> {
+    pub async fn get(&self) -> Result<Option<DiscoveryBackendStoreDelegate>, DiError> {
         if let Some(b) = self.singleton.borrow().as_ref() {
             return Ok(b.clone());
         }
         self.inject().await
     }
 
-    async fn inject(&self) -> anyhow::Result<Option<DiscoveryBackendStoreDelegate>> {
+    async fn inject(&self) -> Result<Option<DiscoveryBackendStoreDelegate>, DiError> {
         let store_config = self
             .config
             .get()
             .store
             .as_ref()
-            .ok_or_else(|| anyhow!("discover store enabled but has no config"))?;
+            .ok_or_else(|| DiError::internal("discover store enabled but has no config"))?;
         let store_config = store_config
             .discover
             .as_ref()
-            .ok_or_else(|| anyhow!("discover store enabled but has no config"))?;
+            .ok_or_else(|| DiError::internal("discover store enabled but has no config"))?;
 
         let store = match store_config {
             DiscoveryStoreConfig::Database {
                 database_uri,
                 max_connections,
+                connect_timeout_secs,
+                acquire_timeout_secs,
+                secrets,
             } => {
-                let database_uri = strfmt::strfmt(database_uri, self.config.secrets()).map_err(|_| {
-                    anyhow!(
-                        "Error while inserting secrets for discovery database connection uri. Invalid uri or missing secrets in: {}",
-                        database_uri
-                    )
-                })?;
+                let secret_store = secrets.as_ref().map(SecretStore::create);
 
-                let store =
-                    DbDiscoveryBackendStore::connect(&database_uri, *max_connections).await?;
-                store.migrate_up().await?;
+                let store = DbDiscoveryBackendStore::connect(
+                    database_uri,
+                    secret_store.as_ref(),
+                    *max_connections,
+                    *connect_timeout_secs,
+                    *acquire_timeout_secs,
+                )
+                .await
+                .chained_context("connecting discovery database", None)?;
+                store
+                    .migrate_up()
+                    .await
+                    .chained_context("migrating discovery database", None)?;
                 DiscoveryBackendStoreDelegate::Database(store)
             }
             DiscoveryStoreConfig::Memory => {
@@ -70,31 +79,21 @@ impl DiscoveryStoreInjector {
                 total_timeout_secs: total_timeout,
                 trusted_roots,
                 authorization,
+                secrets,
             } => {
                 let trusted_roots = load_server_certificate(trusted_roots.as_deref())
-                    .with_context(|| "loading server certificate for http discovery store")?;
-                let authorization_token =
-                    std::fs::read(authorization.as_path()).with_context(|| {
-                        format!(
-                            "reading authorization token for http discovery store from: {}",
-                            authorization.to_string_lossy()
-                        )
-                    })?;
-                let authorization_token = from_utf8(&authorization_token).with_context(|| {
-                    format!(
-                        "parsing authorization token for http discovery store from: {}",
-                        authorization.to_string_lossy()
-                    )
-                })?;
+                    .chained_context("loading server certificate for http discovery store", None)?;
+                let secret_store = SecretStore::create(secrets);
                 DiscoveryBackendStoreDelegate::Http(
                     HttpDiscoveryBackendStore::create(
                         base_url,
                         Duration::from_secs_f64(*total_timeout),
                         Duration::from_secs_f64(*connect_timeout),
                         &trusted_roots,
-                        authorization_token.to_string(),
+                        secret_store,
+                        authorization.clone(),
                     )
-                    .with_context(|| "creating http client for discovery store")?,
+                    .chained_context("creating http client for discovery store", None)?,
                 )
             }
         };

@@ -1,8 +1,8 @@
 use crate::PingoraLnClientPool;
 use async_trait::async_trait;
 use pingora_error::ErrorType;
-use pingora_load_balancing::health_check::HealthCheck;
 use pingora_load_balancing::Backend;
+use pingora_load_balancing::health_check::HealthCheck;
 
 pub struct PingoraLnHealthCheck<P> {
     pool: P,
@@ -24,7 +24,7 @@ impl<P> PingoraLnHealthCheck<P> {
 impl<P> HealthCheck for PingoraLnHealthCheck<P>
 where
     P: PingoraLnClientPool<Key = Backend> + Send + Sync,
-    P::Error: switchgear_service_api::service::HasServiceErrorSource,
+    P::Error: switchgear_error::ContextError,
 {
     async fn check(&self, target: &Backend) -> pingora_error::Result<()> {
         let metrics = self.pool.get_metrics(target).await.map_err(|e| {
@@ -54,13 +54,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::PingoraLnError;
     use crate::PingoraLnMetrics;
+    use crate::error::PingoraLnError;
     use pingora_core::protocols::l4::socket::SocketAddr;
     use std::net::SocketAddr as StdSocketAddr;
+    use switchgear_error::ErrorOrigin;
     use switchgear_service_api::discovery::DiscoveryBackend;
     use switchgear_service_api::offer::Offer;
-    use switchgear_service_api::service::ServiceErrorSource;
 
     struct MockPingoraLnClientPool {
         should_be_healthy: bool,
@@ -84,10 +84,9 @@ mod tests {
 
         async fn get_metrics(&self, _key: &Self::Key) -> Result<PingoraLnMetrics, Self::Error> {
             if self.return_error {
-                Err(PingoraLnError::general_error(
-                    ServiceErrorSource::Upstream,
-                    "get_metrics",
-                    "forced error".to_string(),
+                Err(PingoraLnError::message(
+                    ErrorOrigin::Upstream,
+                    "get_metrics: forced error",
                 ))
             } else {
                 Ok(PingoraLnMetrics {

@@ -1,0 +1,415 @@
+---
+source: server/tests/features/otlp_spans.rs
+assertion_line: 121
+expression: lines
+---
+[
+  {
+    "attributes": {
+      "http.request.method": "[string]",
+      "http.response.status_code": "[int]",
+      "http.route": "[string]",
+      "network.protocol.version": "[string]",
+      "server.address": "[string]",
+      "span.type": "[string]",
+      "target": "[string]",
+      "url.path": "[string]",
+      "url.query": "[string]",
+      "url.scheme": "[string]",
+      "user_agent.original": "[string]"
+    },
+    "children": [
+      {
+        "attributes": {
+          "target": "[string]"
+        },
+        "children": [
+          {
+            "attributes": {
+              "target": "[string]"
+            },
+            "children": [
+              {
+                "attributes": {
+                  "target": "[string]"
+                },
+                "children": [
+                  {
+                    "attributes": {
+                      "target": "[string]"
+                    },
+                    "children": [
+                      {
+                        "attributes": {
+                          "target": "[string]"
+                        },
+                        "dropped_attributes_count": "[int]",
+                        "dropped_events_count": "[int]",
+                        "dropped_links_count": "[int]",
+                        "end_time_unix_nano": "[int]",
+                        "flags": "[int]",
+                        "kind": "[int]",
+                        "name": "create",
+                        "parent_span_id": "[bytes]",
+                        "span_id": "[bytes]",
+                        "start_time_unix_nano": "[int]",
+                        "status": {
+                          "code": "STATUS_CODE_UNSET",
+                          "message": "[string]"
+                        },
+                        "trace_id": "[bytes]",
+                        "trace_state": "[string]",
+                        "type": "span"
+                      }
+                    ],
+                    "dropped_attributes_count": "[int]",
+                    "dropped_events_count": "[int]",
+                    "dropped_links_count": "[int]",
+                    "end_time_unix_nano": "[int]",
+                    "flags": "[int]",
+                    "kind": "[int]",
+                    "name": "connect",
+                    "parent_span_id": "[bytes]",
+                    "span_id": "[bytes]",
+                    "start_time_unix_nano": "[int]",
+                    "status": {
+                      "code": "STATUS_CODE_UNSET",
+                      "message": "[string]"
+                    },
+                    "trace_id": "[bytes]",
+                    "trace_state": "[string]",
+                    "type": "span"
+                  }
+                ],
+                "dropped_attributes_count": "[int]",
+                "dropped_events_count": "[int]",
+                "dropped_links_count": "[int]",
+                "end_time_unix_nano": "[int]",
+                "flags": "[int]",
+                "kind": "[int]",
+                "name": "connect",
+                "parent_span_id": "[bytes]",
+                "span_id": "[bytes]",
+                "start_time_unix_nano": "[int]",
+                "status": {
+                  "code": "STATUS_CODE_UNSET",
+                  "message": "[string]"
+                },
+                "trace_id": "[bytes]",
+                "trace_state": "[string]",
+                "type": "span"
+              },
+              {
+                "attributes": {
+                  "target": "[string]"
+                },
+                "children": [
+                  {
+                    "attributes": {
+                      "target": "[string]"
+                    },
+                    "children": [
+                      {
+                        "attributes": {
+                          "target": "[string]"
+                        },
+                        "children": [
+                          {
+                            "attributes": {
+                              "target": "[string]"
+                            },
+                            "dropped_attributes_count": "[int]",
+                            "dropped_events_count": "[int]",
+                            "dropped_links_count": "[int]",
+                            "end_time_unix_nano": "[int]",
+                            "flags": "[int]",
+                            "kind": "[int]",
+                            "name": "get_client",
+                            "parent_span_id": "[bytes]",
+                            "span_id": "[bytes]",
+                            "start_time_unix_nano": "[int]",
+                            "status": {
+                              "code": "STATUS_CODE_UNSET",
+                              "message": "[string]"
+                            },
+                            "trace_id": "[bytes]",
+                            "trace_state": "[string]",
+                            "type": "span"
+                          },
+                          {
+                            "attributes": {
+                              "target": "[string]"
+                            },
+                            "children": [
+                              {
+                                "attributes": {
+                                  "target": "[string]"
+                                },
+                                "dropped_attributes_count": "[int]",
+                                "dropped_events_count": "[int]",
+                                "dropped_links_count": "[int]",
+                                "end_time_unix_nano": "[int]",
+                                "flags": "[int]",
+                                "kind": "[int]",
+                                "name": "get_invoice",
+                                "parent_span_id": "[bytes]",
+                                "span_id": "[bytes]",
+                                "start_time_unix_nano": "[int]",
+                                "status": {
+                                  "code": "STATUS_CODE_UNSET",
+                                  "message": "[string]"
+                                },
+                                "trace_id": "[bytes]",
+                                "trace_state": "[string]",
+                                "type": "span"
+                              },
+                              {
+                                "attributes": {
+                                  "target": "[string]"
+                                },
+                                "dropped_attributes_count": "[int]",
+                                "dropped_events_count": "[int]",
+                                "dropped_links_count": "[int]",
+                                "end_time_unix_nano": "[int]",
+                                "flags": "[int]",
+                                "kind": "[int]",
+                                "name": "inner_connect",
+                                "parent_span_id": "[bytes]",
+                                "span_id": "[bytes]",
+                                "start_time_unix_nano": "[int]",
+                                "status": {
+                                  "code": "STATUS_CODE_UNSET",
+                                  "message": "[string]"
+                                },
+                                "trace_id": "[bytes]",
+                                "trace_state": "[string]",
+                                "type": "span"
+                              }
+                            ],
+                            "dropped_attributes_count": "[int]",
+                            "dropped_events_count": "[int]",
+                            "dropped_links_count": "[int]",
+                            "end_time_unix_nano": "[int]",
+                            "flags": "[int]",
+                            "kind": "[int]",
+                            "name": "get_invoice",
+                            "parent_span_id": "[bytes]",
+                            "span_id": "[bytes]",
+                            "start_time_unix_nano": "[int]",
+                            "status": {
+                              "code": "STATUS_CODE_UNSET",
+                              "message": "[string]"
+                            },
+                            "trace_id": "[bytes]",
+                            "trace_state": "[string]",
+                            "type": "span"
+                          }
+                        ],
+                        "dropped_attributes_count": "[int]",
+                        "dropped_events_count": "[int]",
+                        "dropped_links_count": "[int]",
+                        "end_time_unix_nano": "[int]",
+                        "flags": "[int]",
+                        "kind": "[int]",
+                        "name": "get_invoice",
+                        "parent_span_id": "[bytes]",
+                        "span_id": "[bytes]",
+                        "start_time_unix_nano": "[int]",
+                        "status": {
+                          "code": "STATUS_CODE_UNSET",
+                          "message": "[string]"
+                        },
+                        "trace_id": "[bytes]",
+                        "trace_state": "[string]",
+                        "type": "span"
+                      }
+                    ],
+                    "dropped_attributes_count": "[int]",
+                    "dropped_events_count": "[int]",
+                    "dropped_links_count": "[int]",
+                    "end_time_unix_nano": "[int]",
+                    "flags": "[int]",
+                    "kind": "[int]",
+                    "name": "get_invoice",
+                    "parent_span_id": "[bytes]",
+                    "span_id": "[bytes]",
+                    "start_time_unix_nano": "[int]",
+                    "status": {
+                      "code": "STATUS_CODE_UNSET",
+                      "message": "[string]"
+                    },
+                    "trace_id": "[bytes]",
+                    "trace_state": "[string]",
+                    "type": "span"
+                  }
+                ],
+                "dropped_attributes_count": "[int]",
+                "dropped_events_count": "[int]",
+                "dropped_links_count": "[int]",
+                "end_time_unix_nano": "[int]",
+                "flags": "[int]",
+                "kind": "[int]",
+                "name": "get_invoice_from_backend",
+                "parent_span_id": "[bytes]",
+                "span_id": "[bytes]",
+                "start_time_unix_nano": "[int]",
+                "status": {
+                  "code": "STATUS_CODE_UNSET",
+                  "message": "[string]"
+                },
+                "trace_id": "[bytes]",
+                "trace_state": "[string]",
+                "type": "span"
+              },
+              {
+                "attributes": {
+                  "target": "[string]"
+                },
+                "dropped_attributes_count": "[int]",
+                "dropped_events_count": "[int]",
+                "dropped_links_count": "[int]",
+                "end_time_unix_nano": "[int]",
+                "flags": "[int]",
+                "kind": "[int]",
+                "name": "select_backend",
+                "parent_span_id": "[bytes]",
+                "span_id": "[bytes]",
+                "start_time_unix_nano": "[int]",
+                "status": {
+                  "code": "STATUS_CODE_UNSET",
+                  "message": "[string]"
+                },
+                "trace_id": "[bytes]",
+                "trace_state": "[string]",
+                "type": "span"
+              },
+              {
+                "attributes": {
+                  "target": "[string]"
+                },
+                "dropped_attributes_count": "[int]",
+                "dropped_events_count": "[int]",
+                "dropped_links_count": "[int]",
+                "end_time_unix_nano": "[int]",
+                "flags": "[int]",
+                "kind": "[int]",
+                "name": "select_backend",
+                "parent_span_id": "[bytes]",
+                "span_id": "[bytes]",
+                "start_time_unix_nano": "[int]",
+                "status": {
+                  "code": "STATUS_CODE_UNSET",
+                  "message": "[string]"
+                },
+                "trace_id": "[bytes]",
+                "trace_state": "[string]",
+                "type": "span"
+              },
+              {
+                "attributes": {
+                  "target": "[string]"
+                },
+                "dropped_attributes_count": "[int]",
+                "dropped_events_count": "[int]",
+                "dropped_links_count": "[int]",
+                "end_time_unix_nano": "[int]",
+                "flags": "[int]",
+                "kind": "[int]",
+                "name": "select_backend",
+                "parent_span_id": "[bytes]",
+                "span_id": "[bytes]",
+                "start_time_unix_nano": "[int]",
+                "status": {
+                  "code": "STATUS_CODE_UNSET",
+                  "message": "[string]"
+                },
+                "trace_id": "[bytes]",
+                "trace_state": "[string]",
+                "type": "span"
+              }
+            ],
+            "dropped_attributes_count": "[int]",
+            "dropped_events_count": "[int]",
+            "dropped_links_count": "[int]",
+            "end_time_unix_nano": "[int]",
+            "flags": "[int]",
+            "kind": "[int]",
+            "name": "get_invoice",
+            "parent_span_id": "[bytes]",
+            "span_id": "[bytes]",
+            "start_time_unix_nano": "[int]",
+            "status": {
+              "code": "STATUS_CODE_UNSET",
+              "message": "[string]"
+            },
+            "trace_id": "[bytes]",
+            "trace_state": "[string]",
+            "type": "span"
+          },
+          {
+            "attributes": {
+              "target": "[string]"
+            },
+            "dropped_attributes_count": "[int]",
+            "dropped_events_count": "[int]",
+            "dropped_links_count": "[int]",
+            "end_time_unix_nano": "[int]",
+            "flags": "[int]",
+            "kind": "[int]",
+            "name": "offer",
+            "parent_span_id": "[bytes]",
+            "span_id": "[bytes]",
+            "start_time_unix_nano": "[int]",
+            "status": {
+              "code": "STATUS_CODE_UNSET",
+              "message": "[string]"
+            },
+            "trace_id": "[bytes]",
+            "trace_state": "[string]",
+            "type": "span"
+          }
+        ],
+        "dropped_attributes_count": "[int]",
+        "dropped_events_count": "[int]",
+        "dropped_links_count": "[int]",
+        "end_time_unix_nano": "[int]",
+        "flags": "[int]",
+        "kind": "[int]",
+        "name": "invoice",
+        "parent_span_id": "[bytes]",
+        "span_id": "[bytes]",
+        "start_time_unix_nano": "[int]",
+        "status": {
+          "code": "STATUS_CODE_UNSET",
+          "message": "[string]"
+        },
+        "trace_id": "[bytes]",
+        "trace_state": "[string]",
+        "type": "span"
+      }
+    ],
+    "dropped_attributes_count": "[int]",
+    "dropped_events_count": "[int]",
+    "dropped_links_count": "[int]",
+    "end_time_unix_nano": "[int]",
+    "flags": "[int]",
+    "kind": "[int]",
+    "name": "GET /offers/{partition}/{id}/invoice",
+    "parent_span_id": null,
+    "resource": {
+      "service.name": "[string]",
+      "service.version": "[string]",
+      "telemetry.sdk.language": "[string]",
+      "telemetry.sdk.name": "[string]",
+      "telemetry.sdk.version": "[string]"
+    },
+    "span_id": "[bytes]",
+    "start_time_unix_nano": "[int]",
+    "status": {
+      "code": "STATUS_CODE_UNSET",
+      "message": "[string]"
+    },
+    "trace_id": "[bytes]",
+    "trace_state": "[string]"
+  }
+]

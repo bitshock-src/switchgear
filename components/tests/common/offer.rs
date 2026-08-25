@@ -1,10 +1,12 @@
 use chrono::{Timelike, Utc};
-use switchgear_components::offer::error::{OfferStoreError, OfferStoreErrorSourceKind};
+use switchgear_components::offer::error::{
+    DefaultOfferStoreError, DefaultOfferStoreErrorSourceKind,
+};
+use switchgear_error::{ContextError, ErrorOrigin};
 use switchgear_service_api::offer::{
     OfferMetadata, OfferMetadataIdentifier, OfferMetadataImage, OfferMetadataSparse,
     OfferMetadataStore, OfferRecord, OfferRecordSparse, OfferStore,
 };
-use switchgear_service_api::service::ServiceErrorSource;
 use uuid::Uuid;
 
 // Test data generators
@@ -407,7 +409,7 @@ where
 pub async fn test_post_offer_with_missing_metadata<S>(store: S)
 where
     S: OfferStore,
-    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<DefaultOfferStoreError>,
 {
     let offer_id = Uuid::new_v4();
     let non_existent_metadata_id = Uuid::new_v4();
@@ -428,14 +430,14 @@ where
     let result = store.post_offer(offer).await;
     assert!(result.is_err());
 
-    let error: OfferStoreError = result.unwrap_err().into();
-    match error.source() {
-        OfferStoreErrorSourceKind::InvalidInput(_) => {
-            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+    let error: DefaultOfferStoreError = result.unwrap_err().into();
+    match error.source_kind() {
+        Some(DefaultOfferStoreErrorSourceKind::InvalidInput(_)) => {
+            assert_eq!(error.origin(), ErrorOrigin::Downstream);
         }
         _ => panic!(
             "Expected NotFound or HttpStatus(400) error, got {:?}",
-            error.source()
+            error.source_kind()
         ),
     }
 }
@@ -443,7 +445,7 @@ where
 pub async fn test_put_offer_with_missing_metadata<S>(store: S)
 where
     S: OfferStore,
-    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<DefaultOfferStoreError>,
 {
     let offer_id = Uuid::new_v4();
     let non_existent_metadata_id = Uuid::new_v4();
@@ -464,14 +466,14 @@ where
     let result = store.put_offer(offer).await;
     assert!(result.is_err());
 
-    let error: OfferStoreError = result.unwrap_err().into();
-    match error.source() {
-        OfferStoreErrorSourceKind::InvalidInput(_) => {
-            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+    let error: DefaultOfferStoreError = result.unwrap_err().into();
+    match error.source_kind() {
+        Some(DefaultOfferStoreErrorSourceKind::InvalidInput(_)) => {
+            assert_eq!(error.origin(), ErrorOrigin::Downstream);
         }
         _ => panic!(
             "Expected NotFound or HttpStatus(400) error, got {:?}",
-            error.source()
+            error.source_kind()
         ),
     }
 }
@@ -479,8 +481,8 @@ where
 pub async fn test_delete_metadata_with_referencing_offers<S>(store: S)
 where
     S: OfferStore + OfferMetadataStore,
-    <S as OfferStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
-    <S as OfferMetadataStore>::Error: std::fmt::Debug + Into<OfferStoreError>,
+    <S as OfferStore>::Error: std::fmt::Debug + Into<DefaultOfferStoreError>,
+    <S as OfferMetadataStore>::Error: std::fmt::Debug + Into<DefaultOfferStoreError>,
 {
     // Create metadata
     let metadata_id = Uuid::new_v4();
@@ -496,12 +498,12 @@ where
     let result = store.delete_metadata("default", &metadata_id).await;
     assert!(result.is_err());
 
-    let error: OfferStoreError = result.unwrap_err().into();
-    match error.source() {
-        OfferStoreErrorSourceKind::InvalidInput(_) => {
-            assert_eq!(error.esource(), ServiceErrorSource::Downstream);
+    let error: DefaultOfferStoreError = result.unwrap_err().into();
+    match error.source_kind() {
+        Some(DefaultOfferStoreErrorSourceKind::InvalidInput(_)) => {
+            assert_eq!(error.origin(), ErrorOrigin::Downstream);
         }
-        _ => panic!("Expected InvalidInput, got {:?}", error.source()),
+        _ => panic!("Expected InvalidInput, got {:?}", error.source_kind()),
     }
 
     // Delete the referencing offer

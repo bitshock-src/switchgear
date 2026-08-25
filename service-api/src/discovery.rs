@@ -1,14 +1,16 @@
-use crate::service::HasServiceErrorSource;
 use async_trait::async_trait;
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::error::Error;
 use std::io;
+use switchgear_error::ContextError;
+use switchgear_error::IntoBoxedTrait;
+
+pub trait DiscoveryBackendStoreError: ContextError {}
 
 #[async_trait]
 pub trait DiscoveryBackendStore {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: DiscoveryBackendStoreError + IntoBoxedTrait<dyn DiscoveryBackendStoreError>;
 
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error>;
 
@@ -21,6 +23,10 @@ pub trait DiscoveryBackendStore {
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error>;
 
     async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error>;
+
+    async fn disconnect(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[async_trait]

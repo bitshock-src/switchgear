@@ -1,8 +1,8 @@
+use crate::FEATURE_TEST_CONFIG_PATH;
+use crate::common::context::Protocol;
 use crate::common::context::cli::CliContext;
 use crate::common::context::global::GlobalContext;
-use crate::common::context::Protocol;
 use crate::common::step_functions::*;
-use crate::FEATURE_TEST_CONFIG_PATH;
 use std::path::PathBuf;
 
 use crate::common::context::server::CertificateLocation;

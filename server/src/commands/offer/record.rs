@@ -1,10 +1,11 @@
-use crate::commands::offer::{create_offer_client, OfferManagementClientConfig};
+use crate::commands::error::CliError;
+use crate::commands::offer::{OfferManagementClientConfig, create_offer_client};
 use crate::commands::{cli_read_to_string, cli_write_all};
-use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use clap::Parser;
 use log::info;
 use std::path::{Path, PathBuf};
+use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::offer::{OfferRecord, OfferRecordSparse, OfferStore};
 use uuid::Uuid;
 
@@ -80,7 +81,11 @@ pub enum OfferRecordManagementCommands {
     },
 }
 
-pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> anyhow::Result<()> {
+pub fn new_offer(
+    partition: &str,
+    metadata_id: &Uuid,
+    output: Option<&Path>,
+) -> Result<(), CliError> {
     let offer = OfferRecord {
         partition: partition.to_string(),
         id: Uuid::new_v4(),
@@ -98,13 +103,17 @@ pub fn new_offer(partition: &str, metadata_id: &Uuid, output: Option<&Path>) -> 
         },
     };
 
-    let offer = serde_json::to_string_pretty(&offer)?;
-    cli_write_all(output, offer.as_bytes()).with_context(|| {
-        format!(
-            "writing offer to: {}",
-            output.map_or_else(|| "stdout".to_string(), |o| o.to_string_lossy().to_string())
-        )
-    })?;
+    let offer = serde_json::to_string_pretty(&offer)
+        .foreign_context("serializing new offer", ErrorOrigin::Internal)?;
+    cli_write_all(output, offer.as_bytes()).with_foreign_context(
+        || {
+            format!(
+                "writing offer to: {}",
+                output.map_or_else(|| "stdout".to_string(), |o| o.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
 
     info!("Modify this JSON file to create a unique offer");
     info!("Load it into the Offer Service. See: swgr offer post --help");
@@ -119,32 +128,52 @@ pub async fn get_offer(
     count: usize,
     output: Option<&Path>,
     client_configuration: &OfferManagementClientConfig,
-) -> anyhow::Result<()> {
+) -> Result<(), CliError> {
     let client = create_offer_client(client_configuration)?;
     if let Some(id) = id {
-        if let Some(offer) = client.get_offer(partition, id, None).await? {
-            let offer = serde_json::to_string_pretty(&offer)
-                .with_context(|| format!("serializing offer {id}"))?;
-            cli_write_all(output, offer.as_bytes()).with_context(|| {
+        let fetched = client
+            .get_offer(partition, id, None)
+            .await
+            .with_chained_context(|| format!("fetching offer {id}"), None)?;
+        if let Some(offer) = fetched {
+            let offer = serde_json::to_string_pretty(&offer).with_foreign_context(
+                || format!("serializing offer {id}"),
+                ErrorOrigin::Internal,
+            )?;
+            cli_write_all(output, offer.as_bytes()).with_foreign_context(
+                || {
+                    format!(
+                        "writing offer to: {}",
+                        output.map_or_else(
+                            || "stdout".to_string(),
+                            |o| o.to_string_lossy().to_string()
+                        )
+                    )
+                },
+                None,
+            )?;
+        } else {
+            return Err(CliError::internal(format!("Offer {id} not found")));
+        }
+    } else {
+        let offers = client
+            .get_offers(partition, start, count)
+            .await
+            .with_chained_context(|| format!("listing offers in partition {partition}"), None)?;
+        let offers = serde_json::to_string_pretty(&offers).with_foreign_context(
+            || format!("serializing offer for {partition}"),
+            ErrorOrigin::Internal,
+        )?;
+        cli_write_all(output, offers.as_bytes()).with_foreign_context(
+            || {
                 format!(
                     "writing offer to: {}",
                     output
                         .map_or_else(|| "stdout".to_string(), |o| o.to_string_lossy().to_string())
                 )
-            })?;
-        } else {
-            bail!("Offer {id} not found");
-        }
-    } else {
-        let offers = client.get_offers(partition, start, count).await?;
-        let offers = serde_json::to_string_pretty(&offers)
-            .with_context(|| format!("serializing offer for {partition}"))?;
-        cli_write_all(output, offers.as_bytes()).with_context(|| {
-            format!(
-                "writing offer to: {}",
-                output.map_or_else(|| "stdout".to_string(), |o| o.to_string_lossy().to_string())
-            )
-        })?;
+            },
+            None,
+        )?;
     }
 
     Ok(())
@@ -153,26 +182,39 @@ pub async fn get_offer(
 pub async fn post_offer(
     offer_path: Option<&Path>,
     client_configuration: &OfferManagementClientConfig,
-) -> anyhow::Result<()> {
+) -> Result<(), CliError> {
     let client = create_offer_client(client_configuration)?;
     let mut offer = String::new();
-    cli_read_to_string(offer_path, &mut offer).with_context(|| {
-        format!(
-            "reading offer: {}",
-            offer_path.map_or_else(|| "stdin".to_string(), |o| o.to_string_lossy().to_string())
-        )
-    })?;
+    cli_read_to_string(offer_path, &mut offer).with_foreign_context(
+        || {
+            format!(
+                "reading offer: {}",
+                offer_path.map_or_else(|| "stdin".to_string(), |o| o.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
 
-    let offer: OfferRecord = serde_json::from_str(&offer).with_context(|| {
-        format!(
-            "parsing offer from: {}",
-            offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
-        )
-    })?;
-    if let Some(created) = client.post_offer(offer.clone()).await? {
+    let offer: OfferRecord = serde_json::from_str(&offer).with_foreign_context(
+        || {
+            format!(
+                "parsing offer from: {}",
+                offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
+    if let Some(created) = client
+        .post_offer(offer.clone())
+        .await
+        .with_chained_context(|| format!("posting offer {}", offer.id), None)?
+    {
         info!("Offer created: {created}");
     } else {
-        bail!("Conflict. Offer already exists at: {}", offer.id);
+        return Err(CliError::internal(format!(
+            "Conflict. Offer already exists at: {}",
+            offer.id
+        )));
     }
     Ok(())
 }
@@ -182,28 +224,38 @@ pub async fn put_offer(
     id: &Uuid,
     offer_path: Option<&Path>,
     client_configuration: &OfferManagementClientConfig,
-) -> anyhow::Result<()> {
+) -> Result<(), CliError> {
     let client = create_offer_client(client_configuration)?;
 
     let mut offer = String::new();
-    cli_read_to_string(offer_path, &mut offer).with_context(|| {
-        format!(
-            "reading offer: {}",
-            offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
-        )
-    })?;
-    let offer: OfferRecordSparse = serde_json::from_str(&offer).with_context(|| {
-        format!(
-            "parsing offer from: {}",
-            offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
-        )
-    })?;
+    cli_read_to_string(offer_path, &mut offer).with_foreign_context(
+        || {
+            format!(
+                "reading offer: {}",
+                offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
+    let offer: OfferRecordSparse = serde_json::from_str(&offer).with_foreign_context(
+        || {
+            format!(
+                "parsing offer from: {}",
+                offer_path.map_or_else(|| "stdin".to_string(), |b| b.to_string_lossy().to_string())
+            )
+        },
+        None,
+    )?;
     let offer = OfferRecord {
         partition: partition.to_string(),
         id: *id,
         offer,
     };
-    if client.put_offer(offer.clone()).await? {
+    if client
+        .put_offer(offer.clone())
+        .await
+        .with_chained_context(|| format!("putting offer {}", offer.id), None)?
+    {
         info!("Offer created: {}", offer.id);
     } else {
         info!("Offer updated: {}", offer.id);
@@ -215,12 +267,16 @@ pub async fn delete_offer(
     partition: &str,
     id: &Uuid,
     client_configuration: &OfferManagementClientConfig,
-) -> anyhow::Result<()> {
+) -> Result<(), CliError> {
     let client = create_offer_client(client_configuration)?;
-    if client.delete_offer(partition, id).await? {
+    if client
+        .delete_offer(partition, id)
+        .await
+        .with_chained_context(|| format!("deleting offer {id}"), None)?
+    {
         info!("Offer deleted: {id}");
     } else {
-        bail!("Offer not Found: {id}");
+        return Err(CliError::internal(format!("Offer not Found: {id}")));
     }
     Ok(())
 }

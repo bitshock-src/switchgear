@@ -1,0 +1,48 @@
+---
+source: server/tests/features/ecs_logs.rs
+assertion_line: 100
+expression: reduced
+---
+[
+  {
+    "@timestamp": "[string]",
+    "client.ip": "[string]",
+    "ecs.version": "[string]",
+    "event.dataset": "[string]",
+    "event.duration": "[int]",
+    "event.module": "[string]",
+    "http.request.method": "[string]",
+    "http.response.status_code": "[int]",
+    "http.version": "[string]",
+    "log.level": "INFO",
+    "log.origin.file.line": "[int]",
+    "log.origin.file.name": "[string]",
+    "message": "[string]",
+    "service.name": "swgr.lnurl",
+    "service.version": "[string]",
+    "span.id": "[string]",
+    "trace.id": "[string]",
+    "url.path": "[string]",
+    "url.query": "[string]"
+  },
+  {
+    "@timestamp": "[string]",
+    "client.ip": "[string]",
+    "ecs.version": "[string]",
+    "event.dataset": "[string]",
+    "event.duration": "[int]",
+    "event.module": "[string]",
+    "http.request.method": "[string]",
+    "http.response.status_code": "[int]",
+    "http.version": "[string]",
+    "log.level": "INFO",
+    "log.origin.file.line": "[int]",
+    "log.origin.file.name": "[string]",
+    "message": "[string]",
+    "service.name": "swgr.lnurl",
+    "service.version": "[string]",
+    "span.id": "[string]",
+    "trace.id": "[string]",
+    "url.path": "[string]"
+  }
+]

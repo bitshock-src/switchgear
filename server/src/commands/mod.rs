@@ -4,6 +4,7 @@ use std::io::{Read, Stdin, Stdout, Write};
 use std::path::Path;
 
 pub mod discovery;
+pub mod error;
 pub mod offer;
 pub mod services;
 pub mod token;

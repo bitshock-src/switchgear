@@ -8,10 +8,10 @@ pub mod pool;
 use ::backoff::backoff::Backoff;
 use async_trait::async_trait;
 use std::collections::BTreeSet;
-use std::error::Error;
+use switchgear_error::ContextError;
+use switchgear_error::IntoBoxedTrait;
 use switchgear_service_api::discovery::{DiscoveryBackend, DiscoveryBackends};
 use switchgear_service_api::offer::Offer;
-use switchgear_service_api::service::HasServiceErrorSource;
 
 #[derive(Debug, Clone)]
 pub struct PingoraLnBackendExtension {
@@ -21,12 +21,14 @@ pub struct PingoraLnBackendExtension {
 #[async_trait]
 pub trait PingoraBackendProvider {
     async fn backends(&self, etag: Option<u64>)
-        -> Result<DiscoveryBackends, pingora_error::BError>;
+    -> Result<DiscoveryBackends, pingora_error::BError>;
 }
+
+pub trait PingoraLnClientPoolError: ContextError {}
 
 #[async_trait]
 pub trait PingoraLnClientPool {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: PingoraLnClientPoolError + IntoBoxedTrait<dyn PingoraLnClientPoolError>;
     type Key: std::hash::Hash + Eq + Send + Sync + 'static;
 
     async fn get_invoice(

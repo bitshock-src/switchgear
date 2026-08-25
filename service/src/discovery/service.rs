@@ -2,10 +2,10 @@ use crate::axum::auth::BearerTokenAuthLayer;
 use crate::discovery::auth::DiscoveryBearerTokenValidator;
 use crate::discovery::handler::DiscoveryHandlers;
 use crate::discovery::state::DiscoveryState;
-use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
+use axum::http::StatusCode;
+use axum::routing::{delete, get, patch, post, put};
 use switchgear_service_api::discovery::DiscoveryBackendStore;
-use switchgear_service_api::service::StatusCode;
 
 #[derive(Debug)]
 pub struct DiscoveryService;
@@ -55,11 +55,11 @@ mod tests {
     use crate::testing::discovery::store::TestDiscoveryBackendStore;
     use axum::http::StatusCode;
     use axum_test::TestServer;
-    use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, encode};
     use p256::ecdsa::SigningKey;
     use p256::pkcs8::EncodePrivateKey;
     use p256::pkcs8::EncodePublicKey;
-    use rand::{thread_rng, Rng};
+    use rand::{Rng, thread_rng};
     use secp256k1::{PublicKey, Secp256k1, SecretKey};
     use std::time::{SystemTime, UNIX_EPOCH};
     use switchgear_service_api::discovery::{
@@ -69,7 +69,7 @@ mod tests {
     fn create_test_backend(partition: &str) -> DiscoveryBackend {
         let secp = Secp256k1::new();
         let mut rng = thread_rng();
-        let secret_key = SecretKey::from_byte_array(rng.gen::<[u8; 32]>()).unwrap();
+        let secret_key = SecretKey::from_byte_array(rng.r#gen::<[u8; 32]>()).unwrap();
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
         DiscoveryBackend {
@@ -461,6 +461,21 @@ mod tests {
 
     #[tokio::test]
     async fn api_when_invalid_json_then_returns_bad_request() {
+        let server = setup_test_server().await;
+
+        let response = server
+            .server
+            .post("/discovery")
+            .authorization_bearer(server.authorization.clone())
+            .text("invalid json")
+            .content_type("application/json")
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn api_when_invalid_content_type_then_returns_unsupported_media_type() {
         let server = setup_test_server().await;
 
         let response = server

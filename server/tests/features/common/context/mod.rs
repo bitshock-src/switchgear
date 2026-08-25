@@ -1,6 +1,7 @@
 pub mod certs;
 pub mod cli;
 pub mod global;
+pub mod jaeger;
 pub mod pay;
 pub mod server;
 pub mod token;

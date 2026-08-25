@@ -1,13 +1,15 @@
-use crate::service::HasServiceErrorSource;
 use async_trait::async_trait;
 use email_address::EmailAddress;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
+use switchgear_error::ContextError;
+use switchgear_error::IntoBoxedTrait;
 pub use uuid::Uuid;
+
+pub trait OfferStoreError: ContextError {}
 
 #[async_trait]
 pub trait OfferStore {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: OfferStoreError + IntoBoxedTrait<dyn OfferStoreError>;
 
     async fn get_offer(
         &self,
@@ -28,11 +30,15 @@ pub trait OfferStore {
     async fn put_offer(&self, offer: OfferRecord) -> Result<bool, Self::Error>;
 
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error>;
+
+    async fn disconnect(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[async_trait]
 pub trait OfferMetadataStore {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: OfferStoreError + IntoBoxedTrait<dyn OfferStoreError>;
 
     async fn get_metadata(
         &self,
@@ -61,7 +67,7 @@ pub trait HttpOfferClient: OfferStore + OfferMetadataStore {
 
 #[async_trait]
 pub trait OfferProvider {
-    type Error: Error + Send + Sync + 'static + HasServiceErrorSource;
+    type Error: OfferStoreError + IntoBoxedTrait<dyn OfferStoreError>;
 
     async fn offer(
         &self,
@@ -93,10 +99,10 @@ impl Offer {
             return true;
         }
 
-        if let Some(expires) = self.expires {
-            if now > expires {
-                return true;
-            }
+        if let Some(expires) = self.expires
+            && now > expires
+        {
+            return true;
         }
 
         false
@@ -163,9 +169,9 @@ pub enum OfferMetadataIdentifier {
 }
 
 mod base64_bytes {
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
     use base64::Engine;
-    use serde::{de, Deserialize, Deserializer, Serializer};
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+    use serde::{Deserialize, Deserializer, Serializer, de};
 
     pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
     where

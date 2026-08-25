@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use switchgear_components::secrets::SecretStoreConfig;
+use url::Url;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -10,7 +12,6 @@ pub struct ServerConfig {
     pub discovery_service: Option<DiscoveryServiceConfig>,
     pub offer_service: Option<OfferServiceConfig>,
     pub store: Option<ServerStoreConfig>,
-    pub secrets: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +36,7 @@ pub struct LnUrlBalancerServiceConfig {
     pub bech32_qr_scale: usize,
     pub bech32_qr_light: u8,
     pub bech32_qr_dark: u8,
+    pub otlp: Option<OtlpConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +45,7 @@ pub struct DiscoveryServiceConfig {
     pub address: SocketAddr,
     pub auth_authority: PathBuf,
     pub tls: Option<TlsConfig>,
+    pub otlp: Option<OtlpConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +55,7 @@ pub struct OfferServiceConfig {
     pub auth_authority: PathBuf,
     pub tls: Option<TlsConfig>,
     pub max_page_size: usize,
+    pub otlp: Option<OtlpConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,6 +94,9 @@ pub enum OfferStoreConfig {
     Database {
         database_uri: String,
         max_connections: u32,
+        connect_timeout_secs: f64,
+        acquire_timeout_secs: f64,
+        secrets: Option<SecretStoreConfig>,
     },
     Memory,
     #[serde(rename_all = "kebab-case")]
@@ -98,7 +105,8 @@ pub enum OfferStoreConfig {
         connect_timeout_secs: f64,
         total_timeout_secs: f64,
         trusted_roots: Option<PathBuf>,
-        authorization: PathBuf,
+        authorization: String,
+        secrets: SecretStoreConfig,
     },
 }
 
@@ -109,6 +117,9 @@ pub enum DiscoveryStoreConfig {
     Database {
         database_uri: String,
         max_connections: u32,
+        connect_timeout_secs: f64,
+        acquire_timeout_secs: f64,
+        secrets: Option<SecretStoreConfig>,
     },
     Memory,
     #[serde(rename_all = "kebab-case")]
@@ -117,7 +128,8 @@ pub enum DiscoveryStoreConfig {
         connect_timeout_secs: f64,
         total_timeout_secs: f64,
         trusted_roots: Option<PathBuf>,
-        authorization: PathBuf,
+        authorization: String,
+        secrets: SecretStoreConfig,
     },
 }
 
@@ -126,4 +138,28 @@ pub enum DiscoveryStoreConfig {
 pub struct TlsConfig {
     pub cert_path: PathBuf,
     pub key_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct OtlpConfig {
+    pub tracing: Option<OtlpTracingConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct OtlpTracingConfig {
+    pub endpoint: Url,
+    pub auth_token: String,
+    pub trusted_roots: Option<PathBuf>,
+    pub trusted_root_address: Option<SocketAddr>,
+    pub client_identity: Option<ClientIdentityConfig>,
+    pub secrets: SecretStoreConfig,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ClientIdentityConfig {
+    pub cert_secret: String,
+    pub key_secret: String,
 }

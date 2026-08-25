@@ -1,7 +1,8 @@
 [package]
 name = "switchgear-migration"
 version.workspace = true
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Bitshock <info@bitshock.com>"]
 description = "Database migrations for Switchgear LNURL load balancer"
 documentation = "https://github.com/bitshock-src/switchgear"
@@ -12,4 +13,4 @@ publish = true
 
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-sea-orm-migration = { version = "1", default-features = false, features = ["cli", "sqlx-postgres", "sqlx-mysql", "sqlx-sqlite"] }
+sea-orm-migration = { version = "2", default-features = false, features = ["cli", "sqlx-postgres", "sqlx-mysql", "sqlx-sqlite"] }
