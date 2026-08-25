@@ -21,6 +21,9 @@ COPY components/Cargo.toml ./components/Cargo.toml
 COPY components/proto ./components/proto
 COPY components/build.rs ./components/build.rs
 
+COPY error/src ./error/src
+COPY error/Cargo.toml ./error/Cargo.toml
+
 COPY pingora/src ./pingora/src
 COPY pingora/Cargo.toml ./pingora/Cargo.toml
 
