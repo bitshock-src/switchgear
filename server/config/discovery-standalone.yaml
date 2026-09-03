@@ -8,11 +8,12 @@ discovery-service:
     cert-path: "${DISCOVERY_SERVICE_TLS_CERT_PATH:-/etc/ssl/certs/discovery-cert.pem}"
     key-path: "${DISCOVERY_SERVICE_TLS_KEY_PATH:-/etc/ssl/certs/discovery-key.pem}"
   otlp:
-    tracing:
-      endpoint: "${DISCOVERY_SERVICE_OTLP_TRACING_ENDPOINT:-http://127.0.0.1:4317}"
+    export:
+      endpoint: "${DISCOVERY_SERVICE_OTLP_ENDPOINT:-http://127.0.0.1:4317}"
       auth-token: "OTEL_AUTH_TOKEN"
-      trusted-roots: ${DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOTS:-}
-      trusted-root-address: ${DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOT_ADDRESS:-}
+      trusted-roots: ${DISCOVERY_SERVICE_OTLP_TRUSTED_ROOTS:-}
+      trusted-root-address: ${DISCOVERY_SERVICE_OTLP_TRUSTED_ROOT_ADDRESS:-}
+      export-timeout-secs: 5.0
       client-identity:
         cert-secret: "OTEL_CLIENT_CERT"
         key-secret: "OTEL_CLIENT_KEY"
@@ -20,11 +21,17 @@ discovery-service:
         ttl: 300.0
         secrets:
           OTEL_AUTH_TOKEN:
-            path: "${DISCOVERY_SERVICE_OTLP_TRACING_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
+            path: "${DISCOVERY_SERVICE_OTLP_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
           OTEL_CLIENT_CERT:
-            path: "${DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_CERT:-}"
+            path: "${DISCOVERY_SERVICE_OTLP_CLIENT_CERT:-}"
           OTEL_CLIENT_KEY:
-            path: "${DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_KEY:-}"
+            path: "${DISCOVERY_SERVICE_OTLP_CLIENT_KEY:-}"
+    tracing:
+      sampler:
+        type: parent-based-trace-id-ratio
+        ratio: 1.0
+    metrics:
+      temporality: cumulative
 # Storage configuration
 store:
   discover:

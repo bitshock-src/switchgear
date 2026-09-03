@@ -5127,11 +5127,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.27"
+version = "0.1.28"
 
 [[package]]
 name = "switchgear-components"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5148,6 +5148,7 @@ dependencies = [
  "lightning-invoice",
  "moka",
  "opentelemetry",
+ "opentelemetry-semantic-conventions",
  "p256",
  "pkcs8",
  "prost",
@@ -5164,6 +5165,7 @@ dependencies = [
  "sqlx",
  "sqlx-core",
  "switchgear-error",
+ "switchgear-metrics",
  "switchgear-migration",
  "switchgear-service-api",
  "switchgear-testing",
@@ -5181,14 +5183,23 @@ dependencies = [
 
 [[package]]
 name = "switchgear-error"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "tracing",
 ]
 
 [[package]]
+name = "switchgear-metrics"
+version = "0.1.28"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+ "trybuild",
+]
+
+[[package]]
 name = "switchgear-migration"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -5196,7 +5207,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5218,7 +5229,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5234,7 +5245,6 @@ dependencies = [
  "jemallocator",
  "jsonwebtoken",
  "lightning-invoice",
- "log",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-proto",
@@ -5259,6 +5269,7 @@ dependencies = [
  "signal-hook-tokio",
  "switchgear-components",
  "switchgear-error",
+ "switchgear-metrics",
  "switchgear-pingora",
  "switchgear-service",
  "switchgear-service-api",
@@ -5267,7 +5278,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "toml",
+ "toml 0.9.12+spec-1.1.0",
  "tonic",
  "tracing",
  "tracing-ecs-formatter",
@@ -5279,7 +5290,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "async-trait",
  "axum",
@@ -5314,7 +5325,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service-api"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "async-trait",
  "axum",
@@ -5336,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.27"
+version = "0.1.28"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -5345,7 +5356,9 @@ dependencies = [
  "hex",
  "indexmap 2.14.0",
  "rand 0.9.5",
+ "reqwest",
  "secp256k1 0.31.1",
+ "serde_json",
  "sqlx",
  "tar",
  "tempfile",
@@ -5442,6 +5455,12 @@ dependencies = [
  "libc",
  "xattr",
 ]
+
+[[package]]
+name = "target-triple"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3a6bfce3d99adfa72d24750a61f782f3036a81e7f86d8841ee1326deaebd171"
 
 [[package]]
 name = "tempfile"
@@ -5671,6 +5690,21 @@ dependencies = [
  "toml_parser",
  "toml_writer",
  "winnow 0.7.15",
+]
+
+[[package]]
+name = "toml"
+version = "1.1.4+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
+dependencies = [
+ "indexmap 2.14.0",
+ "serde_core",
+ "serde_spanned",
+ "toml_datetime 1.1.1+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 1.0.4",
 ]
 
 [[package]]
@@ -5959,6 +5993,21 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "trybuild"
+version = "1.0.120"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e605bf6b39357663d8ba4e984f8be8da8df6bb32e81031d6889024ea8fd68e4"
+dependencies = [
+ "glob",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "target-triple",
+ "termcolor",
+ "toml 1.1.4+spec-1.1.0",
+]
 
 [[package]]
 name = "typeid"

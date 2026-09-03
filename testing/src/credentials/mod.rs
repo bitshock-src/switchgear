@@ -5,6 +5,7 @@ use std::path::Path;
 use tar::Archive;
 
 pub mod db;
+pub mod influx;
 pub mod lightning;
 pub mod otel;
 

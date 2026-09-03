@@ -388,8 +388,8 @@ async fn test_error_conditions_are_properly_logged() {
 
 /// Provokes PingoraLnError::no_available_nodes: invoice endpoint runs, offer
 /// is fetched, then the balancer has no backend to route to and terminates at
-/// pingora/src/balance.rs:222. Captured span is PingoraLnBalancer::get_invoice;
-/// status 502.
+/// pingora/src/balance.rs:217-222. Captured span is
+/// PingoraLnBalancer::get_invoice; status 502.
 #[tokio::test]
 async fn test_invoice_no_available_nodes_error_logged_and_traced() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -457,9 +457,8 @@ async fn test_invoice_no_available_nodes_error_logged_and_traced() {
 
 /// Provokes LnUrlPayServiceError::bad_request: invoice handler validates
 /// `amount` against the offer's [min_sendable, max_sendable] bounds and returns
-/// bad_request at service/src/lnurl/pay/handler.rs:97-100. Captured span is
-/// the invoice
-/// handler; status 400.
+/// bad_request at service/src/lnurl/pay/handler.rs:95-99. Captured span is the
+/// invoice handler; status 400.
 #[tokio::test]
 async fn test_invoice_out_of_range_amount_error_logged_and_traced() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -528,7 +527,7 @@ async fn test_invoice_out_of_range_amount_error_logged_and_traced() {
 /// Provokes CrudError::conflict via DiscoveryCrudError: registering the same
 /// backend twice makes the second POST return None from the store, which the
 /// handler at service/src/discovery/handler.rs:101 converts to a `conflict`
-/// capture at service/src/axum/crud/error.rs:111. Captured span is the
+/// capture at service/src/axum/crud/error.rs:260. Captured span is the
 /// post_backend handler; status 409.
 #[tokio::test]
 async fn test_duplicate_backend_post_conflict_logged_and_traced() {
@@ -600,11 +599,11 @@ async fn test_duplicate_backend_post_conflict_logged_and_traced() {
     ctx.stop_all_servers().expect("assert");
 }
 
-/// Provokes CrudError::unauthorized (report §1 line 138) via the newly
-/// instrumented `BearerTokenAuthService` reject path. Raw HTTP POST to
-/// /discovery without a bearer header short-circuits at the auth middleware;
-/// the `auth` span opened by `unauthorized_in_span` becomes the captured
-/// span, so the rejection is now visible in Jaeger.
+/// Provokes CrudError::unauthorized (report §1 line 138) via the
+/// `BearerTokenAuthService` reject path. Raw HTTP POST to /discovery without a
+/// bearer header short-circuits at the auth middleware, before any instrumented
+/// handler runs, so the rejection has no span of its own — this test asserts on
+/// the ECS log line only (POST /discovery, 401, WARN on service=discovery).
 #[tokio::test]
 async fn test_unauthorized_backend_post_logged_and_traced() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -723,10 +722,10 @@ async fn test_get_offers_over_limit_logged_and_traced_bad_request() {
     ctx.stop_all_servers().expect("assert");
 }
 
-/// Provokes LnUrlPayServiceError::not_found from PartitionsService's newly
-/// instrumented reject path (report §2 line 76). The `partitions` span opened
-/// by the middleware is the captured span, so the reject is now attributable
-/// in Jaeger — previously it produced only a log event with no OTLP span.
+/// Provokes LnUrlPayServiceError::not_found from the PartitionsService reject
+/// path (report §2 line 76). The middleware rejects before any instrumented
+/// handler runs, so the rejection has no span of its own — this test asserts on
+/// the ECS log line only (GET /offers/non-existent-partition/..., 404, WARN).
 #[tokio::test]
 async fn test_non_existent_partition_reject_logged_and_traced() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -793,7 +792,8 @@ async fn test_non_existent_partition_reject_logged_and_traced() {
 /// Server1 runs lnurl-standalone (HTTP offer + discovery stores). The offer
 /// store base URL is redirected to a dead port so the HttpOfferStore's request
 /// fails at connect. Captured span is the innermost HTTP-store span in the
-/// offer chain (`get_offer`); the request logger tags it with swgr.lnurl.
+/// offer chain — `HttpOfferStore::get_offer`, now a direct child of the
+/// `OfferProvider::offer` span; the request logger tags it with swgr.lnurl.
 #[tokio::test]
 async fn test_lnurl_with_dead_offer_store_url_logged_and_traced() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

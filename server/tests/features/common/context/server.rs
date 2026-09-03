@@ -78,6 +78,7 @@ pub struct ServerContext {
     ln_trusted_roots_path: Option<PathBuf>,
 
     otel_collector: OtelCollector,
+    otlp_resource_attributes: Option<String>,
 }
 
 impl ServerContext {
@@ -260,6 +261,7 @@ impl ServerContext {
             },
             ln_trusted_roots_path: None,
             otel_collector,
+            otlp_resource_attributes: None,
         })
     }
 
@@ -437,7 +439,7 @@ impl ServerContext {
     pub async fn start_server(
         &mut self,
         start_services: &[Service],
-        log_level: log::Level,
+        log_level: switchgear_server::level::Level,
     ) -> anyhow::Result<u32> {
         let rust_log = std::env::var("RUST_LOG")
             .unwrap_or_else(|_| "".to_string())
@@ -569,54 +571,58 @@ impl ServerContext {
 
         command
             .env(
-                "LNURL_SERVICE_OTLP_TRACING_ENDPOINT",
+                "LNURL_SERVICE_OTLP_ENDPOINT",
                 &self.otel_collector.grpc_endpoint,
             )
             .env(
-                "LNURL_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                "LNURL_SERVICE_OTLP_AUTH_TOKEN",
                 &self.otel_collector.bearer_token_path,
             )
             .env(
-                "LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                "LNURL_SERVICE_OTLP_TRUSTED_ROOTS",
                 &self.otel_collector.ca_cert_path,
             )
             .env(
-                "DISCOVERY_SERVICE_OTLP_TRACING_ENDPOINT",
+                "DISCOVERY_SERVICE_OTLP_ENDPOINT",
                 &self.otel_collector.grpc_endpoint,
             )
             .env(
-                "DISCOVERY_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                "DISCOVERY_SERVICE_OTLP_AUTH_TOKEN",
                 &self.otel_collector.bearer_token_path,
             )
             .env(
-                "DISCOVERY_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                "DISCOVERY_SERVICE_OTLP_TRUSTED_ROOTS",
                 &self.otel_collector.ca_cert_path,
             )
             .env(
-                "OFFER_SERVICE_OTLP_TRACING_ENDPOINT",
+                "OFFER_SERVICE_OTLP_ENDPOINT",
                 &self.otel_collector.grpc_endpoint,
             )
             .env(
-                "OFFER_SERVICE_OTLP_TRACING_AUTH_TOKEN",
+                "OFFER_SERVICE_OTLP_AUTH_TOKEN",
                 &self.otel_collector.bearer_token_path,
             )
             .env(
-                "OFFER_SERVICE_OTLP_TRACING_TRUSTED_ROOTS",
+                "OFFER_SERVICE_OTLP_TRUSTED_ROOTS",
                 &self.otel_collector.ca_cert_path,
             );
 
         if let Some(cert) = &self.otel_collector.client_cert_path {
             command
-                .env("LNURL_SERVICE_OTLP_TRACING_CLIENT_CERT", cert)
-                .env("DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_CERT", cert)
-                .env("OFFER_SERVICE_OTLP_TRACING_CLIENT_CERT", cert);
+                .env("LNURL_SERVICE_OTLP_CLIENT_CERT", cert)
+                .env("DISCOVERY_SERVICE_OTLP_CLIENT_CERT", cert)
+                .env("OFFER_SERVICE_OTLP_CLIENT_CERT", cert);
         }
         if let Some(key) = &self.otel_collector.client_key_path {
             command
-                .env("LNURL_SERVICE_OTLP_TRACING_CLIENT_KEY", key)
-                .env("DISCOVERY_SERVICE_OTLP_TRACING_CLIENT_KEY", key)
-                .env("OFFER_SERVICE_OTLP_TRACING_CLIENT_KEY", key);
+                .env("LNURL_SERVICE_OTLP_CLIENT_KEY", key)
+                .env("DISCOVERY_SERVICE_OTLP_CLIENT_KEY", key)
+                .env("OFFER_SERVICE_OTLP_CLIENT_KEY", key);
         }
+        if let Some(resource_attributes) = &self.otlp_resource_attributes {
+            command.env("OTEL_RESOURCE_ATTRIBUTES", resource_attributes);
+        }
+
         if has_rust_log {
             println!("[STDOUT] Executing command: {command:?}");
             let lnurl_profile = self.get_service_profile(Service::LnUrl)?;
@@ -804,6 +810,14 @@ impl ServerContext {
         self.discovery_store_database_uri = discovery_store_database_uri;
     }
 
+    /// Resource attributes for the child's OTLP exporters, as the SDK's
+    /// `OTEL_RESOURCE_ATTRIBUTES` wire format (`k=v,k=v`). Unset by default:
+    /// they become resource keys on every exported span, which the OTLP
+    /// snapshots assert on. Call before start.
+    pub fn set_otlp_resource_attributes(&mut self, otlp_resource_attributes: Option<String>) {
+        self.otlp_resource_attributes = otlp_resource_attributes;
+    }
+
     pub fn set_ln_trusted_roots_path(&mut self, ln_trusted_roots_path: Option<PathBuf>) {
         self.ln_trusted_roots_path = ln_trusted_roots_path;
     }
@@ -826,7 +840,7 @@ impl ServerContext {
 
     /// Point the swgr child at a different OTLP collector than the shared
     /// container-backed one. `start_server` reads `self.otel_collector` when
-    /// wiring the `OTLP_TRACING_*` env vars, so this must be called before start.
+    /// wiring the `OTLP_*` env vars, so this must be called before start.
     pub fn set_otel_collector_override(&mut self, otel_collector: OtelCollector) {
         self.otel_collector = otel_collector;
     }

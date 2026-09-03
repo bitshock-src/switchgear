@@ -76,5 +76,5 @@ fn parse_authority(auth: &Authority) -> &str {
     auth.as_str()
         .rsplit('@')
         .next()
-        .expect("split always has at least 1 item")
+        .unwrap_or_else(|| auth.as_str())
 }

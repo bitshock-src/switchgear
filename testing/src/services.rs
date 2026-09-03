@@ -9,12 +9,18 @@ pub struct IntegrationTestServices {
     mysql: String,
     lightning: LightningIntegrationTestServices,
     otel: OtelIntegrationTestServices,
+    influx: InfluxIntegrationTestServices,
 }
 
 #[derive(Debug, Clone)]
 pub struct OtelIntegrationTestServices {
     pub grpc_endpoint: String,
     pub jaeger_query_endpoint: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct InfluxIntegrationTestServices {
+    pub query_endpoint: String,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +81,14 @@ impl IntegrationTestServices {
             Self::env_or_panic("JAEGER_QUERY_PORT")
         );
 
+        let influx = InfluxIntegrationTestServices {
+            query_endpoint: format!(
+                "http://{}:{}",
+                Self::env_or_panic("INFLUXDB_HOSTNAME"),
+                Self::env_or_panic("INFLUXDB_PORT")
+            ),
+        };
+
         Self {
             credentials,
             postgres,
@@ -84,9 +98,15 @@ impl IntegrationTestServices {
                 grpc_endpoint,
                 jaeger_query_endpoint,
             },
+            influx,
         }
     }
 
+    #[expect(
+        clippy::panic,
+        reason = "missing integration-test env var must fail \
+                  loudly with setup instructions"
+    )]
     fn env_or_panic(config_env: &str) -> String {
         env::var(config_env).unwrap_or_else(|_| {
             panic!(
@@ -121,5 +141,9 @@ See testing/README.md to configure integration tests and services.
 
     pub fn otel(&self) -> &OtelIntegrationTestServices {
         &self.otel
+    }
+
+    pub fn influx(&self) -> &InfluxIntegrationTestServices {
+        &self.influx
     }
 }

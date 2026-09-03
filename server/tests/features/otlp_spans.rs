@@ -51,7 +51,7 @@ async fn test_success_invoice_otlp_shape() {
 
     // ca_cert_path stays pointed at the existing PKI root: swgr's OTLP
     // client only consults it for https:// endpoints, and our collector is
-    // http:// (h2c). Path just needs to exist so `OTLP_TRACING_TRUSTED_ROOTS` is a
+    // http:// (h2c). Path just needs to exist so `OTLP_TRUSTED_ROOTS` is a
     // readable file when the child reads it.
     let ca_cert_path = ctx.get_pki_root_certificate_path().to_path_buf();
     ctx.set_active_otel_collector(OtelCollector {
@@ -156,7 +156,7 @@ async fn test_error_get_offer_404_otlp_shape() {
 
     // ca_cert_path stays pointed at the existing PKI root: swgr's OTLP
     // client only consults it for https:// endpoints, and our collector is
-    // http:// (h2c). Path just needs to exist so `OTLP_TRACING_TRUSTED_ROOTS` is a
+    // http:// (h2c). Path just needs to exist so `OTLP_TRUSTED_ROOTS` is a
     // readable file when the child reads it.
     let ca_cert_path = ctx.get_pki_root_certificate_path().to_path_buf();
     ctx.set_active_otel_collector(OtelCollector {

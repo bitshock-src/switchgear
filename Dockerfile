@@ -24,14 +24,16 @@ COPY components/build.rs ./components/build.rs
 COPY error/src ./error/src
 COPY error/Cargo.toml ./error/Cargo.toml
 
+COPY metrics/src ./metrics/src
+COPY metrics/Cargo.toml ./metrics/Cargo.toml
+
 COPY pingora/src ./pingora/src
 COPY pingora/Cargo.toml ./pingora/Cargo.toml
 
 COPY migration/src ./migration/src
 COPY migration/Cargo.toml ./migration/Cargo.toml
 
-COPY switchgear/src ./switchgear/src
-COPY switchgear/Cargo.toml ./switchgear/Cargo.toml
+COPY src ./src
 
 COPY testing/Cargo.toml ./testing/Cargo-src.toml
 

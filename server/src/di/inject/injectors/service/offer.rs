@@ -1,11 +1,11 @@
 use crate::di::inject::injectors::config::{ServerConfigInjector, ServiceEnablementInjector};
 
 use crate::di::error::DiError;
+use crate::di::inject::injectors::service::subscriber::ServiceTracing;
 use crate::di::inject::injectors::service::tls::load_server_x509_credentials;
-use crate::di::inject::injectors::service::tracing::{ServiceSubscriber, build_service_subscriber};
 use crate::di::inject::injectors::store::offer::OfferStoreInjector;
 use jsonwebtoken::DecodingKey;
-use opentelemetry_sdk::trace::SdkTracerProvider;
+use std::cell::RefCell;
 use std::future::Future;
 use std::net::{SocketAddr, TcpListener};
 use std::pin::Pin;
@@ -23,6 +23,7 @@ pub struct OfferServiceInjector {
     config: ServerConfigInjector,
     enablement: ServiceEnablementInjector,
     store_injector: OfferStoreInjector,
+    tracing: RefCell<Option<ServiceTracing>>,
 }
 
 impl OfferServiceInjector {
@@ -35,12 +36,12 @@ impl OfferServiceInjector {
             config,
             enablement,
             store_injector,
+            tracing: RefCell::default(),
         }
     }
 
     pub async fn connect(
         &self,
-        otel_providers: &mut Vec<(&'static str, SdkTracerProvider)>,
     ) -> Result<Option<Pin<Box<dyn Future<Output = std::io::Result<()>>>>>, DiError> {
         if !self.enablement.offer_enabled() {
             return Ok(None);
@@ -53,12 +54,10 @@ impl OfferServiceInjector {
             .as_ref()
             .ok_or_else(|| DiError::internal("offer service enabled but has no config"))?;
 
-        let ServiceSubscriber { dispatch, provider } =
-            build_service_subscriber(SERVICE_NAME, service_config.otlp.as_ref())
-                .chained_context("building offer service tracing subscriber", None)?;
-        if let Some(p) = provider {
-            otel_providers.push((SERVICE_NAME, p));
-        }
+        let tracing = ServiceTracing::build(SERVICE_NAME, service_config.otlp.as_ref())
+            .chained_context("building offer service tracing subscriber", None)?;
+        let dispatch = tracing.dispatch().clone();
+        *self.tracing.borrow_mut() = Some(tracing);
 
         let store = self
             .store_injector
@@ -140,5 +139,16 @@ impl OfferServiceInjector {
         };
 
         Ok(Some(Box::pin(f)))
+    }
+
+    pub async fn shutdown_tracing(&self) -> Result<(), DiError> {
+        let tracing = self.tracing.borrow_mut().take();
+        match tracing {
+            Some(t) => t
+                .shutdown()
+                .await
+                .chained_context("shutting down offer service tracing", None),
+            None => Ok(()),
+        }
     }
 }

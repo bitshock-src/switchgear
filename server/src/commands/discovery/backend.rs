@@ -1,7 +1,6 @@
 use crate::commands::error::CliError;
 use crate::commands::{cli_read_to_string, cli_write_all};
 use clap::{Parser, ValueEnum};
-use log::info;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::pem::PemObject;
 use std::collections::BTreeMap;
@@ -23,6 +22,7 @@ use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendPatchSparse, DiscoveryBackendSparse,
     DiscoveryBackendStore,
 };
+use tracing::info;
 use url::Url;
 
 #[derive(Parser, Debug)]

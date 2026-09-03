@@ -25,11 +25,12 @@ lnurl-service:
   bech32-qr-light: 255
   bech32-qr-dark: 0
   otlp:
-    tracing:
-      endpoint: "${LNURL_SERVICE_OTLP_TRACING_ENDPOINT:-http://127.0.0.1:4317}"
+    export:
+      endpoint: "${LNURL_SERVICE_OTLP_ENDPOINT:-http://127.0.0.1:4317}"
       auth-token: "OTEL_AUTH_TOKEN"
-      trusted-roots: ${LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOTS:-}
-      trusted-root-address: ${LNURL_SERVICE_OTLP_TRACING_TRUSTED_ROOT_ADDRESS:-}
+      trusted-roots: ${LNURL_SERVICE_OTLP_TRUSTED_ROOTS:-}
+      trusted-root-address: ${LNURL_SERVICE_OTLP_TRUSTED_ROOT_ADDRESS:-}
+      export-timeout-secs: 5.0
       client-identity:
         cert-secret: "OTEL_CLIENT_CERT"
         key-secret: "OTEL_CLIENT_KEY"
@@ -37,11 +38,17 @@ lnurl-service:
         ttl: 300.0
         secrets:
           OTEL_AUTH_TOKEN:
-            path: "${LNURL_SERVICE_OTLP_TRACING_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
+            path: "${LNURL_SERVICE_OTLP_AUTH_TOKEN:-/etc/ssl/certs/otlp-auth.token}"
           OTEL_CLIENT_CERT:
-            path: "${LNURL_SERVICE_OTLP_TRACING_CLIENT_CERT:-}"
+            path: "${LNURL_SERVICE_OTLP_CLIENT_CERT:-}"
           OTEL_CLIENT_KEY:
-            path: "${LNURL_SERVICE_OTLP_TRACING_CLIENT_KEY:-}"
+            path: "${LNURL_SERVICE_OTLP_CLIENT_KEY:-}"
+    tracing:
+      sampler:
+        type: parent-based-trace-id-ratio
+        ratio: 1.0
+    metrics:
+      temporality: cumulative
 # Remote storage configuration
 # Connect to external discovery and offers services
 store:

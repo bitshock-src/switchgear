@@ -7,10 +7,13 @@ use std::panic::Location;
 use std::str::Utf8Error;
 
 use opentelemetry_otlp::ExporterBuildError;
+use opentelemetry_sdk::error::OTelSdkError;
 use switchgear_components::secrets::SecretContextError;
 use switchgear_error::{ContextError, ErrorOrigin, IntoBoxedTrait, IntoContextError};
 use switchgear_service_api::discovery::DiscoveryBackendStoreError;
 use switchgear_service_api::offer::OfferStoreError;
+use tokio::task::JoinError;
+use tracing_subscriber::filter::ParseError;
 use tracing_subscriber::util::TryInitError;
 
 pub trait DiContextError: ContextError {}
@@ -26,7 +29,10 @@ pub enum DiErrorSourceKind {
     Rustls(Box<rustls::Error>),
     Jwt(Box<jsonwebtoken::errors::Error>),
     TracingInit(Box<TryInitError>),
+    FilterDirective(Box<ParseError>),
     OtlpExporterBuild(Box<ExporterBuildError>),
+    OtelSdk(Box<OTelSdkError>),
+    Join(Box<JoinError>),
     OfferStore(Box<dyn OfferStoreError>),
     DiscoveryBackendStore(Box<dyn DiscoveryBackendStoreError>),
     Di(Box<dyn DiContextError>),
@@ -45,7 +51,10 @@ impl Display for DiErrorSourceKind {
             Self::Rustls(e) => write!(f, "rustls error: {e}"),
             Self::Jwt(e) => write!(f, "jwt error: {e}"),
             Self::TracingInit(e) => write!(f, "tracing init error: {e}"),
+            Self::FilterDirective(e) => write!(f, "filter directive error: {e}"),
             Self::OtlpExporterBuild(e) => write!(f, "otlp exporter build error: {e}"),
+            Self::OtelSdk(e) => write!(f, "otel sdk error: {e}"),
+            Self::Join(e) => write!(f, "task join error: {e}"),
             Self::OfferStore(e) => Display::fmt(e, f),
             Self::DiscoveryBackendStore(e) => Display::fmt(e, f),
             Self::Di(e) => Display::fmt(e, f),
@@ -66,7 +75,10 @@ impl Error for DiErrorSourceKind {
             Self::Rustls(e) => Some(&**e),
             Self::Jwt(e) => Some(&**e),
             Self::TracingInit(e) => Some(&**e),
+            Self::FilterDirective(e) => Some(&**e),
             Self::OtlpExporterBuild(e) => Some(&**e),
+            Self::OtelSdk(e) => Some(&**e),
+            Self::Join(e) => Some(&**e),
             Self::OfferStore(e) => Some(&**e),
             Self::DiscoveryBackendStore(e) => Some(&**e),
             Self::Di(e) => Some(&**e),
@@ -298,6 +310,21 @@ impl IntoContextError<TryInitError> for DiError {
     }
 }
 
+impl IntoContextError<ParseError> for DiError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<ParseError>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            DiErrorSourceKind::FilterDirective(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
 impl IntoContextError<ExporterBuildError> for DiError {
     #[track_caller]
     fn error<M: Into<Cow<'static, str>>>(
@@ -307,6 +334,36 @@ impl IntoContextError<ExporterBuildError> for DiError {
     ) -> Self {
         Self::new(
             DiErrorSourceKind::OtlpExporterBuild(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<OTelSdkError> for DiError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<OTelSdkError>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            DiErrorSourceKind::OtelSdk(source),
+            origin.unwrap_or(ErrorOrigin::Internal),
+            message,
+        )
+    }
+}
+
+impl IntoContextError<JoinError> for DiError {
+    #[track_caller]
+    fn error<M: Into<Cow<'static, str>>>(
+        source: Box<JoinError>,
+        message: M,
+        origin: Option<ErrorOrigin>,
+    ) -> Self {
+        Self::new(
+            DiErrorSourceKind::Join(source),
             origin.unwrap_or(ErrorOrigin::Internal),
             message,
         )

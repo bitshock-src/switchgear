@@ -1,0 +1,50 @@
+error[E0277]: `u64` cannot be recorded as a counter value
+ --> tests/compile_fail/unsigned_counter.rs:4:39
+  |
+4 |     switchgear_metrics::counter!("m", 1u64);
+  |     ----------------------------------^^^^-
+  |     |                                 |
+  |     |                                 counters take a signed integer, a `u8`/`u16`/`u32`, or a float
+  |     required by a bound introduced by this call
+  |
+  = help: the trait `switchgear_metrics::value::CounterValue` is not implemented for `u64`
+  = note: tracing-opentelemetry drops a `counter.` u64 above i64::MAX, so `u64` and `usize` are not accepted
+  = note: a Duration is not a counter value: time an operation with `histogram!`, or report a level with `gauge!`
+  = note: cast explicitly if you meant it, e.g. `value as i64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::CounterValue`:
+            f32
+            f64
+            i16
+            i32
+            i64
+            i8
+            isize
+            u16
+          and $N others
+note: required by a bound in `switchgear_metrics::value::counter_value`
+ --> src/value.rs
+  |
+  | pub fn counter_value<V: CounterValue>(v: V) -> V::Out {
+  |                         ^^^^^^^^^^^^ required by this bound in `counter_value`
+
+error[E0277]: `u64` cannot be recorded as a counter value
+ --> tests/compile_fail/unsigned_counter.rs:4:5
+  |
+4 |     switchgear_metrics::counter!("m", 1u64);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ counters take a signed integer, a `u8`/`u16`/`u32`, or a float
+  |
+  = help: the trait `switchgear_metrics::value::CounterValue` is not implemented for `u64`
+  = note: tracing-opentelemetry drops a `counter.` u64 above i64::MAX, so `u64` and `usize` are not accepted
+  = note: a Duration is not a counter value: time an operation with `histogram!`, or report a level with `gauge!`
+  = note: cast explicitly if you meant it, e.g. `value as i64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::CounterValue`:
+            f32
+            f64
+            i16
+            i32
+            i64
+            i8
+            isize
+            u16
+          and $N others
+  = note: this error originates in the macro `$crate::counter` which comes from the expansion of the macro `switchgear_metrics::counter` (in Nightly builds, run with -Z macro-backtrace for more info)

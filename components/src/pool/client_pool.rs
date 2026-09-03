@@ -40,7 +40,6 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_client(
         &self,
         key: &K,
@@ -63,7 +62,6 @@ where
         Ok(client.clone())
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn get_invoice(
         &self,
         offer: &Offer,
@@ -89,7 +87,6 @@ where
             .await
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn get_metrics(&self, key: &K) -> Result<LnMetrics, LnPoolError> {
         let client = self.get_client(key).await?;
 
@@ -106,7 +103,6 @@ where
         Ok(metrics)
     }
 
-    #[tracing::instrument(skip_all)]
     pub fn connect(&self, key: K, backend: &DiscoveryBackend) -> Result<(), LnPoolError> {
         let implementation: DiscoveryBackendImplementation =
             serde_json::from_slice(backend.backend.implementation.as_slice())

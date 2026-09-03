@@ -1046,16 +1046,7 @@ async fn test_offer_post_invalid_metadata() {
         .expect("assert");
 
     // Scenario steps
-    step_given_an_offer_json_with_non_existent_metadata_id_exists(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
-        .await
-        .expect("assert");
-    step_then_the_command_should_fail(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_a_user_error_message_should_be_shown(&mut cli_ctx)
+    step_when_i_run_swgr_offer_post_with_unknown_metadata_expecting_failure(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
 
@@ -1104,25 +1095,7 @@ async fn test_offer_metadata_delete_referenced() {
         .expect("assert");
 
     // Scenario steps
-    step_given_a_valid_offer_json_exists(&mut ctx, &mut cli_ctx)
-        .await
-        .expect("assert");
-    let metadata_id = extract_metadata_id_from_offer(&cli_ctx)
-        .await
-        .expect("assert");
-    step_when_i_run_swgr_offer_post(&mut ctx, &mut cli_ctx, CertificateLocation::Arg)
-        .await
-        .expect("assert");
-    step_then_the_command_should_succeed(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_when_i_run_swgr_offer_metadata_delete(&mut ctx, &mut cli_ctx, &metadata_id)
-        .await
-        .expect("assert");
-    step_then_the_command_should_fail(&mut cli_ctx)
-        .await
-        .expect("assert");
-    step_then_a_user_error_message_should_be_shown(&mut cli_ctx)
+    step_when_i_run_swgr_offer_metadata_delete_referenced_expecting_failure(&mut ctx, &mut cli_ctx)
         .await
         .expect("assert");
 

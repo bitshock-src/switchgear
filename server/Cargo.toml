@@ -25,9 +25,8 @@ hyper-rustls = { version = "0.27", default-features = false, features = ["http2"
 hyper-util = { version = "0.1", features = ["client-legacy", "http2", "tokio"] }
 jemallocator = "0.5"
 jsonwebtoken = "10"
-log = "0.4"
 opentelemetry = "0.32"
-opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace", "tls-aws-lc", "tls-roots", "internal-logs"] }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace", "metrics", "tls-aws-lc", "tls-roots", "internal-logs"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 p256 = { version = "0.13", features = ["ecdsa"] }
 pingora-load-balancing = { version = "0.6", default-features = false }
@@ -47,6 +46,7 @@ signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 switchgear-components.workspace = true
 switchgear-error.workspace = true
+switchgear-metrics.workspace = true
 switchgear-pingora.workspace = true
 switchgear-service-api.workspace = true
 switchgear-service.workspace = true
@@ -65,7 +65,7 @@ chrono = { version = "0.4", features = ["serde"] }
 insta = { version = "1", features = ["json", "redactions"] }
 jemallocator = "0.5"
 lightning-invoice = { version = "0.34", features = ["serde", "std"] }
-opentelemetry-proto = { version = "0.32", features = ["gen-tonic", "trace"] }
+opentelemetry-proto = { version = "0.32", features = ["gen-tonic", "trace", "metrics"] }
 rand = "0.8"
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "aws_lc_rs", "pem"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots-no-provider"] }

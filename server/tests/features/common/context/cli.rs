@@ -27,7 +27,7 @@ impl CliContext {
         let metadata_json_path = temp_dir.path().join("metadata.json");
 
         Ok(Self {
-            cli: SwgrCli::create(log::Level::Info)?,
+            cli: SwgrCli::create(switchgear_server::level::Level::Info)?,
             temp_dir,
             public_key_path,
             private_key_path,
@@ -76,7 +76,7 @@ struct SwgrCli {
 }
 
 impl SwgrCli {
-    pub fn create(log_level: log::Level) -> anyhow::Result<Self> {
+    pub fn create(log_level: switchgear_server::level::Level) -> anyhow::Result<Self> {
         let rust_log = std::env::var("RUST_LOG")
             .unwrap_or_else(|_| "".to_string())
             .to_lowercase();

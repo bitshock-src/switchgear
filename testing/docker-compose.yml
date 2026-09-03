@@ -32,6 +32,30 @@ services:
       retries: 5
       start_period: 30s
 
+  influxdb:
+    image: influxdb:3.8-core
+    container_name: influxdb
+    hostname: "${INFLUXDB_HOSTNAME}"
+    command:
+      - influxdb3
+      - serve
+      - --node-id=node0
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3
+      - --disable-authz=health
+      - --http-bind=0.0.0.0:${INFLUXDB_PORT}
+    ports:
+      - "${INFLUXDB_PORT}:${INFLUXDB_PORT}"
+    networks:
+      - services
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:${INFLUXDB_PORT}/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
   setup:
     build: ./setup
     container_name: setup
@@ -46,6 +70,11 @@ services:
         condition: service_healthy
       mysql:
         condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    environment:
+      INFLUXDB_HOSTNAME: "${INFLUXDB_HOSTNAME}"
+      INFLUXDB_PORT: "${INFLUXDB_PORT}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - shared:/shared
@@ -226,8 +255,12 @@ services:
       # Needed by entrypoint.sh to fetch the TLS cert + key + bearer token.
       - CREDENTIALS_SERVER_HOSTNAME=${CREDENTIALS_SERVER_HOSTNAME}
       - CREDENTIALS_SERVER_PORT=8888
+      - INFLUXDB_HOSTNAME=${INFLUXDB_HOSTNAME}
+      - INFLUXDB_PORT=${INFLUXDB_PORT}
     depends_on:
       jaeger-health:
+        condition: service_healthy
+      influxdb:
         condition: service_healthy
       # The collector fetches its TLS material + bearer token from the
       # credentials-server, so it must be up before the collector starts.

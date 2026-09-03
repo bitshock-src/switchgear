@@ -195,7 +195,6 @@ impl LnUrlPayHandlers {
         ))
     }
 
-    #[tracing::instrument(skip_all)]
     fn gen_bech32(callback: &str) -> io::Result<String> {
         let callback =
             Url::parse(callback).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -205,7 +204,6 @@ impl LnUrlPayHandlers {
         Ok(callback)
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_offer<O, B>(
         hostname: &str,
         partition: &str,
@@ -234,7 +232,6 @@ impl LnUrlPayHandlers {
         Ok(offer)
     }
 
-    #[tracing::instrument(skip_all)]
     fn expires_headers(
         expires: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<HeaderMap, LnUrlPayServiceError> {

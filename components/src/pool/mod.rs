@@ -7,6 +7,7 @@ use crate::pool::cln::grpc::config::ClnGrpcDiscoveryBackendImplementation;
 use crate::pool::lnd::grpc::config::LndGrpcDiscoveryBackendImplementation;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use switchgear_error::{ContextError, IntoBoxedTrait};
 
 pub use client_pool::LnClientPool;
 
@@ -18,9 +19,11 @@ pub enum DiscoveryBackendImplementation {
     LndGrpc(LndGrpcDiscoveryBackendImplementation),
 }
 
+pub trait LnRpcClientError: ContextError {}
+
 #[async_trait]
 pub trait LnRpcClient {
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: LnRpcClientError + IntoBoxedTrait<dyn LnRpcClientError>;
 
     async fn get_invoice<'a>(
         &self,

@@ -3,9 +3,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::panic::Location;
 
-use opentelemetry_sdk::error::OTelSdkError;
 use switchgear_error::{ContextError, ContextErrorExt, ErrorOrigin, IntoContextError};
-use tokio::task::JoinError;
 
 use crate::commands::error::CliContextError;
 use crate::di::error::DiContextError;
@@ -17,8 +15,6 @@ const OUTCOME_FAILURE: &str = "failure";
 
 #[derive(Debug)]
 pub enum ServerErrorSourceKind {
-    OtelSdk(Box<OTelSdkError>),
-    Join(Box<JoinError>),
     Cli(Box<dyn CliContextError>),
     Di(Box<dyn DiContextError>),
 }
@@ -26,8 +22,6 @@ pub enum ServerErrorSourceKind {
 impl Display for ServerErrorSourceKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OtelSdk(e) => write!(f, "otel sdk error: {e}"),
-            Self::Join(e) => write!(f, "task join error: {e}"),
             Self::Cli(e) => Display::fmt(e, f),
             Self::Di(e) => Display::fmt(e, f),
         }
@@ -37,8 +31,6 @@ impl Display for ServerErrorSourceKind {
 impl Error for ServerErrorSourceKind {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::OtelSdk(e) => Some(&**e),
-            Self::Join(e) => Some(&**e),
             Self::Cli(e) => Some(&**e),
             Self::Di(e) => Some(&**e),
         }
@@ -185,36 +177,6 @@ impl ServerError {
     }
 }
 
-impl IntoContextError<OTelSdkError> for ServerError {
-    #[track_caller]
-    fn error<M: Into<Cow<'static, str>>>(
-        source: Box<OTelSdkError>,
-        message: M,
-        origin: Option<ErrorOrigin>,
-    ) -> Self {
-        Self::new(
-            ServerErrorSourceKind::OtelSdk(source),
-            origin.unwrap_or(ErrorOrigin::Internal),
-            message,
-        )
-    }
-}
-
-impl IntoContextError<JoinError> for ServerError {
-    #[track_caller]
-    fn error<M: Into<Cow<'static, str>>>(
-        source: Box<JoinError>,
-        message: M,
-        origin: Option<ErrorOrigin>,
-    ) -> Self {
-        Self::new(
-            ServerErrorSourceKind::Join(source),
-            origin.unwrap_or(ErrorOrigin::Internal),
-            message,
-        )
-    }
-}
-
 impl IntoContextError<dyn CliContextError> for ServerError {
     #[track_caller]
     fn error<M: Into<Cow<'static, str>>>(
@@ -262,11 +224,13 @@ impl ServerErrorAccumulator {
         }
     }
 
-    pub fn finish(self) -> Result<(), ServerError> {
-        match self.errors.len() {
-            0 => Ok(()),
-            1 => Err(self.errors.into_iter().next().expect("len == 1")),
-            _ => Err(ServerError::multi(self.errors)),
+    pub fn finish(mut self) -> Result<(), ServerError> {
+        if self.errors.len() > 1 {
+            return Err(ServerError::multi(self.errors));
+        }
+        match self.errors.pop() {
+            Some(err) => Err(err),
+            None => Ok(()),
         }
     }
 }

@@ -6,13 +6,19 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
 jobs:
   tests:
     name: Format, Clippy, Tests
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/bitshock-src/switchgear/ci-rust:1.0.0
+      image: ghcr.io/${{ github.repository }}/ci-rust:1.97.1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
       options: -v /var/run/docker.sock:/var/run/docker.sock
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
@@ -26,14 +32,20 @@ jobs:
       - name: Start Docker Compose services
         run: |
           cd testing
-          nohup /bin/sh -c 'docker compose --env-file ./testing.env up -d --build --wait; touch ./compose-ready' > compose.log 2>&1 &
+          date +%s > ./compose-start
+          nohup /bin/sh -c 'docker compose --env-file ./testing.env up -d --build --wait; date +%s > ./compose-ready' > compose.log 2>&1 &
           cd ..
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
+      - name: Run clippy for panics
+        run: cargo clippy -- -D warnings -D clippy::unwrap_used -D clippy::expect_used -D clippy::panic
+
+      - name: Run clippy on tests
+        run: cargo clippy --tests -- -D warnings
 
       - name: Compile tests
         run: |
@@ -56,6 +68,8 @@ jobs:
             cat ./compose.log || true
             exit 1
           fi
+
+          echo "compose services ready after $(( $(cat ./compose-ready) - $(cat ./compose-start) ))s"
 
           . ./testing.env && docker network connect $SERVICES_NETWORK_NAME $(hostname)
           cd ..

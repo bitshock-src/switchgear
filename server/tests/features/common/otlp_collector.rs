@@ -1,4 +1,4 @@
-//! In-process OTLP trace gRPC collector for OTLP-compliance snapshot tests.
+//! In-process OTLP gRPC collector for OTLP-compliance snapshot tests.
 //!
 //! Runs on a per-test tokio task, receives spans via the OTLP protobuf
 //! ExportTraceServiceRequest, buffers them lossless in memory, and on
@@ -6,11 +6,21 @@
 //! deterministically-sorted JSON-lines file (one line per root span) that
 //! `insta` snapshots as the OTLP compliance assertion.
 //!
+//! It also serves the OTLP metrics service, which accepts and discards
+//! everything: the child exports both signals over one connection, and an
+//! UNIMPLEMENTED reply would only add exporter errors to its log.
+//!
 //! Runs over plain HTTP/2 (h2c) — no TLS. TLS adds no assertion value
 //! (we're snapshotting on-wire OTLP shape, not transport crypto) and only
 //! introduces IP-SAN / SNI surface that flakes across rustls versions.
 
 use anyhow::{Context, Result, anyhow};
+use opentelemetry_proto::tonic::collector::metrics::v1::metrics_service_server::{
+    MetricsService, MetricsServiceServer,
+};
+use opentelemetry_proto::tonic::collector::metrics::v1::{
+    ExportMetricsServiceRequest, ExportMetricsServiceResponse,
+};
 use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::{
     TraceService, TraceServiceServer,
 };
@@ -90,6 +100,26 @@ impl TraceService for CollectorService {
             ingest_resource_spans(&mut state, rs);
         }
         Ok(tonic::Response::new(ExportTraceServiceResponse {
+            partial_success: None,
+        }))
+    }
+}
+
+/// Accepts and discards metrics.
+///
+/// The trace pipeline is what these snapshots assert; metrics only need to be
+/// received, because the SDK's `PeriodicReader` exports on its own schedule and
+/// on shutdown, and an UNIMPLEMENTED reply would surface as exporter errors in
+/// the child's log — noise that other assertions would then have to tolerate.
+struct MetricsCollectorService;
+
+#[tonic::async_trait]
+impl MetricsService for MetricsCollectorService {
+    async fn export(
+        &self,
+        _request: tonic::Request<ExportMetricsServiceRequest>,
+    ) -> std::result::Result<tonic::Response<ExportMetricsServiceResponse>, tonic::Status> {
+        Ok(tonic::Response::new(ExportMetricsServiceResponse {
             partial_success: None,
         }))
     }
@@ -198,7 +228,9 @@ impl TestOtlpCollector {
             state: Arc::clone(&state),
         };
         let (tx, rx) = oneshot::channel::<()>();
-        let server = Server::builder().add_service(TraceServiceServer::new(service));
+        let server = Server::builder()
+            .add_service(TraceServiceServer::new(service))
+            .add_service(MetricsServiceServer::new(MetricsCollectorService));
 
         let serve_handle = tokio::spawn(async move {
             server

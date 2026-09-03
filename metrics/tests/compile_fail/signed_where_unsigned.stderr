@@ -1,0 +1,89 @@
+error[E0277]: `i64` cannot be recorded as a histogram value
+ --> tests/compile_fail/signed_where_unsigned.rs:5:41
+  |
+5 |     switchgear_metrics::histogram!("m", -3i64);
+  |     ------------------------------------^^^^^-
+  |     |                                   |
+  |     |                                   histograms take an unsigned integer, a float, or a Duration
+  |     required by a bound introduced by this call
+  |
+  = help: the trait `switchgear_metrics::value::HistogramValue` is not implemented for `i64`
+  = note: tracing-opentelemetry has no i64 histogram: a signed value is silently recorded as an attribute, not a metric
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::HistogramValue`:
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+note: required by a bound in `switchgear_metrics::value::histogram_value`
+ --> src/value.rs
+  |
+  | pub fn histogram_value<V: HistogramValue>(v: V) -> V::Out {
+  |                           ^^^^^^^^^^^^^^ required by this bound in `histogram_value`
+
+error[E0277]: `i32` cannot be recorded as a monotonic counter value
+ --> tests/compile_fail/signed_where_unsigned.rs:6:49
+  |
+6 |     switchgear_metrics::monotonic_counter!("m", -1i32);
+  |     --------------------------------------------^^^^^-
+  |     |                                           |
+  |     |                                           monotonic counters take an unsigned integer, a float, or a Duration
+  |     required by a bound introduced by this call
+  |
+  = help: the trait `switchgear_metrics::value::MonotonicCounterValue` is not implemented for `i32`
+  = note: tracing-opentelemetry casts a signed value to u64 for `monotonic_counter.`, so a negative one wraps to an enormous positive count
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::MonotonicCounterValue`:
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+note: required by a bound in `switchgear_metrics::value::monotonic_counter_value`
+ --> src/value.rs
+  |
+  | pub fn monotonic_counter_value<V: MonotonicCounterValue>(v: V) -> V::Out {
+  |                                   ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `monotonic_counter_value`
+
+error[E0277]: `i64` cannot be recorded as a histogram value
+ --> tests/compile_fail/signed_where_unsigned.rs:5:5
+  |
+5 |     switchgear_metrics::histogram!("m", -3i64);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ histograms take an unsigned integer, a float, or a Duration
+  |
+  = help: the trait `switchgear_metrics::value::HistogramValue` is not implemented for `i64`
+  = note: tracing-opentelemetry has no i64 histogram: a signed value is silently recorded as an attribute, not a metric
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::HistogramValue`:
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+  = note: this error originates in the macro `$crate::histogram` which comes from the expansion of the macro `switchgear_metrics::histogram` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: `i32` cannot be recorded as a monotonic counter value
+ --> tests/compile_fail/signed_where_unsigned.rs:6:5
+  |
+6 |     switchgear_metrics::monotonic_counter!("m", -1i32);
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ monotonic counters take an unsigned integer, a float, or a Duration
+  |
+  = help: the trait `switchgear_metrics::value::MonotonicCounterValue` is not implemented for `i32`
+  = note: tracing-opentelemetry casts a signed value to u64 for `monotonic_counter.`, so a negative one wraps to an enormous positive count
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::MonotonicCounterValue`:
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+  = note: this error originates in the macro `$crate::monotonic_counter` which comes from the expansion of the macro `switchgear_metrics::monotonic_counter` (in Nightly builds, run with -Z macro-backtrace for more info)

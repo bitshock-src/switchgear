@@ -16,104 +16,112 @@ scale massive multi-region Lightning Node fleets at five nines uptime.
 ## Table of Contents
 
 - [User Guide](#user-guide)
-  - [Learn](#learn)
-    - [Features](#features)
-    - [Why Bitcoin Lightning Payments Fail](#why-bitcoin-lightning-payments-fail)
-      - [Single Points Of Failure](#single-points-of-failure)
-      - [No Liquidity Bias](#no-liquidity-bias)
-      - [External Load Balancer Resource Exhaustion](#external-load-balancer-resource-exhaustion)
-  - [Feature Reference](#feature-reference)
-    - [Liquidity Bias](#liquidity-bias)
-      - [Negative Capacity Bias example (restrictive):](#negative-capacity-bias-example-restrictive)
-      - [Positive Capacity Bias example (permissive):](#positive-capacity-bias-example-permissive)
-      - [Inbound Capacity Measurement](#inbound-capacity-measurement)
-    - [Partitioning](#partitioning)
-    - [Balancing Switchgear](#balancing-switchgear)
-    - [LNURL Service](#lnurl-service)
-      - [Consistent Backend-Selection](#consistent-backend-selection)
-    - [Discovery Service](#discovery-service)
-    - [Offer Service](#offer-service)
+    - [Learn](#learn)
+        - [Features](#features)
+        - [Why Bitcoin Lightning Payments Fail](#why-bitcoin-lightning-payments-fail)
+            - [Single Points Of Failure](#single-points-of-failure)
+            - [No Liquidity Bias](#no-liquidity-bias)
+            - [External Load Balancer Resource Exhaustion](#external-load-balancer-resource-exhaustion)
+    - [Feature Reference](#feature-reference)
+        - [Liquidity Bias](#liquidity-bias)
+            - [Negative Capacity Bias example (restrictive):](#negative-capacity-bias-example-restrictive)
+            - [Positive Capacity Bias example (permissive):](#positive-capacity-bias-example-permissive)
+            - [Inbound Capacity Measurement](#inbound-capacity-measurement)
+        - [Partitioning](#partitioning)
+        - [Balancing Switchgear](#balancing-switchgear)
+        - [LNURL Service](#lnurl-service)
+            - [Consistent Backend-Selection](#consistent-backend-selection)
+        - [Discovery Service](#discovery-service)
+        - [Offer Service](#offer-service)
 - [Deployment](#deployment)
-  - [Getting Started](#getting-started)
-    - [Install](#install)
-      - [Host](#host)
-      - [Docker](#docker)
-    - [Starting Switchgear Services](#starting-switchgear-services)
-      - [Docker](#docker-1)
-    - [Administration](#administration)
-      - [REST Administration](#rest-administration)
-      - [CLI Administration](#cli-administration)
-      - [Docker](#docker-2)
-  - [Feature Reference](#feature-reference-1)
-    - [Configuring Switchgear Services](#configuring-switchgear-services)
-      - [Env Var Shell Expansion](#env-var-shell-expansion)
-      - [Secrets Expansion](#secrets-expansion)
-    - [LNURL Service Configuration](#lnurl-service-configuration)
-    - [Discovery Service Configuration](#discovery-service-configuration)
-      - [Authentication Setup](#authentication-setup)
-    - [Offer Service Configuration](#offer-service-configuration)
-      - [Authentication Setup](#authentication-setup-1)
-    - [Persistence](#persistence)
-      - [Common Storage Types](#common-storage-types)
-        - [Database Storage (SQLite/MySQL/PostgreSQL)](#database-storage-sqlitemysqlpostgresql)
-        - [HTTP Storage (Remote Service)](#http-storage-remote-service)
-        - [In-memory Storage](#in-memory-storage)
-      - [Configuration Examples](#configuration-examples)
-        - [Using Same Database for Both Stores](#using-same-database-for-both-stores)
-        - [Mixed Storage Types](#mixed-storage-types)
-        - [Remote Service Configuration](#remote-service-configuration)
-      - [Database Connection URLs](#database-connection-urls)
-        - [Sqlite](#sqlite)
-        - [MySQL](#mysql)
-        - [Postgres](#postgres)
-    - [Observability](#observability)
-      - [Logging](#logging)
-        - [Service Identification](#service-identification)
-        - [Access Logs](#access-logs)
-        - [Error Logs](#error-logs)
-        - [Log-to-Trace Correlation](#log-to-trace-correlation)
-        - [Level Filtering](#level-filtering)
-        - [CLI Output](#cli-output)
-      - [OTLP Tracing](#otlp-tracing)
+    - [Getting Started](#getting-started)
+        - [Install](#install)
+            - [Host](#host)
+            - [Docker](#docker)
+        - [Starting Switchgear Services](#starting-switchgear-services)
+            - [Docker](#docker-1)
+        - [Administration](#administration)
+            - [REST Administration](#rest-administration)
+            - [CLI Administration](#cli-administration)
+            - [Docker](#docker-2)
+    - [Feature Reference](#feature-reference-1)
+        - [Configuring Switchgear Services](#configuring-switchgear-services)
+            - [Env Var Shell Expansion](#env-var-shell-expansion)
+            - [Secrets Expansion](#secrets-expansion)
+        - [LNURL Service Configuration](#lnurl-service-configuration)
+        - [Discovery Service Configuration](#discovery-service-configuration)
+            - [Authentication Setup](#authentication-setup)
+        - [Offer Service Configuration](#offer-service-configuration)
+            - [Authentication Setup](#authentication-setup-1)
+        - [Persistence](#persistence)
+            - [Common Storage Types](#common-storage-types)
+                - [Database Storage (SQLite/MySQL/PostgreSQL)](#database-storage-sqlitemysqlpostgresql)
+                - [HTTP Storage (Remote Service)](#http-storage-remote-service)
+                - [In-memory Storage](#in-memory-storage)
+            - [Configuration Examples](#configuration-examples)
+                - [Using Same Database for Both Stores](#using-same-database-for-both-stores)
+                - [Mixed Storage Types](#mixed-storage-types)
+                - [Remote Service Configuration](#remote-service-configuration)
+            - [Database Connection URLs](#database-connection-urls)
+                - [Sqlite](#sqlite)
+                - [MySQL](#mysql)
+                - [Postgres](#postgres)
+        - [Observability](#observability)
+            - [Logging](#logging)
+                - [Service Identification](#service-identification)
+                - [Access Logs](#access-logs)
+                - [Error Logs](#error-logs)
+                - [Log-to-Trace Correlation](#log-to-trace-correlation)
+                - [Level Filtering](#level-filtering)
+                - [CLI Output](#cli-output)
+            - [OTLP Tracing](#otlp-tracing)
+            - [OTLP Metrics](#otlp-metrics)
+                - [Enabling And Disabling](#enabling-and-disabling)
+                - [Metric Level](#metric-level)
+                - [Temporality](#temporality)
+            - [Emitted Metrics](#emitted-metrics)
+                - [`db.client.operation.duration`](#dbclientoperationduration)
+                - [`http.client.request.duration`](#httpclientrequestduration)
+                - [`rpc.client.call.duration`](#rpcclientcallduration)
 - [Developer](#developer)
-  - [API Reference](#api-reference)
-    - [Manage Lightning Node Backends With Discovery Service](#manage-lightning-node-backends-with-discovery-service)
-      - [REST API](#rest-api)
-        - [Authentication](#authentication)
-        - [Register A New Backend](#register-a-new-backend)
-        - [List All Backends](#list-all-backends)
-        - [Get A Specific Backend](#get-a-specific-backend)
-        - [Update A Backend](#update-a-backend)
-        - [Delete A Backend](#delete-a-backend)
-        - [Health Check](#health-check)
-      - [CLI](#cli)
-        - [Token Management](#token-management)
-        - [Backend Management](#backend-management)
-      - [Discovery Data Model](#discovery-data-model)
-    - [Manage LNURLs With Offer Service](#manage-lnurls-with-offer-service)
-      - [LNURL](#lnurl)
-      - [REST API](#rest-api-1)
-        - [Authentication](#authentication-1)
-        - [Create A New Offer](#create-a-new-offer)
-        - [List All Offers In A Partition](#list-all-offers-in-a-partition)
-        - [Get A Specific Offer](#get-a-specific-offer)
-        - [Update An Offer](#update-an-offer)
-        - [Delete An Offer](#delete-an-offer)
-        - [Create Metadata](#create-metadata)
-        - [List All Metadata In A Partition](#list-all-metadata-in-a-partition)
-        - [Get Specific Metadata](#get-specific-metadata)
-        - [Update Metadata](#update-metadata)
-        - [Delete Metadata](#delete-metadata)
-        - [Health Check](#health-check-1)
-      - [CLI](#cli-1)
-        - [Token Management](#token-management-1)
-        - [Offer Management](#offer-management)
-        - [Metadata Management](#metadata-management)
-      - [Offer Data Model](#offer-data-model)
-        - [Image Support](#image-support)
-        - [Identifier Types](#identifier-types)
+    - [API Reference](#api-reference)
+        - [Manage Lightning Node Backends With Discovery Service](#manage-lightning-node-backends-with-discovery-service)
+            - [REST API](#rest-api)
+                - [Authentication](#authentication)
+                - [Register A New Backend](#register-a-new-backend)
+                - [List All Backends](#list-all-backends)
+                - [Get A Specific Backend](#get-a-specific-backend)
+                - [Update A Backend](#update-a-backend)
+                - [Delete A Backend](#delete-a-backend)
+                - [Health Check](#health-check)
+            - [CLI](#cli)
+                - [Token Management](#token-management)
+                - [Backend Management](#backend-management)
+            - [Discovery Data Model](#discovery-data-model)
+        - [Manage LNURLs With Offer Service](#manage-lnurls-with-offer-service)
+            - [LNURL](#lnurl)
+            - [REST API](#rest-api-1)
+                - [Authentication](#authentication-1)
+                - [Create A New Offer](#create-a-new-offer)
+                - [List All Offers In A Partition](#list-all-offers-in-a-partition)
+                - [Get A Specific Offer](#get-a-specific-offer)
+                - [Update An Offer](#update-an-offer)
+                - [Delete An Offer](#delete-an-offer)
+                - [Create Metadata](#create-metadata)
+                - [List All Metadata In A Partition](#list-all-metadata-in-a-partition)
+                - [Get Specific Metadata](#get-specific-metadata)
+                - [Update Metadata](#update-metadata)
+                - [Delete Metadata](#delete-metadata)
+                - [Health Check](#health-check-1)
+            - [CLI](#cli-1)
+                - [Token Management](#token-management-1)
+                - [Offer Management](#offer-management)
+                - [Metadata Management](#metadata-management)
+            - [Offer Data Model](#offer-data-model)
+                - [Image Support](#image-support)
+                - [Identifier Types](#identifier-types)
 - [Meta](#meta)
-  - [Status](#status)
+    - [Status](#status)
 
 <!-- /toc -->
 
@@ -615,8 +623,8 @@ lnurl-service:
   backend-selection: "round-robin"
     # For consistent hashing, specify max iterations (only used with "consistent")
     # backend-selection:
-    #   type: "consistent"
-    #   max-iterations: 10000
+  #   type: "consistent"
+  #   max-iterations: 10000
 
   # Optional: Bias factor for capacity-influenced selection
   # Negative values are restrictive:
@@ -645,7 +653,10 @@ lnurl-service:
 
   # Optional: OTLP telemetry export
   otlp:
-    tracing:
+    # Required. Shared transport for every signal below: a signal that declares
+    # its own `export` block replaces this one in full (no field-level merge),
+    # and signals that do not share one gRPC connection.
+    export:
       # OTLP collector endpoint (gRPC)
       endpoint: "http://127.0.0.1:4317"
       # Name of the secret whose contents are sent as the bearer token
@@ -654,6 +665,8 @@ lnurl-service:
       trusted-roots: "/etc/ssl/certs/otlp-ca.pem"
       # Optional: pinned collector address for the trusted-roots bundle
       trusted-root-address: "127.0.0.1:4317"
+      # Optional: per-request timeout on the gRPC channel
+      export-timeout-secs: 5.0
       # Optional: mTLS client identity, referencing secret names
       client-identity:
         cert-secret: "OTEL_CLIENT_CERT"
@@ -668,6 +681,19 @@ lnurl-service:
             path: "/etc/ssl/certs/otlp-client.pem"
           OTEL_CLIENT_KEY:
             path: "/etc/ssl/certs/otlp-client-key.pem"
+    # Present = span export is on. Omit the block to turn tracing off.
+    tracing:
+      # always-on | always-off | trace-id-ratio | parent-based-trace-id-ratio
+      # `parent-based-trace-id-ratio` with `ratio: 1.0` is the OTel default.
+      sampler:
+        type: parent-based-trace-id-ratio
+        ratio: 1.0
+    # Present = metric export is on. Omit the block to turn metrics off.
+    metrics:
+      # cumulative | delta | low-memory
+      temporality: cumulative
+      # trace | debug | info | warn | error | off. Optional; defaults to info.
+      level: info
 ```
 
 #### Discovery Service Configuration
@@ -692,7 +718,10 @@ discovery-service:
 
   # Optional: OTLP telemetry export
   otlp:
-    tracing:
+    # Required. Shared transport for every signal below: a signal that declares
+    # its own `export` block replaces this one in full (no field-level merge),
+    # and signals that do not share one gRPC connection.
+    export:
       # OTLP collector endpoint (gRPC)
       endpoint: "http://127.0.0.1:4317"
       # Name of the secret whose contents are sent as the bearer token
@@ -701,6 +730,8 @@ discovery-service:
       trusted-roots: "/etc/ssl/certs/otlp-ca.pem"
       # Optional: pinned collector address for the trusted-roots bundle
       trusted-root-address: "127.0.0.1:4317"
+      # Optional: per-request timeout on the gRPC channel
+      export-timeout-secs: 5.0
       # Optional: mTLS client identity, referencing secret names
       client-identity:
         cert-secret: "OTEL_CLIENT_CERT"
@@ -715,6 +746,19 @@ discovery-service:
             path: "/etc/ssl/certs/otlp-client.pem"
           OTEL_CLIENT_KEY:
             path: "/etc/ssl/certs/otlp-client-key.pem"
+    # Present = span export is on. Omit the block to turn tracing off.
+    tracing:
+      # always-on | always-off | trace-id-ratio | parent-based-trace-id-ratio
+      # `parent-based-trace-id-ratio` with `ratio: 1.0` is the OTel default.
+      sampler:
+        type: parent-based-trace-id-ratio
+        ratio: 1.0
+    # Present = metric export is on. Omit the block to turn metrics off.
+    metrics:
+      # cumulative | delta | low-memory
+      temporality: cumulative
+      # trace | debug | info | warn | error | off. Optional; defaults to info.
+      level: info
 ```
 
 ##### Authentication Setup
@@ -757,7 +801,10 @@ offer-service:
 
   # Optional: OTLP telemetry export
   otlp:
-    tracing:
+    # Required. Shared transport for every signal below: a signal that declares
+    # its own `export` block replaces this one in full (no field-level merge),
+    # and signals that do not share one gRPC connection.
+    export:
       # OTLP collector endpoint (gRPC)
       endpoint: "http://127.0.0.1:4317"
       # Name of the secret whose contents are sent as the bearer token
@@ -766,6 +813,8 @@ offer-service:
       trusted-roots: "/etc/ssl/certs/otlp-ca.pem"
       # Optional: pinned collector address for the trusted-roots bundle
       trusted-root-address: "127.0.0.1:4317"
+      # Optional: per-request timeout on the gRPC channel
+      export-timeout-secs: 5.0
       # Optional: mTLS client identity, referencing secret names
       client-identity:
         cert-secret: "OTEL_CLIENT_CERT"
@@ -780,6 +829,19 @@ offer-service:
             path: "/etc/ssl/certs/otlp-client.pem"
           OTEL_CLIENT_KEY:
             path: "/etc/ssl/certs/otlp-client-key.pem"
+    # Present = span export is on. Omit the block to turn tracing off.
+    tracing:
+      # always-on | always-off | trace-id-ratio | parent-based-trace-id-ratio
+      # `parent-based-trace-id-ratio` with `ratio: 1.0` is the OTel default.
+      sampler:
+        type: parent-based-trace-id-ratio
+        ratio: 1.0
+    # Present = metric export is on. Omit the block to turn metrics off.
+    metrics:
+      # cumulative | delta | low-memory
+      temporality: cumulative
+      # trace | debug | info | warn | error | off. Optional; defaults to info.
+      level: info
 ```
 
 ##### Authentication Setup
@@ -1127,20 +1189,164 @@ swgr --log-level debug discovery ls
 ##### OTLP Tracing
 
 Each service can export OpenTelemetry spans to an OTLP-compatible collector (Jaeger, Tempo, Elastic APM, Grafana Cloud,
-etc.). Configure the exporter in the service block's `otlp.tracing` field. See
-the [LNURL](#lnurl-service-configuration), [Discovery](#discovery-service-configuration),
-and [Offer](#offer-service-configuration) service configuration samples above.
+etc.). Presence of the `otlp.tracing` block turns span export on; the transport comes from `otlp.export` unless
+`otlp.tracing.export` overrides it. See the [LNURL](#lnurl-service-configuration),
+[Discovery](#discovery-service-configuration), and [Offer](#offer-service-configuration) service configuration samples
+above.
 
-The exporter uses:
+##### OTLP Metrics
 
-* gRPC transport (`opentelemetry-otlp` with tonic)
-* Optional TLS with a custom trusted-root PEM bundle
-* Optional pinned server name via `trusted-root-address` (for connecting to a collector by IP)
-* Optional mTLS client identity via the `client-identity.cert-secret` / `key-secret` secret references
-* Bearer authentication via the `auth-token` secret reference
+Each service can also export OpenTelemetry metrics over the same OTLP pipeline. Presence of the `otlp.metrics` block
+turns metric export on; the transport comes from `otlp.export` unless `otlp.metrics.export` overrides it.
 
-`service.name` on exported spans matches the service's log `service.name` (`swgr.lnurl`, `swgr.discovery`,`swgr.offer`),
-and `service.version` matches `service.version` in logs, providing a single identity across logs and traces.
+```yaml
+  otlp:
+    export:
+      endpoint: "http://127.0.0.1:4317"
+      auth-token: "OTEL_AUTH_TOKEN"
+      # ... shared transport, as in the samples above
+    metrics:
+      temporality: cumulative
+```
+
+###### Enabling And Disabling
+
+Metric export is on when the service's `otlp.metrics` block is present. Setting the OTel-standard
+`OTEL_METRICS_EXPORTER` environment variable to `none` forces it off regardless of configuration:
+
+```shell
+OTEL_METRICS_EXPORTER=none swgr service --config ./config.yaml
+```
+
+`none` is the only value that changes anything: any other setting, and an unset variable, leave metrics on. Log records
+and spans are unaffected either way.
+
+###### Metric Level
+
+`otlp.metrics.level` sets how much metric detail is recorded:
+
+```yaml
+  otlp:
+    metrics:
+      temporality: cumulative
+      level: debug
+```
+
+| Value                  | Recorded                                                               |
+|------------------------|------------------------------------------------------------------------|
+| `off`, `error`, `warn` | Nothing                                                                |
+| `info`                 | The standard metric set. This is the default when the field is omitted |
+| `debug`                | The standard set, plus finer-grained per-operation detail              |
+| `trace`                | Everything                                                             |
+
+Values are case-insensitive.
+
+Leave the level at `info` for normal running. Raise it to `debug` when you are investigating something and need
+per-operation detail; expect more datapoints and higher tag cardinality at your metrics sink, so lower it again
+afterward.
+
+Setting `off` stops metrics being recorded but leaves the exporter connected. To shut the pipeline down entirely, omit
+the `otlp.metrics` block or set `OTEL_METRICS_EXPORTER=none` (see [Enabling And Disabling](#enabling-and-disabling)
+above).
+
+[`RUST_LOG`](#level-filtering) has no effect on metrics — it governs log records only. `otlp.metrics.level` is the
+only setting that changes metric verbosity.
+
+###### Temporality
+
+`otlp.metrics.temporality` selects how cumulative state is reported:
+
+| Value        | Behaviour                                                                     |
+|--------------|-------------------------------------------------------------------------------|
+| `cumulative` | Each export carries the running total since process start                     |
+| `delta`      | Each export carries only what changed since the previous one                  |
+| `low-memory` | Delta for counters and histograms, cumulative for up-down counters and gauges |
+
+##### Emitted Metrics
+
+| Metric                                                       | Emitted when                                                                              |
+|--------------------------------------------------------------|-------------------------------------------------------------------------------------------|
+| [`db.client.operation.duration`](#dbclientoperationduration) | A discovery or offer store is backed by a database                                        |
+| [`http.client.request.duration`](#httpclientrequestduration) | A discovery or offer store is backed by a remote service, see [Persistence](#persistence) |
+| [`rpc.client.call.duration`](#rpcclientcallduration)         | The LNURL service calls a CLN or LND node                                                 |
+
+Metric and attribute names follow the [OpenTelemetry semantic
+conventions](https://opentelemetry.io/docs/specs/semconv/), so a collector, dashboard or alert built against those
+conventions understands them without mapping. Three things hold across all three:
+
+- **Values are milliseconds, not seconds.** Switchgear records milliseconds. Divide by 1000 when comparing against a
+  dashboard built to the convention's unit.
+- **Attributes that do not apply are absent, not empty.** Write queries to tolerate a missing attribute rather than an
+  empty one.
+- **All three are recorded at `info`**, so they are exported at the default [metric level](#metric-level).
+
+###### `db.client.operation.duration`
+
+How long a database call took.
+
+Source: [Database client metrics](https://opentelemetry.io/docs/specs/semconv/database/database-metrics/) — histogram,
+**stable**.
+
+| Attribute                              | Present         | Value                                                                                                                                                                            |
+|----------------------------------------|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `db.system.name`                       | Always          | `sqlite`, `mysql` or `postgresql`                                                                                                                                                |
+| `db.namespace` \| `db.collection.name` | Always          | The database and the table. For SQLite the database is the file name without its extension, or `:memory:`                                                                        |
+| `server.address` \| `server.port`      | Except SQLite   | Host and port of the database server. Never any credential from the connection URL                                                                                               |
+| `error.type`                           | On failure only | `unique_constraint`, `foreign_key_constraint`, `constraint`, `connection_acquire`, `connection`, `statement`, `conversion`, or `_OTHER`. The same set whichever database you run |
+| `db.response.status_code`              | On failure only | The database's own error code, which differs between SQLite, MySQL and Postgres                                                                                                  |
+| `swgr.operation`                       | Always          | The store operation, see below                                                                                                                                                   |
+
+`swgr.operation` is finer-grained than the table alone. The pairings are fixed:
+
+| `db.collection.name`     | `swgr.operation`                                                                                                    |
+|--------------------------|---------------------------------------------------------------------------------------------------------------------|
+| `offer_record`           | `get_offer`, `get_offers`, `post_offer`, `put_offer_upsert`, `put_offer_fetch`, `delete_offer`                      |
+| `offer_metadata`         | `get_metadata`, `get_all_metadata`, `post_metadata`, `put_metadata_upsert`, `put_metadata_fetch`, `delete_metadata` |
+| `discovery_backend`      | `get`, `get_all_backends`, `post`, `put`, `patch`, `delete`                                                         |
+| `discovery_backend_etag` | `get_all_etag`                                                                                                      |
+
+###### `http.client.request.duration`
+
+How long a request to a remote discovery or offer service took.
+
+Source: [HTTP client metrics](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/) — histogram, **stable**.
+
+| Attribute                               | Present                 | Value                                                                                                        |
+|-----------------------------------------|-------------------------|--------------------------------------------------------------------------------------------------------------|
+| `http.request.method` \| `url.template` | Always                  | The method, and the route pattern rather than the requested path, so no identifier reaches your metrics sink |
+| `server.address` \| `server.port`       | Always                  | Host and port of the remote store                                                                            |
+| `http.response.status_code`             | When a response arrived | The status, including a 4xx or 5xx                                                                           |
+| `error.type`                            | On failure only         | The status, when one was returned, otherwise `timeout`, `connect`, `decode` or `request`                     |
+
+The route patterns are fixed:
+
+| Store     | `url.template`                                                     | `http.request.method`                   |
+|-----------|--------------------------------------------------------------------|-----------------------------------------|
+| Offer     | `/offers`, `/offers/{partition}`, `/offers/{partition}/{id}`       | `GET`, `POST`, `PUT`, `DELETE`          |
+| Offer     | `/metadata`, `/metadata/{partition}`, `/metadata/{partition}/{id}` | `GET`, `POST`, `PUT`, `DELETE`          |
+| Discovery | `/discovery`, `/discovery/{public_key}`                            | `GET`, `POST`, `PUT`, `PATCH`, `DELETE` |
+
+###### `rpc.client.call.duration`
+
+How long a gRPC call to a Lightning node took.
+
+Source: [RPC client metrics](https://opentelemetry.io/docs/specs/semconv/rpc/rpc-metrics/) — histogram, **release
+candidate**. Older tooling may know this metric by its previous name, `rpc.client.duration`.
+
+| Attribute                         | Present         | Value                                                       |
+|-----------------------------------|-----------------|-------------------------------------------------------------|
+| `rpc.system.name`                 | Always          | `grpc`                                                      |
+| `rpc.method`                      | Always          | The node call, see below                                    |
+| `server.address` \| `server.port` | Always          | Host and port of the node                                   |
+| `rpc.response.status_code`        | Always          | The gRPC status, including `OK` on success                  |
+| `error.type`                      | On failure only | The gRPC status, set only when the call did not return `OK` |
+
+The methods are fixed:
+
+| Node | `rpc.method`                                                   |
+|------|----------------------------------------------------------------|
+| CLN  | `cln.Node/Invoice`, `cln.Node/ListPeerChannels`                |
+| LND  | `lnrpc.Lightning/AddInvoice`, `lnrpc.Lightning/ChannelBalance` |
 
 ## Developer
 
