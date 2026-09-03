@@ -49,19 +49,19 @@ include = ["src/**/*", "README.md", "LICENSE"]
 [dependencies]
 
 [workspace.package]
-version = "0.1.28"
+version = "0.1.29"
 edition = "2024"
 rust-version = "1.97"
 
 [workspace.dependencies]
-switchgear-components = { version = "0.1.28", path = "components" }
-switchgear-error = { version = "0.1.28", path = "error" }
-switchgear-metrics = { version = "0.1.28", path = "metrics" }
-switchgear-migration = { version = "0.1.28", path = "migration" }
-switchgear-pingora = { version = "0.1.28", path = "pingora" }
-switchgear-service = { version = "0.1.28", path = "service" }
-switchgear-service-api = { version = "0.1.28", path = "service-api" }
-switchgear-testing = { version = "0.1.28", path = "testing" }
+switchgear-components = { version = "0.1.29", path = "components" }
+switchgear-error = { version = "0.1.29", path = "error" }
+switchgear-metrics = { version = "0.1.29", path = "metrics" }
+switchgear-migration = { version = "0.1.29", path = "migration" }
+switchgear-pingora = { version = "0.1.29", path = "pingora" }
+switchgear-service = { version = "0.1.29", path = "service" }
+switchgear-service-api = { version = "0.1.29", path = "service-api" }
+switchgear-testing = { version = "0.1.29", path = "testing" }
 secrecy = { version = "0.10", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "tracing-log"] }
