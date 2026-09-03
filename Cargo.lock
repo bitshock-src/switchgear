@@ -5127,11 +5127,11 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "switchgear"
-version = "0.1.28"
+version = "0.1.29"
 
 [[package]]
 name = "switchgear-components"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5183,14 +5183,14 @@ dependencies = [
 
 [[package]]
 name = "switchgear-error"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "tracing",
 ]
 
 [[package]]
 name = "switchgear-metrics"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "tracing",
  "tracing-subscriber",
@@ -5199,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-migration"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "sea-orm-migration",
  "tokio",
@@ -5207,7 +5207,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-pingora"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -5229,7 +5229,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-server"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5290,7 +5290,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "async-trait",
  "axum",
@@ -5325,7 +5325,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-service-api"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "async-trait",
  "axum",
@@ -5347,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "switchgear-testing"
-version = "0.1.28"
+version = "0.1.29"
 dependencies = [
  "anyhow",
  "dotenvy",
