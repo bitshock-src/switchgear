@@ -1,10 +1,11 @@
+use crate::metrics::http::record_http_request;
 use crate::offer::error::DefaultOfferStoreError;
 use crate::secrets::SecretStore;
 use async_trait::async_trait;
 use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
 use rustls::pki_types::CertificateDer;
 use secrecy::{ExposeSecret, SecretString};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::offer::{
     HttpOfferClient, OfferMetadata, OfferMetadataStore, OfferRecord, OfferStore,
@@ -20,10 +21,11 @@ pub struct HttpOfferStore {
     offer_url: String,
     metadata_url: String,
     health_check_url: String,
+    server_address: String,
+    server_port: u16,
 }
 
 impl HttpOfferStore {
-    #[tracing::instrument(skip_all)]
     pub fn create<U: IntoUrl>(
         base_url: U,
         total_timeout: Duration,
@@ -52,7 +54,6 @@ impl HttpOfferStore {
         Self::with_client(client, base_url, secret_store, bearer_secret.into())
     }
 
-    #[tracing::instrument(skip_all)]
     fn with_client<U: IntoUrl>(
         client: Client,
         base_url: U,
@@ -62,10 +63,12 @@ impl HttpOfferStore {
         let base_url = base_url.as_str().trim_end_matches('/').to_string();
 
         let offer_url = format!("{base_url}/offers");
-        Url::parse(&offer_url).with_foreign_context(
+        let parsed_offer_url = Url::parse(&offer_url).with_foreign_context(
             || format!("parsing service url {offer_url}"),
             ErrorOrigin::Upstream,
         )?;
+        let server_address = parsed_offer_url.host_str().unwrap_or_default().to_owned();
+        let server_port = parsed_offer_url.port_or_known_default().unwrap_or(0);
 
         let metadata_url = format!("{base_url}/metadata");
         Url::parse(&metadata_url).with_foreign_context(
@@ -86,6 +89,8 @@ impl HttpOfferStore {
             offer_url,
             metadata_url,
             health_check_url,
+            server_address,
+            server_port,
         })
     }
 
@@ -114,7 +119,6 @@ impl HttpOfferStore {
             )
     }
 
-    #[tracing::instrument(skip_all)]
     fn general_error(status: StatusCode, context: &str) -> DefaultOfferStoreError {
         if status.is_success() {
             return DefaultOfferStoreError::message(
@@ -150,13 +154,24 @@ impl OfferStore for HttpOfferStore {
         let url = self.offers_partition_id_url(partition, id);
         let url = format!("{url}?sparse={sparse}");
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .get(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
-            .with_foreign_context(|| format!("get offer {url}"), ErrorOrigin::Upstream)?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/offers/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response =
+            response.with_foreign_context(|| format!("get offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::OK => {
@@ -181,12 +196,23 @@ impl OfferStore for HttpOfferStore {
         let url = self.offers_partition_url(partition);
         let url = format!("{url}?start={start}&count={count}");
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .get(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/offers/{partition}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("get all offers {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -210,17 +236,27 @@ impl OfferStore for HttpOfferStore {
     #[tracing::instrument(skip_all)]
     async fn post_offer(&self, offer: OfferRecord) -> Result<Option<Uuid>, Self::Error> {
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .post(&self.offer_url)
             .bearer_auth(token.expose_secret())
             .json(&offer)
             .send()
-            .await
-            .with_foreign_context(
-                || format!("post offer: {}, url: {}", offer.id, self.offer_url),
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "POST",
+            "/offers",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || format!("post offer: {}, url: {}", offer.id, self.offer_url),
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(offer.id)),
@@ -236,14 +272,25 @@ impl OfferStore for HttpOfferStore {
     async fn put_offer(&self, offer: OfferRecord) -> Result<bool, Self::Error> {
         let url = self.offers_partition_id_url(&offer.partition, &offer.id);
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .put(&url)
             .bearer_auth(token.expose_secret())
             .json(&offer)
             .send()
-            .await
-            .with_foreign_context(|| format!("put offer {url}"), ErrorOrigin::Upstream)?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "PUT",
+            "/offers/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response =
+            response.with_foreign_context(|| format!("put offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
             StatusCode::CREATED => Ok(true),
@@ -256,12 +303,23 @@ impl OfferStore for HttpOfferStore {
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.offers_partition_id_url(partition, id);
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .delete(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "DELETE",
+            "/offers/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("delete offer {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -284,16 +342,26 @@ impl OfferMetadataStore for HttpOfferStore {
     ) -> Result<Option<OfferMetadata>, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .get(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
-            .with_foreign_context(
-                || format!("get offer metadata {url}"),
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/metadata/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || format!("get offer metadata {url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::OK => {
@@ -324,12 +392,23 @@ impl OfferMetadataStore for HttpOfferStore {
         let url = self.metadata_partition_url(partition);
         let url = format!("{url}?start={start}&count={count}");
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .get(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/metadata/{partition}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("get all metadata {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -353,22 +432,32 @@ impl OfferMetadataStore for HttpOfferStore {
     #[tracing::instrument(skip_all)]
     async fn post_metadata(&self, metadata: OfferMetadata) -> Result<Option<Uuid>, Self::Error> {
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .post(&self.metadata_url)
             .bearer_auth(token.expose_secret())
             .json(&metadata)
             .send()
-            .await
-            .with_foreign_context(
-                || {
-                    format!(
-                        "post offer metadata {}, url: {}",
-                        metadata.id, self.metadata_url
-                    )
-                },
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "POST",
+            "/metadata",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || {
+                format!(
+                    "post offer metadata {}, url: {}",
+                    metadata.id, self.metadata_url
+                )
+            },
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(metadata.id)),
@@ -387,17 +476,27 @@ impl OfferMetadataStore for HttpOfferStore {
     async fn put_metadata(&self, metadata: OfferMetadata) -> Result<bool, Self::Error> {
         let url = self.metadata_partition_id_url(&metadata.partition, &metadata.id);
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .put(&url)
             .bearer_auth(token.expose_secret())
             .json(&metadata)
             .send()
-            .await
-            .with_foreign_context(
-                || format!("put offer metadata {url}"),
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "PUT",
+            "/metadata/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || format!("put offer metadata {url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(true),
@@ -413,16 +512,26 @@ impl OfferMetadataStore for HttpOfferStore {
     async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let url = self.metadata_partition_id_url(partition, id);
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .delete(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
-            .with_foreign_context(
-                || format!("delete offer metadata {url}"),
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "DELETE",
+            "/metadata/{partition}/{id}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || format!("delete offer metadata {url}"),
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::NO_CONTENT => Ok(true),
@@ -440,6 +549,7 @@ impl HttpOfferClient for HttpOfferStore {
     #[tracing::instrument(skip_all)]
     async fn health(&self) -> Result<(), <Self as OfferStore>::Error> {
         let token = self.bearer()?;
+
         let response = self
             .client
             .get(&self.health_check_url)
@@ -447,6 +557,7 @@ impl HttpOfferClient for HttpOfferStore {
             .send()
             .await
             .foreign_context("health check", ErrorOrigin::Upstream)?;
+
         if !response.status().is_success() {
             return Err(DefaultOfferStoreError::message(
                 ErrorOrigin::Upstream,

@@ -2,10 +2,10 @@ use crate::commands::error::CliError;
 use crate::commands::offer::{OfferManagementClientConfig, create_offer_client};
 use crate::commands::{cli_read_to_string, cli_write_all};
 use clap::Parser;
-use log::info;
 use std::path::{Path, PathBuf};
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::offer::{OfferMetadata, OfferMetadataSparse, OfferMetadataStore};
+use tracing::info;
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]

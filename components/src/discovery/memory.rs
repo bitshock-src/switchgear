@@ -40,11 +40,13 @@ impl MemoryDiscoveryBackendStore {
 impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
     type Error = DefaultDiscoveryBackendStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
         let store = self.store.lock().await;
         Ok(store.get(public_key).map(|b| b.backend.clone()))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
         let store = self.store.lock().await;
         let mut backends: Vec<DiscoveryBackendTimestamped> = store.values().cloned().collect();
@@ -71,6 +73,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let mut store = self.store.lock().await;
         if store.contains_key(&backend.public_key) {
@@ -88,6 +91,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         Ok(Some(key))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put(&self, backend: DiscoveryBackend) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
         let key = backend.public_key;
@@ -100,6 +104,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         Ok(was_new)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn patch(&self, backend: DiscoveryBackendPatch) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
         let entry = match store.get_mut(&backend.public_key) {
@@ -122,6 +127,7 @@ impl DiscoveryBackendStore for MemoryDiscoveryBackendStore {
         Ok(true)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
         let mut store = self.store.lock().await;
         let was_found = store.remove(public_key).is_some();

@@ -1,3 +1,4 @@
+use crate::metrics::grpc::record_rpc_call;
 use crate::pool::error::LnPoolError;
 use crate::pool::lnd::grpc::config::LndGrpcDiscoveryBackendImplementation;
 use crate::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
@@ -7,10 +8,11 @@ use rustls::pki_types::CertificateDer;
 use sha2::Digest;
 use std::fs;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use switchgear_error::ForeignContext;
 use tokio::sync::Mutex;
 use tonic::transport::{Certificate, Channel, ClientTlsConfig};
+use url::Url;
 
 #[allow(clippy::all)]
 pub mod lnrpc {
@@ -29,7 +31,6 @@ pub struct TonicLndGrpcClient {
 }
 
 impl TonicLndGrpcClient {
-    #[tracing::instrument(skip_all)]
     pub fn create(
         timeout: Duration,
         config: LndGrpcDiscoveryBackendImplementation,
@@ -72,7 +73,6 @@ impl TonicLndGrpcClient {
         })
     }
 
-    #[tracing::instrument(skip_all)]
     async fn inner_connect(&self) -> Result<Arc<InnerTonicLndGrpcClient>, LnPoolError> {
         let mut inner = self.inner.lock().await;
         match inner.as_ref() {
@@ -83,7 +83,7 @@ impl TonicLndGrpcClient {
                         self.ca_certificates.clone(),
                         self.secrets.clone(),
                         self.config.auth.macaroon_secret.clone(),
-                        self.config.url.to_string(),
+                        self.config.url.clone(),
                         self.config.domain.as_deref(),
                         self.config.amp_invoice,
                     )
@@ -96,7 +96,6 @@ impl TonicLndGrpcClient {
         }
     }
 
-    #[tracing::instrument(skip_all)]
     async fn inner_disconnect(&self) {
         let mut inner = self.inner.lock().await;
         *inner = None;
@@ -144,6 +143,7 @@ impl LnRpcClient for TonicLndGrpcClient {
         r
     }
 
+    #[tracing::instrument(skip_all)]
     fn get_features(&self) -> Option<&LnFeatures> {
         self.features.as_ref()
     }
@@ -153,22 +153,23 @@ struct InnerTonicLndGrpcClient {
     client: LightningClient<
         tonic::service::interceptor::InterceptedService<Channel, SecretHeaderInterceptor>,
     >,
-    url: String,
+    url: Url,
     amp_invoice: bool,
+    server_address: String,
+    server_port: u16,
 }
 
 impl InnerTonicLndGrpcClient {
-    #[tracing::instrument(skip_all)]
     async fn connect(
         timeout: Duration,
         ca_certificates: Vec<Certificate>,
         secrets: SecretStore,
         macaroon_secret: String,
-        url: String,
+        url: Url,
         domain: Option<&str>,
         amp_invoice: bool,
     ) -> Result<Self, LnPoolError> {
-        let endpoint = Channel::from_shared(url.clone())
+        let endpoint = Channel::from_shared(url.to_string())
             .with_foreign_context(|| format!("parsing LND endpoint address {url}"), None)?;
 
         let mut tls_config = ClientTlsConfig::new()
@@ -193,14 +194,18 @@ impl InnerTonicLndGrpcClient {
         let interceptor = SecretHeaderInterceptor::macaroon_hex(secrets, macaroon_secret);
         let client = LightningClient::with_interceptor(channel, interceptor);
 
+        let server_address = url.host_str().unwrap_or_default().to_owned();
+        let server_port = url.port_or_known_default().unwrap_or(0);
+
         Ok(Self {
             client,
             url,
             amp_invoice,
+            server_address,
+            server_port,
         })
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -226,23 +231,36 @@ impl InnerTonicLndGrpcClient {
             ..Default::default()
         };
 
-        let response = client
-            .add_invoice(invoice_request)
-            .await
+        let started = Instant::now();
+        let response = client.add_invoice(invoice_request).await;
+        record_rpc_call(
+            started.elapsed(),
+            "lnrpc.Lightning/AddInvoice",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("requesting LND invoice from {}", self.url), None)?
             .into_inner();
 
         Ok(response.payment_request)
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let mut client = self.client.clone();
 
         let channel_balance_request = lnrpc::ChannelBalanceRequest {};
-        let channels_balance_response = client
-            .channel_balance(channel_balance_request)
-            .await
+        let started = Instant::now();
+        let channels_balance_response = client.channel_balance(channel_balance_request).await;
+        record_rpc_call(
+            started.elapsed(),
+            "lnrpc.Lightning/ChannelBalance",
+            &self.server_address,
+            self.server_port,
+            &channels_balance_response,
+        );
+        let channels_balance_response = channels_balance_response
             .with_foreign_context(
                 || format!("querying LND channel balance for {}", self.url),
                 None,

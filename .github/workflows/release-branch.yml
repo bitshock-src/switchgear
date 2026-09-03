@@ -1,0 +1,104 @@
+name: Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Explicit semver (n.n.n). Leave blank to bump by level.'
+        required: false
+        type: string
+      level:
+        description: 'Bump level, used when version is blank'
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  release-branch:
+    name: Create Release Branch
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository }}/ci-rust:1.97.1
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Bump workspace version
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+          LEVEL: ${{ inputs.level }}
+        run: |
+          set -euo pipefail
+          if [ -n "$VERSION" ]; then
+            cargo set-version --workspace "$VERSION"
+          else
+            cargo set-version --workspace --bump "$LEVEL"
+          fi
+          cargo build
+          NEW=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')
+          echo "version=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "branch=release-${NEW}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release branch
+        env:
+          NEW: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
+            echo "::error::branch $BRANCH already exists on origin"
+            exit 1
+          fi
+
+          if git diff --quiet -- Cargo.lock '*Cargo.toml'; then
+            echo "::error::version is already $NEW, nothing to commit"
+            exit 1
+          fi
+
+          git checkout -b "$BRANCH"
+          git add -- Cargo.lock '*Cargo.toml'
+          git commit -m "release $NEW"
+          git push origin "$BRANCH"
+
+      - name: Summary
+        env:
+          NEW: ${{ steps.bump.outputs.version }}
+          BRANCH: ${{ steps.bump.outputs.branch }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release branch \`$BRANCH\`"
+            echo
+            echo "Version \`$NEW\` off \`main\`."
+            echo
+            echo "[Open the pull request]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1) to trigger CI on it."
+          } >> "$GITHUB_STEP_SUMMARY"

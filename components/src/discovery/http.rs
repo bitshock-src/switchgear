@@ -1,11 +1,12 @@
 use crate::discovery::error::DefaultDiscoveryBackendStoreError;
+use crate::metrics::http::record_http_request;
 use crate::secrets::SecretStore;
 use async_trait::async_trait;
 use reqwest::{Certificate, Client, ClientBuilder, IntoUrl, StatusCode};
 use rustls::pki_types::CertificateDer;
 use secp256k1::PublicKey;
 use secrecy::{ExposeSecret, SecretString};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::discovery::{
     DiscoveryBackend, DiscoveryBackendPatch, DiscoveryBackendStore, DiscoveryBackends,
@@ -20,10 +21,11 @@ pub struct HttpDiscoveryBackendStore {
     bearer_secret: String,
     discovery_url: String,
     health_check_url: String,
+    server_address: String,
+    server_port: u16,
 }
 
 impl HttpDiscoveryBackendStore {
-    #[tracing::instrument(skip_all)]
     pub fn create<U: IntoUrl>(
         base_url: U,
         total_timeout: Duration,
@@ -54,7 +56,6 @@ impl HttpDiscoveryBackendStore {
         Self::with_client(client, base_url, secret_store, bearer_secret.into())
     }
 
-    #[tracing::instrument(skip_all)]
     pub fn with_client<U: IntoUrl>(
         client: Client,
         base_url: U,
@@ -63,10 +64,15 @@ impl HttpDiscoveryBackendStore {
     ) -> Result<Self, DefaultDiscoveryBackendStoreError> {
         let base_url = base_url.as_str().trim_end_matches('/').to_string();
         let discovery_url = format!("{base_url}/discovery");
-        Url::parse(&discovery_url).with_foreign_context(
+        let parsed_discovery_url = Url::parse(&discovery_url).with_foreign_context(
             || format!("parsing service url {discovery_url}"),
             ErrorOrigin::Upstream,
         )?;
+        let server_address = parsed_discovery_url
+            .host_str()
+            .unwrap_or_default()
+            .to_owned();
+        let server_port = parsed_discovery_url.port_or_known_default().unwrap_or(0);
 
         let health_check_url = format!("{base_url}/health");
         Url::parse(&health_check_url).with_foreign_context(
@@ -80,6 +86,8 @@ impl HttpDiscoveryBackendStore {
             bearer_secret,
             discovery_url,
             health_check_url,
+            server_address,
+            server_port,
         })
     }
 
@@ -101,7 +109,6 @@ impl HttpDiscoveryBackendStore {
             )
     }
 
-    #[tracing::instrument(skip_all)]
     fn general_error(status: StatusCode, context: &str) -> DefaultDiscoveryBackendStoreError {
         if status.is_success() {
             return DefaultDiscoveryBackendStoreError::message(
@@ -131,12 +138,23 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let url = self.discovery_public_key_url(public_key);
 
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .get(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/discovery/{public_key}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("get backend {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -157,6 +175,7 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let url = &self.discovery_url;
         let token = self.bearer()?;
         let client = self.client.get(url).bearer_auth(token.expose_secret());
+
         let client = if let Some(requested_etag) = requested_etag {
             client.header(
                 reqwest::header::IF_NONE_MATCH,
@@ -165,9 +184,18 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         } else {
             client
         };
-        let response = client
-            .send()
-            .await
+
+        let started = Instant::now();
+        let response = client.send().await;
+        record_http_request(
+            started.elapsed(),
+            "GET",
+            "/discovery",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("get all backends {url}"), ErrorOrigin::Upstream)?;
 
         let response_etag = response
@@ -222,22 +250,32 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
     #[tracing::instrument(skip_all)]
     async fn post(&self, backend: DiscoveryBackend) -> Result<Option<PublicKey>, Self::Error> {
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .post(&self.discovery_url)
             .bearer_auth(token.expose_secret())
             .json(&backend)
             .send()
-            .await
-            .with_foreign_context(
-                || {
-                    format!(
-                        "post backend: {}, url: {}",
-                        backend.public_key, self.discovery_url
-                    )
-                },
-                ErrorOrigin::Upstream,
-            )?;
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "POST",
+            "/discovery",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response.with_foreign_context(
+            || {
+                format!(
+                    "post backend: {}, url: {}",
+                    backend.public_key, self.discovery_url
+                )
+            },
+            ErrorOrigin::Upstream,
+        )?;
 
         match response.status() {
             StatusCode::CREATED => Ok(Some(backend.public_key)),
@@ -257,13 +295,24 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let url = self.discovery_public_key_url(&backend.public_key);
 
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .put(&url)
             .bearer_auth(token.expose_secret())
             .json(&backend.backend)
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "PUT",
+            "/discovery/{public_key}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("put backend {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -278,13 +327,24 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let url = self.discovery_public_key_url(&backend.public_key);
 
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .patch(&url)
             .bearer_auth(token.expose_secret())
             .json(&backend.backend)
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "PATCH",
+            "/discovery/{public_key}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("patch backend {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {
@@ -299,12 +359,23 @@ impl DiscoveryBackendStore for HttpDiscoveryBackendStore {
         let url = self.discovery_public_key_url(public_key);
 
         let token = self.bearer()?;
+
+        let started = Instant::now();
         let response = self
             .client
             .delete(&url)
             .bearer_auth(token.expose_secret())
             .send()
-            .await
+            .await;
+        record_http_request(
+            started.elapsed(),
+            "DELETE",
+            "/discovery/{public_key}",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("delete backend {url}"), ErrorOrigin::Upstream)?;
 
         match response.status() {

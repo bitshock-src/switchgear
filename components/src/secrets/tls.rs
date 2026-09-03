@@ -79,7 +79,13 @@ impl ClientCertResolver {
         let key_hash = hash_bytes(key_bytes);
 
         {
-            let cache = self.cache.lock().unwrap();
+            let Ok(cache) = self.cache.lock() else {
+                tracing::warn!(
+                    "client cert cache lock poisoned for secret {}",
+                    self.cert_secret_name
+                );
+                return None;
+            };
             if let Some(cached) = cache.as_ref()
                 && cached.cert_hash == cert_hash
                 && cached.key_hash == key_hash
@@ -124,7 +130,13 @@ impl ClientCertResolver {
             }
         };
 
-        let mut cache = self.cache.lock().unwrap();
+        let Ok(mut cache) = self.cache.lock() else {
+            tracing::warn!(
+                "client cert cache lock poisoned for secret {}",
+                self.cert_secret_name
+            );
+            return None;
+        };
         *cache = Some(CachedCertKey {
             cert_hash,
             key_hash,

@@ -7,6 +7,12 @@ extensions:
   bearertokenauth:
     scheme: Bearer
     filename: /tmp/otel_collector_token
+  # Bearer-token auth for the InfluxDB exporter. Distinct from the unnamed
+  # `bearertokenauth` above (the OTLP receiver's): this is the InfluxDB 3 admin
+  # token minted by the setup container, fetched at startup by entrypoint.sh.
+  bearertokenauth/influxdb:
+    scheme: Bearer
+    filename: /tmp/influxdb_token
 
 receivers:
   # TLS-only gRPC receiver — there is no cleartext transport. The cert + key
@@ -32,9 +38,22 @@ exporters:
     tls:
       insecure: true
 
+  # `bucket` maps to an InfluxDB 3 database name, so queries pass
+  # `{"db": "otel"}`. The telegraf-prometheus-v1 schema writes one measurement
+  # per metric name, with resource + scope + datapoint attributes as tags.
+  influxdb:
+    endpoint: http://${env:INFLUXDB_HOSTNAME}:${env:INFLUXDB_PORT}
+    bucket: otel
+    metrics_schema: telegraf-prometheus-v1
+    auth:
+      authenticator: bearertokenauth/influxdb
+
 service:
-  extensions: [health_check, bearertokenauth]
+  extensions: [health_check, bearertokenauth, bearertokenauth/influxdb]
   pipelines:
+    metrics:
+      receivers: [otlp]
+      exporters: [influxdb]
     traces:
       receivers: [otlp]
       exporters: [otlp_grpc/jaeger]

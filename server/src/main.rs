@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod di;
 mod error;
+mod level;
 mod signals;
 
 use crate::commands::offer::metadata::OfferMetadataManagementCommands;
@@ -9,25 +10,24 @@ use crate::commands::offer::record::OfferRecordManagementCommands;
 use crate::di::inject::injectors::config::ServerConfigInjector;
 use crate::di::inject::injectors::service::tracing::TracingSystemInjector;
 use crate::error::{ServerError, ServerErrorAccumulator};
+use crate::level::Level;
 use clap::{Parser, Subcommand};
 use commands::discovery::DiscoveryCommands;
 use commands::discovery::backend::DiscoveryBackendManagementCommands;
 use commands::offer::OfferCommands;
 use commands::services::ServiceEnablement;
 use commands::token::TokenCommands;
-use log::LevelFilter as LogLevelFilter;
-use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
+use switchgear_error::ChainedContext;
 
 /// lnurl load balance server
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub(crate) struct CliArgs {
     /// log level (CLI subcommands only; `swgr service` reads RUST_LOG)
-    #[clap(short, long, value_parser)]
-    pub(crate) log_level: Option<LogLevelFilter>,
+    #[clap(short, long, value_enum, ignore_case = true)]
+    pub(crate) log_level: Option<Level>,
 
     #[clap(subcommand)]
     pub(crate) command: RootCommands,
@@ -81,14 +81,13 @@ async fn _main(args: CliArgs) -> Result<(), ServerError> {
         .install_default()
         .map_err(|_| ServerError::internal("failed to stand up rustls encryption platform"))?;
 
-    let mut otel_providers: Vec<(&'static str, SdkTracerProvider)> = Vec::new();
     let mut errors = ServerErrorAccumulator::new();
 
     let cli_result: Result<(), crate::commands::error::CliError> = match args.command {
         RootCommands::Service { config, enablement } => match ServerConfigInjector::new(config)
             .chained_context("loading server configuration", None)
         {
-            Ok(ci) => commands::services::execute(ci, enablement, &mut otel_providers).await,
+            Ok(ci) => commands::services::execute(ci, enablement).await,
             Err(e) => Err(e),
         },
         RootCommands::Offer(offer) => match offer {
@@ -307,28 +306,6 @@ async fn _main(args: CliArgs) -> Result<(), ServerError> {
     let result: Result<(), ServerError> =
         cli_result.with_chained_context(|| format!("cli command '{}'", summarize_command()), None);
     errors.push_result(result);
-
-    let mut shutdowns = tokio::task::JoinSet::new();
-    for (name, provider) in otel_providers {
-        shutdowns.spawn_blocking(move || (name, provider.shutdown()));
-    }
-    while let Some(res) = shutdowns.join_next().await {
-        match res {
-            Ok((_, Ok(()))) => {}
-            Ok((name, Err(e))) => {
-                let r: Result<(), ServerError> = Err(e).with_foreign_context(
-                    || format!("shutting down otel tracer provider for {name}"),
-                    ErrorOrigin::Internal,
-                );
-                errors.push_result(r);
-            }
-            Err(e) => {
-                let r: Result<(), ServerError> =
-                    Err(e).foreign_context("otel shutdown task join failed", ErrorOrigin::Internal);
-                errors.push_result(r);
-            }
-        }
-    }
 
     errors.finish()
 }

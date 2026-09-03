@@ -1,3 +1,4 @@
+use crate::level::Level;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::SocketAddr;
@@ -143,18 +144,60 @@ pub struct TlsConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct OtlpConfig {
+    pub export: OtlpExportConfig,
     pub tracing: Option<OtlpTracingConfig>,
+    pub metrics: Option<OtlpMetricsConfig>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct OtlpTracingConfig {
+pub struct OtlpExportConfig {
     pub endpoint: Url,
     pub auth_token: String,
     pub trusted_roots: Option<PathBuf>,
     pub trusted_root_address: Option<SocketAddr>,
     pub client_identity: Option<ClientIdentityConfig>,
     pub secrets: SecretStoreConfig,
+    pub export_timeout_secs: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct OtlpTracingConfig {
+    pub sampler: SamplerConfig,
+    pub export: Option<OtlpExportConfig>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct OtlpMetricsConfig {
+    pub temporality: TemporalityConfig,
+    pub export: Option<OtlpExportConfig>,
+    #[serde(default)]
+    pub level: Option<Level>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum SamplerConfig {
+    AlwaysOn,
+    AlwaysOff,
+    #[serde(rename_all = "kebab-case")]
+    TraceIdRatio {
+        ratio: f64,
+    },
+    #[serde(rename_all = "kebab-case")]
+    ParentBasedTraceIdRatio {
+        ratio: f64,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TemporalityConfig {
+    Cumulative,
+    Delta,
+    LowMemory,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

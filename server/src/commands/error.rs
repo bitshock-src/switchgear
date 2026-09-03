@@ -430,11 +430,13 @@ impl CliErrorAccumulator {
         }
     }
 
-    pub fn finish(self) -> Result<(), CliError> {
-        match self.errors.len() {
-            0 => Ok(()),
-            1 => Err(self.errors.into_iter().next().expect("len == 1")),
-            _ => Err(CliError::multi(self.errors)),
+    pub fn finish(mut self) -> Result<(), CliError> {
+        if self.errors.len() > 1 {
+            return Err(CliError::multi(self.errors));
+        }
+        match self.errors.pop() {
+            Some(err) => Err(err),
+            None => Ok(()),
         }
     }
 }

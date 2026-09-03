@@ -1,4 +1,5 @@
 use crate::discovery::error::DefaultDiscoveryBackendStoreError;
+use crate::metrics::db::{DbTarget, record_db_operation};
 use crate::secrets::SecretStore;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -15,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_migration::{DISCOVERY_BACKEND_GET_ALL_ETAG_ID, MigratorTrait};
 use switchgear_service_api::discovery::{
@@ -207,11 +208,11 @@ impl CredentialRotation {
 #[derive(Clone, Debug)]
 pub struct DbDiscoveryBackendStore {
     db: DatabaseConnection,
+    db_target: DbTarget,
     rotation: Option<CredentialRotation>,
 }
 
 impl DbDiscoveryBackendStore {
-    #[tracing::instrument(skip_all)]
     pub async fn connect(
         uri: &str,
         secrets: Option<&SecretStore>,
@@ -234,14 +235,19 @@ impl DbDiscoveryBackendStore {
             ErrorOrigin::Internal,
         )?;
 
+        let db_target = crate::metrics::db::db_target(&db);
+
         let rotation = secrets
             .map(|s| CredentialRotation::spawn(db.clone(), uri.to_owned(), s.clone(), resolved))
             .transpose()?;
 
-        Ok(Self { db, rotation })
+        Ok(Self {
+            db,
+            db_target,
+            rotation,
+        })
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn migrate_up(&self) -> Result<(), DefaultDiscoveryBackendStoreError> {
         switchgear_migration::DiscoveryBackendMigrator::up(&self.db, None)
             .await
@@ -249,7 +255,6 @@ impl DbDiscoveryBackendStore {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn migrate_down(&self) -> Result<(), DefaultDiscoveryBackendStoreError> {
         switchgear_migration::DiscoveryBackendMigrator::down(&self.db, None)
             .await
@@ -257,7 +262,6 @@ impl DbDiscoveryBackendStore {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
     fn model_to_domain(
         model: Model,
     ) -> Result<DiscoveryBackend, DefaultDiscoveryBackendStoreError> {
@@ -283,13 +287,21 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
     #[tracing::instrument(skip_all)]
     async fn get(&self, public_key: &PublicKey) -> Result<Option<DiscoveryBackend>, Self::Error> {
+        let started = Instant::now();
         let result = Entity::find_by_id(public_key.serialize())
             .one(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("fetching backend for public key {public_key}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend",
+            "get",
+            &result,
+        );
+        let result = result.with_foreign_context(
+            || format!("fetching backend for public key {public_key}"),
+            ErrorOrigin::Internal,
+        )?;
 
         match result {
             Some(model) => Ok(Some(Self::model_to_domain(model)?)),
@@ -299,9 +311,18 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
     #[tracing::instrument(skip_all)]
     async fn get_all(&self, request_etag: Option<u64>) -> Result<DiscoveryBackends, Self::Error> {
+        let started = Instant::now();
         let response_etag = etag::Entity::find_by_id(DISCOVERY_BACKEND_GET_ALL_ETAG_ID)
             .one(&self.db)
-            .await
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend_etag",
+            "get_all_etag",
+            &response_etag,
+        );
+        let response_etag = response_etag
             .foreign_context("fetching etag value", ErrorOrigin::Internal)?
             .map(|e| e.value as u64)
             .unwrap_or(0);
@@ -312,12 +333,20 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                 backends: None,
             })
         } else {
+            let started = Instant::now();
             let models = Entity::find()
                 .order_by_asc(Column::CreatedAt)
                 .order_by_asc(Column::Id)
                 .all(&self.db)
-                .await
-                .foreign_context("fetching all backends", ErrorOrigin::Internal)?;
+                .await;
+            record_db_operation(
+                started.elapsed(),
+                &self.db_target,
+                "discovery_backend",
+                "get_all_backends",
+                &models,
+            );
+            let models = models.foreign_context("fetching all backends", ErrorOrigin::Internal)?;
 
             let backends = models
                 .into_iter()
@@ -344,7 +373,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             updated_at: Set(now.into()),
         };
 
-        let (insert_result, etag_result) = self
+        let started = Instant::now();
+        let transaction = self
             .db
             .transaction::<_, (Result<_, _>, Option<Result<_, _>>), sea_orm::DbErr>(|txn| {
                 Box::pin(async move {
@@ -366,8 +396,16 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                     Ok((insert, etag))
                 })
             })
-            .await
-            .foreign_context("post transaction", ErrorOrigin::Internal)?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend",
+            "post",
+            &transaction,
+        );
+        let (insert_result, etag_result) =
+            transaction.foreign_context("post transaction", ErrorOrigin::Internal)?;
 
         etag_result
             .transpose()
@@ -406,7 +444,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
             updated_at: Set(now.into()),
         };
 
-        let (upsert_result, fetch_result, etag_result) = self
+        let started = Instant::now();
+        let transaction = self
             .db
             .transaction::<_, (Result<_, _>, Result<_, _>, Option<Result<_, _>>), sea_orm::DbErr>(
                 |txn| {
@@ -458,8 +497,16 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                     })
                 },
             )
-            .await
-            .foreign_context("put transaction", ErrorOrigin::Internal)?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend",
+            "put",
+            &transaction,
+        );
+        let (upsert_result, fetch_result, etag_result) =
+            transaction.foreign_context("put transaction", ErrorOrigin::Internal)?;
 
         upsert_result.with_foreign_context(
             || format!("upserting backend for public key {}", backend.public_key),
@@ -514,7 +561,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
 
         update = update.col_expr(Column::UpdatedAt, Expr::value(Utc::now()));
 
-        let (patch_result, etag_result) = self
+        let started = Instant::now();
+        let transaction = self
             .db
             .transaction::<_, _, _>(|txn| {
                 Box::pin(async move {
@@ -543,8 +591,16 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                     Ok((patch, etag))
                 })
             })
-            .await
-            .foreign_context("patch transaction", ErrorOrigin::Internal)?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend",
+            "patch",
+            &transaction,
+        );
+        let (patch_result, etag_result) =
+            transaction.foreign_context("patch transaction", ErrorOrigin::Internal)?;
 
         etag_result
             .transpose()
@@ -562,7 +618,8 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
     async fn delete(&self, public_key: &PublicKey) -> Result<bool, Self::Error> {
         let id = public_key.serialize();
 
-        let (delete_result, etag_result) = self
+        let started = Instant::now();
+        let transaction = self
             .db
             .transaction::<_, _, _>(|txn| {
                 Box::pin(async move {
@@ -591,8 +648,16 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
                     Ok((delete, etag))
                 })
             })
-            .await
-            .foreign_context("delete transaction", ErrorOrigin::Internal)?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "discovery_backend",
+            "delete",
+            &transaction,
+        );
+        let (delete_result, etag_result) =
+            transaction.foreign_context("delete transaction", ErrorOrigin::Internal)?;
 
         etag_result
             .transpose()
@@ -606,6 +671,7 @@ impl DiscoveryBackendStore for DbDiscoveryBackendStore {
         Ok(result.rows_affected > 0)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn disconnect(&self) -> Result<(), Self::Error> {
         if let Some(r) = &self.rotation {
             r.shutdown().await?;

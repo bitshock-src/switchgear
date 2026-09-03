@@ -1,31 +1,67 @@
 [workspace]
 members = [
+    ".",
     "components",
     "error",
+    "metrics",
     "migration",
     "pingora",
     "server",
     "service",
     "service-api",
-    "switchgear",
+    "testing"
+]
+
+# Required: the workspace root is now a package, so bare `cargo build`/`test`/`clippy`
+# would otherwise select only it. This restores full-workspace selection.
+default-members = [
+    ".",
+    "components",
+    "error",
+    "metrics",
+    "migration",
+    "pingora",
+    "server",
+    "service",
+    "service-api",
     "testing"
 ]
 
 resolver = "2"
 
+[package]
+name = "switchgear"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors = ["Bitshock <info@bitshock.com>"]
+description = "High availability LNURL load balancer server for enterprise Bitcoin Lightning payment providers"
+documentation = "https://github.com/bitshock-src/switchgear"
+homepage = "https://bitshock.com"
+repository = "https://github.com/bitshock-src/switchgear"
+license = "Apache-2.0"
+keywords = ["bitcoin", "lightning", "lnurl", "load-balancer", "payments"]
+categories = ["command-line-utilities", "network-programming", "web-programming"]
+readme = "README.md"
+publish = true
+include = ["src/**/*", "README.md", "LICENSE"]
+
+[dependencies]
+
 [workspace.package]
-version = "0.1.27"
+version = "0.1.28"
 edition = "2024"
 rust-version = "1.97"
 
 [workspace.dependencies]
-switchgear-components = { version = "0.1.26", path = "components" }
-switchgear-error = { version = "0.1.26", path = "error" }
-switchgear-migration = { version = "0.1.26", path = "migration" }
-switchgear-pingora = { version = "0.1.26", path = "pingora" }
-switchgear-service = { version = "0.1.26", path = "service" }
-switchgear-service-api = { version = "0.1.26", path = "service-api" }
-switchgear-testing = { version = "0.1.26", path = "testing" }
+switchgear-components = { version = "0.1.28", path = "components" }
+switchgear-error = { version = "0.1.28", path = "error" }
+switchgear-metrics = { version = "0.1.28", path = "metrics" }
+switchgear-migration = { version = "0.1.28", path = "migration" }
+switchgear-pingora = { version = "0.1.28", path = "pingora" }
+switchgear-service = { version = "0.1.28", path = "service" }
+switchgear-service-api = { version = "0.1.28", path = "service-api" }
+switchgear-testing = { version = "0.1.28", path = "testing" }
 secrecy = { version = "0.10", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry", "tracing-log"] }

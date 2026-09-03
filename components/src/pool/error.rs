@@ -1,8 +1,9 @@
+use crate::pool::LnRpcClientError;
 use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::panic::Location;
-use switchgear_error::{ContextError, ErrorOrigin, IntoContextError};
+use switchgear_error::{ContextError, ErrorOrigin, IntoBoxedTrait, IntoContextError};
 use tonic::{Code, Status, transport};
 
 #[derive(Debug)]
@@ -116,6 +117,14 @@ impl ContextError for LnPoolError {
 
     fn source_context(&self) -> Option<&dyn ContextError> {
         None
+    }
+}
+
+impl LnRpcClientError for LnPoolError {}
+
+impl IntoBoxedTrait<dyn LnRpcClientError> for LnPoolError {
+    fn into_boxed(self) -> Box<dyn LnRpcClientError> {
+        Box::new(self)
     }
 }
 

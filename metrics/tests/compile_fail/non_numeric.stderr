@@ -1,0 +1,46 @@
+error[E0277]: `&str` cannot be recorded as a histogram value
+ --> tests/compile_fail/non_numeric.rs:4:41
+  |
+4 |     switchgear_metrics::histogram!("m", "nope");
+  |     ------------------------------------^^^^^^-
+  |     |                                   |
+  |     |                                   histograms take an unsigned integer, a float, or a Duration
+  |     required by a bound introduced by this call
+  |
+  = help: the trait `switchgear_metrics::value::HistogramValue` is not implemented for `&str`
+  = note: tracing-opentelemetry has no i64 histogram: a signed value is silently recorded as an attribute, not a metric
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::HistogramValue`:
+            Duration
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+note: required by a bound in `switchgear_metrics::value::histogram_value`
+ --> src/value.rs
+  |
+  | pub fn histogram_value<V: HistogramValue>(v: V) -> V::Out {
+  |                           ^^^^^^^^^^^^^^ required by this bound in `histogram_value`
+
+error[E0277]: `&str` cannot be recorded as a histogram value
+ --> tests/compile_fail/non_numeric.rs:4:5
+  |
+4 |     switchgear_metrics::histogram!("m", "nope");
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ histograms take an unsigned integer, a float, or a Duration
+  |
+  = help: the trait `switchgear_metrics::value::HistogramValue` is not implemented for `&str`
+  = note: tracing-opentelemetry has no i64 histogram: a signed value is silently recorded as an attribute, not a metric
+  = note: cast explicitly if you meant it, e.g. `value as u64` or `value as f64`
+  = help: the following other types implement trait `switchgear_metrics::value::HistogramValue`:
+            Duration
+            f32
+            f64
+            u16
+            u32
+            u64
+            u8
+            usize
+  = note: this error originates in the macro `$crate::histogram` which comes from the expansion of the macro `switchgear_metrics::histogram` (in Nightly builds, run with -Z macro-backtrace for more info)

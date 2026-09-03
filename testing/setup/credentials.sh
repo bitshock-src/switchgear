@@ -8,6 +8,7 @@ mkdir -p "$CREDS_DIR/lnd"
 mkdir -p "$CREDS_DIR/postgres"
 mkdir -p "$CREDS_DIR/mysql"
 mkdir -p "$CREDS_DIR/otel-collector"
+mkdir -p "$CREDS_DIR/influxdb"
 
 CLN_PUBKEY=$(docker exec cln-regtest lightning-cli --regtest getinfo | jq -r ".id")
 echo "$CLN_PUBKEY" > "$CREDS_DIR/cln/node_id"
@@ -61,6 +62,13 @@ rm -f "$OTEL_DIR/ca.key" "$OTEL_DIR/server.csr" "$OTEL_DIR/server.ext" \
 # Bearer token the collector's OTLP receiver requires. Shared with tests via
 # the credentials tarball.
 openssl rand -hex 32 > "$OTEL_DIR/token"
+
+# InfluxDB 3 mints one admin token per data directory and rejects a second
+# create. A 409 here means the influxdb container outlived a `setup` recreate;
+# recover with `docker compose --env-file ./testing.env down -v` then up.
+curl -sS -f -X POST \
+  "http://${INFLUXDB_HOSTNAME}:${INFLUXDB_PORT}/api/v3/configure/token/admin" \
+  | jq -r '.token' > "$CREDS_DIR/influxdb/token"
 
 chmod -R 644 "$CREDS_DIR"
 chmod -R +X "$CREDS_DIR"

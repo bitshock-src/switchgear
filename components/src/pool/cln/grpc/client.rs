@@ -1,3 +1,4 @@
+use crate::metrics::grpc::record_rpc_call;
 use crate::pool::cln::grpc::config::{ClnGrpcClientAuth, ClnGrpcDiscoveryBackendImplementation};
 use crate::pool::error::LnPoolError;
 use crate::pool::{Bolt11InvoiceDescription, LnFeatures, LnMetrics, LnRpcClient};
@@ -11,10 +12,11 @@ use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, RootCertStore};
 use sha2::Digest;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use switchgear_error::{ErrorOrigin, ForeignContext};
 use tokio::sync::Mutex;
 use tonic::transport::{Channel, Endpoint};
+use url::Url;
 
 #[allow(clippy::all)]
 pub mod cln {
@@ -33,7 +35,6 @@ pub struct TonicClnGrpcClient {
 }
 
 impl TonicClnGrpcClient {
-    #[tracing::instrument(skip_all)]
     pub fn create(
         timeout: Duration,
         config: ClnGrpcDiscoveryBackendImplementation,
@@ -55,7 +56,6 @@ impl TonicClnGrpcClient {
         })
     }
 
-    #[tracing::instrument(skip_all)]
     async fn inner_connect(&self) -> Result<Arc<InnerTonicClnGrpcClient>, LnPoolError> {
         let mut inner = self.inner.lock().await;
         match inner.as_ref() {
@@ -66,7 +66,7 @@ impl TonicClnGrpcClient {
                         &self.trusted_roots,
                         &self.config.auth,
                         self.secrets.clone(),
-                        self.config.url.to_string(),
+                        self.config.url.clone(),
                         self.config.domain.as_deref(),
                     )
                     .await?,
@@ -78,7 +78,6 @@ impl TonicClnGrpcClient {
         }
     }
 
-    #[tracing::instrument(skip_all)]
     async fn inner_disconnect(&self) {
         let mut inner = self.inner.lock().await;
         *inner = None;
@@ -120,6 +119,7 @@ impl LnRpcClient for TonicClnGrpcClient {
         r
     }
 
+    #[tracing::instrument(skip_all)]
     fn get_features(&self) -> Option<&LnFeatures> {
         self.features.as_ref()
     }
@@ -127,17 +127,18 @@ impl LnRpcClient for TonicClnGrpcClient {
 
 struct InnerTonicClnGrpcClient {
     client: NodeClient<Channel>,
-    url: String,
+    url: Url,
+    server_address: String,
+    server_port: u16,
 }
 
 impl InnerTonicClnGrpcClient {
-    #[tracing::instrument(skip_all)]
     async fn connect(
         timeout: Duration,
         trusted_roots: &[CertificateDer<'static>],
         auth: &ClnGrpcClientAuth,
         secrets: SecretStore,
-        url: String,
+        url: Url,
         domain: Option<&str>,
     ) -> Result<Self, LnPoolError> {
         let tls_config = build_client_tls_config(trusted_roots, auth, &secrets)?;
@@ -158,20 +159,24 @@ impl InnerTonicClnGrpcClient {
         }
         let https = connector_builder.enable_http2().build();
 
-        let endpoint = Endpoint::from_shared(url.clone())
+        let endpoint = Endpoint::from_shared(url.to_string())
             .with_foreign_context(|| format!("parsing CLN endpoint address {url}"), None)?
             .connect_timeout(timeout)
             .timeout(timeout);
 
         let channel = Channel::new(https, endpoint);
 
+        let server_address = url.host_str().unwrap_or_default().to_owned();
+        let server_port = url.port_or_known_default().unwrap_or(0);
+
         Ok(Self {
             client: NodeClient::new(channel),
             url,
+            server_address,
+            server_port,
         })
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_invoice<'a>(
         &self,
         amount_msat: Option<u64>,
@@ -220,25 +225,38 @@ impl InnerTonicClnGrpcClient {
             ..Default::default()
         };
 
-        let response = client
-            .invoice(request)
-            .await
+        let started = Instant::now();
+        let response = client.invoice(request).await;
+        record_rpc_call(
+            started.elapsed(),
+            "cln.Node/Invoice",
+            &self.server_address,
+            self.server_port,
+            &response,
+        );
+        let response = response
             .with_foreign_context(|| format!("requesting CLN invoice from {}", self.url), None)?
             .into_inner();
 
         Ok(response.bolt11)
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_metrics(&self) -> Result<LnMetrics, LnPoolError> {
         let channels_request = cln::ListpeerchannelsRequest {
             id: None,
             short_channel_id: None,
         };
         let mut client = self.client.clone();
-        let channels_response = client
-            .list_peer_channels(channels_request)
-            .await
+        let started = Instant::now();
+        let channels_response = client.list_peer_channels(channels_request).await;
+        record_rpc_call(
+            started.elapsed(),
+            "cln.Node/ListPeerChannels",
+            &self.server_address,
+            self.server_port,
+            &channels_response,
+        );
+        let channels_response = channels_response
             .with_foreign_context(
                 || format!("listing CLN peer channels for {}", self.url),
                 None,
@@ -305,7 +323,10 @@ fn build_client_tls_config(
 
     Ok(ClientConfig::builder_with_provider(crypto.clone())
         .with_safe_default_protocol_versions()
-        .expect("rustls safe default protocol versions")
+        .foreign_context(
+            "configuring CLN gRPC client TLS protocol versions",
+            ErrorOrigin::Internal,
+        )?
         .with_root_certificates(roots)
         .with_client_cert_resolver(Arc::new(ClientCertResolver::new(
             secrets.clone(),

@@ -1,4 +1,5 @@
 use crate::discovery::db::Column;
+use crate::metrics::db::{DbTarget, record_db_operation};
 use crate::offer::db_orm::prelude::*;
 use crate::offer::db_orm::{offer_metadata_table, offer_record_table};
 use crate::offer::error::DefaultOfferStoreError;
@@ -12,7 +13,7 @@ use sea_orm::{
 use secrecy::{ExposeSecret, SecretString};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_migration::OnConflict;
 use switchgear_migration::{Expr, MigratorTrait};
@@ -165,11 +166,11 @@ impl CredentialRotation {
 #[derive(Clone, Debug)]
 pub struct DbOfferStore {
     db: DatabaseConnection,
+    db_target: DbTarget,
     rotation: Option<CredentialRotation>,
 }
 
 impl DbOfferStore {
-    #[tracing::instrument(skip_all)]
     pub async fn connect(
         uri: &str,
         secrets: Option<&SecretStore>,
@@ -191,14 +192,19 @@ impl DbOfferStore {
             .await
             .foreign_context("connecting to offer database", ErrorOrigin::Internal)?;
 
+        let db_target = crate::metrics::db::db_target(&db);
+
         let rotation = secrets
             .map(|s| CredentialRotation::spawn(db.clone(), uri.to_owned(), s.clone(), resolved))
             .transpose()?;
 
-        Ok(Self { db, rotation })
+        Ok(Self {
+            db,
+            db_target,
+            rotation,
+        })
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn migrate_up(&self) -> Result<(), DefaultOfferStoreError> {
         switchgear_migration::OfferMigrator::up(&self.db, None)
             .await
@@ -206,7 +212,6 @@ impl DbOfferStore {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
     pub async fn migrate_down(&self) -> Result<(), DefaultOfferStoreError> {
         switchgear_migration::OfferMigrator::down(&self.db, None)
             .await
@@ -228,14 +233,22 @@ impl OfferStore for DbOfferStore {
     ) -> Result<Option<OfferRecord>, Self::Error> {
         let sparse = sparse.unwrap_or(true);
 
+        let started = Instant::now();
         let result = OfferRecordTable::find_by_id((partition.to_string(), *id))
             .find_also_related(OfferMetadataTable)
             .one(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("getting offer with metadata for partition {partition} id {id}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "get_offer",
+            &result,
+        );
+        let result = result.with_foreign_context(
+            || format!("getting offer with metadata for partition {partition} id {id}"),
+            ErrorOrigin::Internal,
+        )?;
 
         let (offer_model, metadata_model) = match (result, sparse) {
             (Some((offer, Some(metadata))), false) => {
@@ -270,6 +283,7 @@ impl OfferStore for DbOfferStore {
         start: usize,
         count: usize,
     ) -> Result<Vec<OfferRecord>, Self::Error> {
+        let started = Instant::now();
         let models = OfferRecordTable::find()
             .filter(offer_record_table::Column::Partition.eq(partition))
             .order_by_asc(offer_record_table::Column::CreatedAt)
@@ -277,11 +291,18 @@ impl OfferStore for DbOfferStore {
             .offset(start as u64)
             .limit(count as u64)
             .all(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("getting offers for partition {partition}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "get_offers",
+            &models,
+        );
+        let models = models.with_foreign_context(
+            || format!("getting offers for partition {partition}"),
+            ErrorOrigin::Internal,
+        )?;
 
         let mut offers = Vec::new();
         for model in models {
@@ -317,7 +338,16 @@ impl OfferStore for DbOfferStore {
             updated_at: Set(now.into()),
         };
 
-        match OfferRecordTable::insert(active_model).exec(&self.db).await {
+        let started = Instant::now();
+        let result = OfferRecordTable::insert(active_model).exec(&self.db).await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "post_offer",
+            &result,
+        );
+        match result {
             Ok(_) => Ok(Some(offer.id)),
             // Unique constraint violation (Postgres via Query, SQLite via Exec)
             Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
@@ -366,7 +396,8 @@ impl OfferStore for DbOfferStore {
             updated_at: Set(now.into()),
         };
 
-        let _result = match OfferRecordTable::insert(active_model)
+        let started = Instant::now();
+        let result = OfferRecordTable::insert(active_model)
             .on_conflict(
                 OnConflict::columns([
                     offer_record_table::Column::Partition,
@@ -383,8 +414,15 @@ impl OfferStore for DbOfferStore {
                 .to_owned(),
             )
             .exec(&self.db)
-            .await
-        {
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "put_offer_upsert",
+            &result,
+        );
+        let _result = match result {
             Ok(result) => result,
             // Foreign key constraint violation (metadata_id doesn't exist)
             Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
@@ -411,6 +449,7 @@ impl OfferStore for DbOfferStore {
         };
 
         // Fetch only the timestamps to compare
+        let started = Instant::now();
         let result = OfferRecordTable::find()
             .filter(offer_record_table::Column::Partition.eq(offer.partition.clone()))
             .filter(offer_record_table::Column::Id.eq(offer.id))
@@ -422,7 +461,15 @@ impl OfferStore for DbOfferStore {
                 chrono::DateTime<chrono::FixedOffset>,
             )>()
             .one(&self.db)
-            .await
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "put_offer_fetch",
+            &result,
+        );
+        let result = result
             .with_foreign_context(
                 || {
                     format!(
@@ -445,17 +492,26 @@ impl OfferStore for DbOfferStore {
 
     #[tracing::instrument(skip_all)]
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
+        let started = Instant::now();
         let result = OfferRecordTable::delete_by_id((partition.to_string(), *id))
             .exec(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("deleting offer for partition {partition} id {id}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_record",
+            "delete_offer",
+            &result,
+        );
+        let result = result.with_foreign_context(
+            || format!("deleting offer for partition {partition} id {id}"),
+            ErrorOrigin::Internal,
+        )?;
 
         Ok(result.rows_affected > 0)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn disconnect(&self) -> Result<(), Self::Error> {
         if let Some(r) = &self.rotation {
             r.shutdown().await?;
@@ -474,13 +530,21 @@ impl OfferMetadataStore for DbOfferStore {
         partition: &str,
         id: &Uuid,
     ) -> Result<Option<OfferMetadata>, Self::Error> {
+        let started = Instant::now();
         let model = OfferMetadataTable::find_by_id((partition.to_string(), *id))
             .one(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("getting metadata for partition {partition} id {id}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "get_metadata",
+            &model,
+        );
+        let model = model.with_foreign_context(
+            || format!("getting metadata for partition {partition} id {id}"),
+            ErrorOrigin::Internal,
+        )?;
 
         match model {
             Some(model) => {
@@ -506,6 +570,7 @@ impl OfferMetadataStore for DbOfferStore {
         start: usize,
         count: usize,
     ) -> Result<Vec<OfferMetadata>, Self::Error> {
+        let started = Instant::now();
         let models = OfferMetadataTable::find()
             .filter(offer_metadata_table::Column::Partition.eq(partition))
             .order_by_asc(offer_metadata_table::Column::CreatedAt)
@@ -513,11 +578,18 @@ impl OfferMetadataStore for DbOfferStore {
             .offset(start as u64)
             .limit(count as u64)
             .all(&self.db)
-            .await
-            .with_foreign_context(
-                || format!("getting all metadata for partition {partition}"),
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "get_all_metadata",
+            &models,
+        );
+        let models = models.with_foreign_context(
+            || format!("getting all metadata for partition {partition}"),
+            ErrorOrigin::Internal,
+        )?;
 
         let mut metadata_list = Vec::new();
         for model in models {
@@ -562,10 +634,18 @@ impl OfferMetadataStore for DbOfferStore {
             updated_at: Set(now.into()),
         };
 
-        match OfferMetadataTable::insert(active_model)
+        let started = Instant::now();
+        let result = OfferMetadataTable::insert(active_model)
             .exec(&self.db)
-            .await
-        {
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "post_metadata",
+            &result,
+        );
+        match result {
             Ok(_) => Ok(Some(offer.id)),
             // Unique constraint violation (Postgres via Query, SQLite via Exec)
             Err(sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
@@ -607,7 +687,8 @@ impl OfferMetadataStore for DbOfferStore {
             updated_at: Set(now.into()),
         };
 
-        let _result = OfferMetadataTable::insert(active_model)
+        let started = Instant::now();
+        let result = OfferMetadataTable::insert(active_model)
             .on_conflict(
                 OnConflict::columns([
                     offer_metadata_table::Column::Partition,
@@ -618,18 +699,26 @@ impl OfferMetadataStore for DbOfferStore {
                 .to_owned(),
             )
             .exec(&self.db)
-            .await
-            .with_foreign_context(
-                || {
-                    format!(
-                        "upserting metadata for partition {} id {}",
-                        offer.partition, offer.id
-                    )
-                },
-                ErrorOrigin::Internal,
-            )?;
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "put_metadata_upsert",
+            &result,
+        );
+        result.with_foreign_context(
+            || {
+                format!(
+                    "upserting metadata for partition {} id {}",
+                    offer.partition, offer.id
+                )
+            },
+            ErrorOrigin::Internal,
+        )?;
 
         // Fetch only the timestamps to compare
+        let started = Instant::now();
         let result = OfferMetadataTable::find()
             .filter(offer_metadata_table::Column::Partition.eq(offer.partition.clone()))
             .filter(offer_metadata_table::Column::Id.eq(offer.id))
@@ -641,7 +730,15 @@ impl OfferMetadataStore for DbOfferStore {
                 chrono::DateTime<chrono::FixedOffset>,
             )>()
             .one(&self.db)
-            .await
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "put_metadata_fetch",
+            &result,
+        );
+        let result = result
             .with_foreign_context(
                 || {
                     format!(
@@ -664,10 +761,18 @@ impl OfferMetadataStore for DbOfferStore {
 
     #[tracing::instrument(skip_all)]
     async fn delete_metadata(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
-        let result = match OfferMetadataTable::delete_by_id((partition.to_string(), *id))
+        let started = Instant::now();
+        let result = OfferMetadataTable::delete_by_id((partition.to_string(), *id))
             .exec(&self.db)
-            .await
-        {
+            .await;
+        record_db_operation(
+            started.elapsed(),
+            &self.db_target,
+            "offer_metadata",
+            "delete_metadata",
+            &result,
+        );
+        let result = match result {
             Ok(result) => result,
             Err(sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx_err)))
                 if matches!(

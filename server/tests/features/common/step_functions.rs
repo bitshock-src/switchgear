@@ -18,6 +18,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use rand::{Rng, distributions::Alphanumeric};
 use reqwest::{StatusCode, Url};
 use secp256k1::PublicKey;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 use std::vec;
@@ -37,6 +38,8 @@ use switchgear_service_api::offer::{
     OfferMetadata, OfferMetadataSparse, OfferMetadataStore, OfferRecord, OfferRecordSparse,
     OfferStore,
 };
+use switchgear_testing::credentials::influx::InfluxCredentials;
+use switchgear_testing::influx::InfluxClient;
 use tokio::time::sleep as tokio_sleep;
 use uuid::Uuid;
 // =============================================================================
@@ -119,7 +122,7 @@ pub async fn step_when_i_start_the_lnurl_server_with_the_configuration(
     let _pid = ctx
         .start_active_server(
             &[Service::LnUrl, Service::Discovery, Service::Offer],
-            log::Level::Info,
+            switchgear_server::level::Level::Info,
         )
         .await?;
     Ok(())
@@ -136,7 +139,9 @@ pub async fn step_when_i_send_a_signal_to_the_server_process(
 }
 
 /// Step: "When I send a SIGTERM signal to the server process"
-/// Sends a SIGTERM signal to the running server process for graceful shutdown
+/// Sends SIGTERM to every server in the scenario, not only the active one,
+/// and waits for each to exit. For metrics scenarios this is also the flush:
+/// SIGTERM drains each child's meter provider.
 pub async fn step_when_i_send_a_sigterm_signal_to_the_server_process(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
@@ -162,7 +167,13 @@ pub async fn step_and_all_services_should_be_listening_on_their_configured_ports
 ) -> Result<()> {
     let services = vec![Service::LnUrl, Service::Discovery, Service::Offer];
 
-    check_services_listening_status(ctx, services, true, 100, 5).await?;
+    // 1000ms/10s matches every other positive check (the 100ms here was the
+    // negative-check value: a short cap is right when asserting nothing
+    // responds, wrong when waiting for a cold-started child to bind three TLS
+    // ports). The loop breaks on the first unready service, so a failing pass
+    // costs probe+200ms — a probe that would answer in ~150ms was scored as a
+    // failure on every iteration, and this step checks the most services.
+    check_services_listening_status(ctx, services, true, 1000, 10).await?;
     Ok(())
 }
 
@@ -268,6 +279,18 @@ pub async fn step_then_the_error_message_should_contain_configuration_parsing_de
 /// Verifies that the server process exits with a successful exit code (0)
 pub async fn step_then_the_server_should_exit_with_code_0(ctx: &mut GlobalContext) -> Result<()> {
     verify_exit_code(ctx, true).await?;
+
+    Ok(())
+}
+
+/// Step: "Then all servers should exit with code 0"
+/// Verifies every server in the scenario shut down cleanly
+pub async fn step_then_all_servers_should_exit_with_code_0(ctx: &mut GlobalContext) -> Result<()> {
+    for (server, exit_code) in ctx.wait_all_exit_codes()? {
+        if exit_code != 0 {
+            bail_log!("server {server} exited with code {exit_code}, expected 0");
+        }
+    }
 
     Ok(())
 }
@@ -1027,18 +1050,33 @@ pub async fn step_given_the_payer_can_generate_invoices_successfully(
     Ok(())
 }
 
+/// Step: "When the admin disables the {payee_id} backend"
+/// Disables the discovery backend registered for that payee's LN node
+pub async fn step_when_the_admin_disables_the_backend(
+    ctx: &mut GlobalContext,
+    payee_id: &str,
+) -> Result<()> {
+    let public_key = payee_backend_public_key(ctx, payee_id)?;
+
+    enable_disable_backend(ctx, &public_key, false).await
+}
+
+/// The public key of the LN node a payee targets — the identity its
+/// discovery backend is registered under.
+fn payee_backend_public_key(ctx: &GlobalContext, payee_id: &str) -> Result<PublicKey> {
+    let payee = get_payee_from_context(ctx, payee_id)?;
+
+    match payee.target_ln_node.as_str() {
+        "cln" => Ok(payee.ln_nodes.cln.public_key),
+        "lnd" => Ok(payee.ln_nodes.lnd.public_key),
+        node => bail_log!("payee {payee_id} targets unknown ln node {node}"),
+    }
+}
+
 /// Step: "When the admin disables the first backend"
 /// Disables the first backend (LND)
 pub async fn step_when_the_admin_disables_the_first_backend(ctx: &mut GlobalContext) -> Result<()> {
-    // Get LND backend location
-    let lnd_payee = ctx
-        .get_payee("lnd")
-        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
-        .clone();
-
-    enable_disable_backend(ctx, &lnd_payee.ln_nodes.lnd.public_key, false).await?;
-
-    Ok(())
+    step_when_the_admin_disables_the_backend(ctx, "lnd").await
 }
 
 /// Step: "Then the payer can still get invoices"
@@ -1057,15 +1095,7 @@ pub async fn step_then_the_payer_can_still_generate_invoices(
 pub async fn step_when_the_admin_disables_the_second_backend(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
-    // Get CLN backend location
-    let cln_payee = ctx
-        .get_payee("cln")
-        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
-        .clone();
-
-    enable_disable_backend(ctx, &cln_payee.ln_nodes.cln.public_key, false).await?;
-
-    Ok(())
+    step_when_the_admin_disables_the_backend(ctx, "cln").await
 }
 
 /// Step: "Then the payer cannot get invoices"
@@ -1163,32 +1193,27 @@ async fn enable_disable_backend(
     Ok(())
 }
 
+/// Step: "When the admin deletes the {payee_id} backend"
+/// Deletes that payee's backend from the discovery service
+pub async fn step_when_the_admin_deletes_the_backend(
+    ctx: &mut GlobalContext,
+    payee_id: &str,
+) -> Result<()> {
+    let public_key = payee_backend_public_key(ctx, payee_id)?;
+
+    delete_backend(ctx, &public_key).await
+}
+
 /// Step: "When the admin deletes the first backend"
 /// Deletes the first backend (LND) from the discovery service
 pub async fn step_when_the_admin_deletes_the_first_backend(ctx: &mut GlobalContext) -> Result<()> {
-    // Get LND backend location
-    let lnd_payee = ctx
-        .get_payee("lnd")
-        .ok_or_else(|| anyhow_log!("LND payee not found in context"))?
-        .clone();
-
-    delete_backend(ctx, &lnd_payee.ln_nodes.lnd.public_key).await?;
-
-    Ok(())
+    step_when_the_admin_deletes_the_backend(ctx, "lnd").await
 }
 
 /// Step: "When the admin deletes the second backend"
 /// Deletes the second backend (CLN) from the discovery service
 pub async fn step_when_the_admin_deletes_the_second_backend(ctx: &mut GlobalContext) -> Result<()> {
-    // Get CLN backend location
-    let cln_payee = ctx
-        .get_payee("cln")
-        .ok_or_else(|| anyhow_log!("CLN payee not found in context"))?
-        .clone();
-
-    delete_backend(ctx, &cln_payee.ln_nodes.cln.public_key).await?;
-
-    Ok(())
+    step_when_the_admin_deletes_the_backend(ctx, "cln").await
 }
 
 /// Step: "And both nodes are ready to be registered as backends"
@@ -1248,7 +1273,7 @@ pub async fn step_when_i_start_the_lnurl_server_with_enablement_flags(
     start_services: &[Service],
 ) -> Result<()> {
     let _pid = ctx
-        .start_active_server(start_services, log::Level::Info)
+        .start_active_server(start_services, switchgear_server::level::Level::Info)
         .await?;
     Ok(())
 }
@@ -2047,7 +2072,10 @@ pub async fn step_when_i_start_server_1_with_offers_and_discovery_services(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
     let _pid = ctx
-        .start_active_server(&[Service::Discovery, Service::Offer], log::Level::Info)
+        .start_active_server(
+            &[Service::Discovery, Service::Offer],
+            switchgear_server::level::Level::Info,
+        )
         .await?;
 
     Ok(())
@@ -2059,7 +2087,7 @@ pub async fn step_when_i_start_server_2_with_only_lnurl_service(
     ctx: &mut GlobalContext,
 ) -> Result<()> {
     let _pid = ctx
-        .start_active_server(&[Service::LnUrl], log::Level::Info)
+        .start_active_server(&[Service::LnUrl], switchgear_server::level::Level::Info)
         .await?;
     Ok(())
 }
@@ -5115,5 +5143,255 @@ pub async fn step_when_i_run_swgr_offer_metadata_delete_for_non_existent_metadat
 
     let empty_env: Vec<(&str, &str)> = vec![];
     cli_ctx.command(empty_env, args)?;
+    Ok(())
+}
+
+// =============================================================================
+// OTLP METRICS STEP FUNCTIONS
+// =============================================================================
+
+/// The three instruments the workspace emits.
+pub const DB_OPERATION_DURATION: &str = "db.client.operation.duration";
+pub const HTTP_REQUEST_DURATION: &str = "http.client.request.duration";
+pub const RPC_CALL_DURATION: &str = "rpc.client.call.duration";
+
+/// The `service.name` each service's dispatch stamps on its telemetry.
+pub const LNURL_SERVICE: &str = "swgr.lnurl";
+pub const OFFER_SERVICE: &str = "swgr.offer";
+pub const DISCOVERY_SERVICE: &str = "swgr.discovery";
+
+/// Every metric name, for asserting that none of them reaches an ECS log
+/// record.
+const METRIC_NAMES: &[&str] = &[
+    DB_OPERATION_DURATION,
+    HTTP_REQUEST_DURATION,
+    RPC_CALL_DURATION,
+];
+
+/// The `error.type` half of a histogram row selector.
+#[derive(Clone, Copy, Debug)]
+pub enum MetricOutcome {
+    /// The call succeeded, so the row carries no `error.type` at all.
+    Success,
+    /// The call failed with this `error.type`.
+    Error(&'static str),
+}
+
+/// A random per-scenario `test_identity`. Hex, because it is interpolated
+/// into a SQL string literal.
+pub fn new_test_identity() -> String {
+    format!("{:032x}", rand::random::<u128>())
+}
+
+/// Step: "Given the child server is stamped with a unique test_identity"
+/// InfluxDB is shared by every test and every previous run, so each scenario
+/// tags its child's telemetry with a value it can select on. Call before
+/// starting the server.
+pub async fn step_given_the_active_server_is_stamped_with_test_identity(
+    ctx: &mut GlobalContext,
+    identity: &str,
+) -> Result<()> {
+    ctx.set_active_otlp_resource_attributes(Some(format!("test_identity={identity}")))?;
+
+    Ok(())
+}
+
+/// An InfluxDB client aimed at the shared test database.
+///
+/// The credentials' `TempDir` is dropped on return, which is safe:
+/// `InfluxClient` owns a copy of the token, so the extracted file is never
+/// read again.
+pub fn influx_client() -> Result<InfluxClient> {
+    let credentials = InfluxCredentials::create()?;
+    let influx = credentials.get_influx()?;
+
+    Ok(InfluxClient::new(&influx.query_endpoint, &influx.token)
+        .with_timeout(Duration::from_secs(30)))
+}
+
+/// Step: "Then InfluxDB should have a {metric} row for this test_identity"
+///
+/// `selectors` are the datapoint attributes that pick out one call site, so
+/// one step serves all three metrics. Every attribute column carries a dot
+/// and must therefore be a quoted SQL identifier — unquoted, `error.type`
+/// parses as column `type` of table `error`.
+pub async fn step_then_influx_should_have_a_histogram_row(
+    influx: &InfluxClient,
+    identity: &str,
+    metric: &str,
+    service: &str,
+    selectors: &[(&str, &str)],
+    outcome: MetricOutcome,
+) -> Result<Value> {
+    let mut base = format!(
+        "SELECT * FROM \"{metric}\" WHERE test_identity = '{identity}' \
+         AND \"service.name\" = '{service}'"
+    );
+    for (column, value) in selectors {
+        base.push_str(&format!(" AND \"{column}\" = '{value}'"));
+    }
+
+    // Wait for this run's datapoints to land before naming `error.type`:
+    // InfluxDB creates a tag column on the first write that carries it, and
+    // naming a column the measurement has never seen is a planning error
+    // rather than an empty result.
+    influx.wait_for_rows(&format!("{base} LIMIT 1")).await?;
+
+    let sql = match outcome {
+        MetricOutcome::Error(error_type) => {
+            format!("{base} AND \"error.type\" = '{error_type}' LIMIT 1")
+        }
+        MetricOutcome::Success if has_error_type_column(influx, metric).await? => {
+            format!("{base} AND \"error.type\" IS NULL LIMIT 1")
+        }
+        // Nothing in this measurement has ever carried `error.type`, so
+        // every row that matches is a success and the clause is redundant.
+        MetricOutcome::Success => format!("{base} LIMIT 1"),
+    };
+
+    influx
+        .wait_for_rows(&sql)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow_log!("no row returned for {sql}"))
+}
+
+/// Whether any row of `metric` has ever carried an `error.type` tag.
+async fn has_error_type_column(influx: &InfluxClient, metric: &str) -> Result<bool> {
+    let rows = influx
+        .query(&format!(
+            "SELECT column_name FROM information_schema.columns \
+             WHERE table_name = '{metric}' AND column_name = 'error.type'"
+        ))
+        .await?;
+
+    Ok(!rows.is_empty())
+}
+
+/// Step: "Then the histogram row should be well formed"
+/// Checks the resource attributes shared with logs and traces, and the
+/// histogram body the collector wrote.
+pub fn step_then_the_histogram_row_should_be_well_formed(row: &Value) -> Result<()> {
+    if row_string(row, "service.version")?.is_empty() {
+        bail_log!("service.version is empty, row = {row}");
+    }
+
+    // `count >= 1`, not `== 1`: `get_offer` fires twice per LNURL flow and
+    // `get_all` once per balancer retry.
+    let count = row_number(row, "count")?;
+    if count < 1.0 {
+        bail_log!("count is {count}, expected at least 1, row = {row}");
+    }
+
+    let sum = row_number(row, "sum")?;
+    if sum <= 0.0 {
+        bail_log!("sum is {sum}, expected greater than 0, row = {row}");
+    }
+
+    let infinity = row_number(row, "+Inf")?;
+    if infinity != count {
+        bail_log!("+Inf bucket is {infinity}, expected count {count}, row = {row}");
+    }
+
+    let (max, min) = (row_number(row, "max")?, row_number(row, "min")?);
+    if max < min {
+        bail_log!("max {max} is below min {min}, row = {row}");
+    }
+
+    Ok(())
+}
+
+/// Step: "Then no ECS log record should carry the metrics target or a metric
+/// field"
+///
+/// The metrics layer and the log layer partition events by target, so a
+/// metric event must never reach an ECS record. `event.module` carries the
+/// emitting event's own target, so it is never the metrics target either —
+/// and `swgr::metrics=off`, being a *level* in a directive string, never
+/// becomes event metadata and cannot surface as a field.
+///
+/// This runs on scenarios that have just proved a metric reached InfluxDB,
+/// so the metric events demonstrably happened: an empty stderr assertion
+/// here is an assertion about real events, not a vacuous one.
+pub fn step_then_no_ecs_log_record_should_carry_a_metric_field(
+    ctx: &mut GlobalContext,
+) -> Result<()> {
+    let buffer = ctx.get_active_stderr_buffer()?;
+    let lines = buffer.lock().unwrap_or_else(|e| e.into_inner()).clone();
+
+    for line in &lines {
+        let Ok(Value::Object(record)) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if !record.contains_key("ecs.version") {
+            continue;
+        }
+        if record.get("event.module").and_then(Value::as_str) == Some("swgr::metrics") {
+            bail_log!("metrics target as event.module: {line}");
+        }
+        for key in record.keys() {
+            if key.starts_with("histogram.")
+                || key.starts_with("counter.")
+                || key.starts_with("monotonic_counter.")
+                || key.starts_with("gauge.")
+            {
+                bail_log!("metric field {key:?} in an ECS record: {line}");
+            }
+        }
+        for metric in METRIC_NAMES {
+            if record.contains_key(*metric) {
+                bail_log!("metric name {metric:?} as an ECS field: {line}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// A string column of an InfluxDB row.
+fn row_string(row: &Value, key: &str) -> Result<String> {
+    row.get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .with_context(|| format!("row has no string column {key:?}: {row}"))
+}
+
+/// A numeric column of an InfluxDB row.
+fn row_number(row: &Value, key: &str) -> Result<f64> {
+    row.get(key)
+        .and_then(Value::as_f64)
+        .with_context(|| format!("row has no numeric column {key:?}: {row}"))
+}
+
+/// The `cli_offer_manage.rs` "post an offer whose metadata does not exist"
+/// sequence: an offer POST the offer store rejects on its foreign key.
+pub async fn step_when_i_run_swgr_offer_post_with_unknown_metadata_expecting_failure(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    step_given_an_offer_json_with_non_existent_metadata_id_exists(ctx, cli_ctx).await?;
+    step_when_i_run_swgr_offer_post(ctx, cli_ctx, CertificateLocation::Arg).await?;
+    step_then_the_command_should_fail(cli_ctx).await?;
+    step_then_a_user_error_message_should_be_shown(cli_ctx).await?;
+
+    Ok(())
+}
+
+/// The `cli_offer_manage.rs` "delete metadata an offer still references"
+/// sequence: posts an offer, then a metadata DELETE the offer store rejects
+/// on its foreign key.
+pub async fn step_when_i_run_swgr_offer_metadata_delete_referenced_expecting_failure(
+    ctx: &mut GlobalContext,
+    cli_ctx: &mut CliContext,
+) -> Result<()> {
+    step_given_a_valid_offer_json_exists(ctx, cli_ctx).await?;
+    let metadata_id = extract_metadata_id_from_offer(cli_ctx).await?;
+    step_when_i_run_swgr_offer_post(ctx, cli_ctx, CertificateLocation::Arg).await?;
+    step_then_the_command_should_succeed(cli_ctx).await?;
+    step_when_i_run_swgr_offer_metadata_delete(ctx, cli_ctx, &metadata_id).await?;
+    step_then_the_command_should_fail(cli_ctx).await?;
+    step_then_a_user_error_message_should_be_shown(cli_ctx).await?;
+
     Ok(())
 }

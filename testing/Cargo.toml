@@ -19,7 +19,9 @@ fs4 = { version ="0.13" }
 hex = "0.4"
 indexmap = "2"
 rand = "0.9.2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots-no-provider"] }
 secp256k1 = { version = "0.31", features = ["recovery", "serde"] }
+serde_json = "1"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
 tar = "0.4"
 tempfile = "3"

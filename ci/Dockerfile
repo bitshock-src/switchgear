@@ -10,6 +10,7 @@ RUN apt-get update && \
         curl \
         gnupg \
         iputils-ping  \
+        jq \
         libclang-dev \
         protobuf-compiler && \
     install -m 0755 -d /etc/apt/keyrings && \
@@ -24,3 +25,6 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 RUN rustup component add rustfmt clippy
+
+RUN cargo install cargo-edit --locked && \
+    rm -rf "$CARGO_HOME/registry"

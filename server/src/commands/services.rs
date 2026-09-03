@@ -9,7 +9,6 @@ use crate::di::inject::injectors::store::discovery::DiscoveryStoreInjector;
 use crate::di::inject::injectors::store::offer::OfferStoreInjector;
 use crate::signals::get_signals_fut;
 use clap::ValueEnum;
-use opentelemetry_sdk::trace::SdkTracerProvider;
 use signal_hook::low_level::signal_name;
 use switchgear_error::{ChainedContext, ErrorOrigin, ForeignContext};
 use switchgear_service_api::discovery::DiscoveryBackendStore;
@@ -30,7 +29,6 @@ pub enum ServiceEnablement {
 pub async fn execute(
     config_injector: ServerConfigInjector,
     enablement: Vec<ServiceEnablement>,
-    otel_providers: &mut Vec<(&'static str, SdkTracerProvider)>,
 ) -> Result<(), CliError> {
     info!("starting services");
 
@@ -74,7 +72,7 @@ pub async fn execute(
     );
 
     let discovery_service_fut = discovery_service_injector
-        .connect(otel_providers)
+        .connect()
         .await
         .chained_context("connecting discovery service", None)?;
     let discovery_service_fut = async move {
@@ -85,7 +83,7 @@ pub async fn execute(
     };
 
     let offer_service_fut = offer_service_injector
-        .connect(otel_providers)
+        .connect()
         .await
         .chained_context("connecting offer service", None)?;
     let offer_service_fut = async move {
@@ -96,7 +94,7 @@ pub async fn execute(
     };
 
     let balancer_service_fut = balancer_service_injector
-        .connect(otel_providers)
+        .connect()
         .await
         .chained_context("connecting lnurl service", None)?;
     let balancer_service_fut = async move {
@@ -190,6 +188,21 @@ pub async fn execute(
     errors.push_result(offer_res);
 
     info!("stores disconnected");
+
+    info!("shutting down service tracing");
+
+    let (lnurl_res, discovery_res, offer_res) = tokio::join!(
+        balancer_service_injector.shutdown_tracing(),
+        discovery_service_injector.shutdown_tracing(),
+        offer_service_injector.shutdown_tracing(),
+    );
+    errors.push_result(lnurl_res.chained_context("shutting down lnurl service tracing", None));
+    errors.push_result(
+        discovery_res.chained_context("shutting down discovery service tracing", None),
+    );
+    errors.push_result(offer_res.chained_context("shutting down offer service tracing", None));
+
+    info!("service tracing shut down");
 
     signals_handle.close();
     info!("signal stream closed");

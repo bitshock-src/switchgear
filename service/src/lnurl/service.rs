@@ -37,6 +37,7 @@ impl LnUrlBalancerService {
             .with_state(state)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn health_check_handler() -> StatusCode {
         StatusCode::OK
     }

@@ -18,6 +18,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
 axum-tracing-opentelemetry = { version = "0.38", features = ["tracing_level_info"] }
 opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry-semantic-conventions = { version = "0.32", features = ["semconv_experimental"] }
 tracing-opentelemetry = { version = "0.33", default-features = false }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
@@ -40,6 +41,7 @@ sha2 = "0.10"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "sqlite", "postgres", "mysql"] }
 sqlx-core = { version = "0.9", default-features = false, features = ["rustls-native-certs"] }
 switchgear-error.workspace = true
+switchgear-metrics.workspace = true
 switchgear-migration.workspace = true
 switchgear-service-api.workspace = true
 tempfile = "3"

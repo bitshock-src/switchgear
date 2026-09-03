@@ -125,7 +125,6 @@ where
         }
     }
 
-    #[tracing::instrument(skip_all)]
     fn select_backend(
         &self,
         offer: &Offer,
@@ -160,7 +159,6 @@ where
             })
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_invoice_from_backend(
         &self,
         offer: &Offer,

@@ -43,6 +43,7 @@ impl Default for MemoryOfferStore {
 impl OfferStore for MemoryOfferStore {
     type Error = DefaultOfferStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_offer(
         &self,
         partition: &str,
@@ -68,6 +69,7 @@ impl OfferStore for MemoryOfferStore {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_offers(
         &self,
         partition: &str,
@@ -152,6 +154,7 @@ impl OfferStore for MemoryOfferStore {
         Ok(was_new)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn delete_offer(&self, partition: &str, id: &Uuid) -> Result<bool, Self::Error> {
         let mut store = self.offer.lock().await;
         Ok(store.remove(&(partition.to_string(), *id)).is_some())
@@ -162,6 +165,7 @@ impl OfferStore for MemoryOfferStore {
 impl OfferMetadataStore for MemoryOfferStore {
     type Error = DefaultOfferStoreError;
 
+    #[tracing::instrument(skip_all)]
     async fn get_metadata(
         &self,
         partition: &str,
@@ -173,6 +177,7 @@ impl OfferMetadataStore for MemoryOfferStore {
             .map(|o| o.metadata.clone()))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_all_metadata(
         &self,
         partition: &str,
@@ -202,6 +207,7 @@ impl OfferMetadataStore for MemoryOfferStore {
         Ok(metadata)
     }
 
+    #[tracing::instrument(skip_all)]
     async fn post_metadata(&self, metadata: OfferMetadata) -> Result<Option<Uuid>, Self::Error> {
         let mut store = self.metadata.lock().await;
         if let std::collections::hash_map::Entry::Vacant(e) =
@@ -218,6 +224,7 @@ impl OfferMetadataStore for MemoryOfferStore {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn put_metadata(&self, metadata: OfferMetadata) -> Result<bool, Self::Error> {
         let mut store = self.metadata.lock().await;
         let was_new = store

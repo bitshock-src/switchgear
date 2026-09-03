@@ -207,7 +207,7 @@ impl GlobalContext {
     pub async fn start_active_server(
         &mut self,
         start_services: &[Service],
-        log_level: log::Level,
+        log_level: switchgear_server::level::Level,
     ) -> anyhow::Result<u32> {
         self.get_active_server_mut()?
             .start_server(start_services, log_level)
@@ -280,6 +280,18 @@ impl GlobalContext {
         JaegerClient::new(&self.otel_collector.jaeger_query_endpoint)
     }
 
+    /// Set the active server's OTLP resource attributes (`k=v,k=v`). Used by
+    /// metrics tests to tag the child's telemetry with a value they can select
+    /// on. Call before starting the server.
+    pub fn set_active_otlp_resource_attributes(
+        &mut self,
+        otlp_resource_attributes: Option<String>,
+    ) -> anyhow::Result<()> {
+        self.get_active_server_mut()?
+            .set_otlp_resource_attributes(otlp_resource_attributes);
+        Ok(())
+    }
+
     /// Build a raw HTTP client aimed at the active server's given service.
     pub fn active_raw_client_for(&self, service: Service) -> anyhow::Result<RawHttpClient> {
         self.get_active_server()?.raw_client_for(service)
@@ -350,6 +362,14 @@ impl GlobalContext {
 
     pub fn wait_active_exit_code(&mut self) -> anyhow::Result<i32> {
         self.get_active_server_mut()?.wait_exit_code()
+    }
+
+    /// Every server's exit code, keyed by the name it was added under.
+    pub fn wait_all_exit_codes(&mut self) -> anyhow::Result<Vec<(String, i32)>> {
+        self.servers
+            .iter_mut()
+            .map(|(name, server)| Ok((name.clone(), server.wait_exit_code()?)))
+            .collect()
     }
 
     pub fn has_active_server_process(&self) -> anyhow::Result<bool> {

@@ -1,6 +1,6 @@
 ---
 source: server/tests/features/otlp_spans.rs
-assertion_line: 203
+assertion_line: 207
 expression: lines
 ---
 [
@@ -75,7 +75,7 @@ expression: lines
                 "end_time_unix_nano": "[int]",
                 "flags": "[int]",
                 "kind": "[int]",
-                "name": "offer",
+                "name": "get_offer",
                 "parent_span_id": "[bytes]",
                 "span_id": "[bytes]",
                 "start_time_unix_nano": "[int]",
@@ -94,7 +94,7 @@ expression: lines
             "end_time_unix_nano": "[int]",
             "flags": "[int]",
             "kind": "[int]",
-            "name": "get_offer",
+            "name": "offer",
             "parent_span_id": "[bytes]",
             "span_id": "[bytes]",
             "start_time_unix_nano": "[int]",
